@@ -1,8 +1,8 @@
-# Ghidra CLI - LLM Agent Guide
-
-**A comprehensive guide for LLMs (like Claude Code) to effectively use Ghidra CLI for binary analysis tasks.**
-
----
+----
+name: ghidra-cli
+description: >
+    CLI for exploring binaries using Ghidra and a query language
+----
 
 ## Overview
 
