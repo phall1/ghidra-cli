@@ -1,16 +1,18 @@
 # Ghidra CLI
 
-A powerful Rust CLI tool for Ghidra reverse engineering, designed for Claude Code and other AI agents to efficiently analyze binaries.
+A high-performance Rust CLI for automating Ghidra reverse engineering tasks, designed for both direct usage and AI agent integration (like Claude Code).
 
 ## Features
 
+- 🔥 **Daemon-Based Architecture** - Background daemon prevents conflicts and speeds up operations
+- 📦 **Command Queuing** - Safe, serialized execution of Ghidra operations
+- ⚡ **Automatic Caching** - Instant responses for repeated queries (5-minute TTL)
 - 🚀 **Universal Query System** - Query any Ghidra data type with a single command
 - 🔍 **Advanced Filtering** - Powerful filter language for precise data extraction
 - 📊 **Multiple Output Formats** - JSON, CSV, TSV, Table, and more
 - 🤖 **LLM-Optimized** - Designed for minimal token usage and maximum efficiency
-- 🪟 **Windows-First** - Native Windows support with cross-platform compatibility
+- 🪟 **Cross-Platform** - Native Windows, Linux, and macOS support
 - 📦 **Zero Configuration** - Auto-detection of Ghidra installation
-- ⚡ **Fast** - Direct headless Ghidra integration
 
 ## Installation
 
@@ -48,6 +50,25 @@ ghidra doctor
 
 ## Quick Start
 
+### With Daemon (Recommended)
+
+```bash
+# Start the daemon for a project
+ghidra daemon start --project analysis
+
+# Now all commands are routed through the daemon automatically
+ghidra query functions --project analysis --filter="size>1000"
+ghidra decompile 0x401000 --project analysis
+
+# Check daemon status
+ghidra daemon status --project analysis
+
+# Stop the daemon when done
+ghidra daemon stop --project analysis
+```
+
+### Without Daemon (Direct Mode)
+
 ```bash
 # Quick analysis of a binary
 ghidra quick malware.exe
@@ -64,6 +85,67 @@ ghidra decompile 0x401000 --program=suspicious.exe
 # List suspicious imports
 ghidra dump imports --program=suspicious.exe --filter="name~Crypt OR name~Process"
 ```
+
+## Daemon Architecture
+
+The daemon prevents Ghidra headless conflicts and dramatically improves performance:
+
+```
+┌──────────────┐                  ┌─────────────────────┐
+│ CLI Client   │──JSON-over-TCP──▶│ Daemon              │
+│ (Any Command)│                  │ ┌─────────────────┐ │
+└──────────────┘                  │ │ Command Queue   │ │
+                                  │ │ (Serialized)    │ │
+                                  │ └────────┬────────┘ │
+                                  │          ▼          │
+                                  │ ┌─────────────────┐ │
+                                  │ │ Cache (5min TTL)│ │
+                                  │ └─────────────────┘ │
+                                  │          ▼          │
+                                  │ ┌─────────────────┐ │
+                                  │ │ Ghidra Headless │ │
+                                  │ └─────────────────┘ │
+                                  └─────────────────────┘
+```
+
+### Daemon Commands
+
+```bash
+# Start daemon (foreground for debugging)
+ghidra daemon start --project my_project --foreground
+
+# Start daemon with custom port
+ghidra daemon start --project my_project --port 17700
+
+# Check status
+ghidra daemon status --project my_project
+
+# Restart daemon
+ghidra daemon restart --project my_project
+
+# Stop daemon
+ghidra daemon stop --project my_project
+
+# Ping daemon to check responsiveness
+ghidra daemon ping --project my_project
+
+# Clear result cache
+ghidra daemon clear-cache --project my_project
+```
+
+### Why Use the Daemon?
+
+**Without Daemon:**
+- ❌ 3-5 second startup per command
+- ❌ Cannot run concurrent operations
+- ❌ No result caching
+- ❌ Project lock conflicts
+
+**With Daemon:**
+- ✅ Instant responses (cache hits)
+- ✅ Queued operations (no conflicts)
+- ✅ Keep Ghidra loaded in memory
+- ✅ Automatic cache management
 
 ## Universal Query Command
 

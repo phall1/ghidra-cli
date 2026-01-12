@@ -31,6 +31,23 @@ thiserror = "1.0"
 # Logging
 env_logger = "0.11"
 log = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+
+# RPC
+remoc = { version = "0.16", features = ["full"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# System info
+sysinfo = "0.30"
+
+# Hashing
+md5 = "0.7"
 
 # File system & paths
 dirs = "5.0"
