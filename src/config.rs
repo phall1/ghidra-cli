@@ -97,37 +97,50 @@ impl Config {
             return Ok(dir.clone());
         }
 
-        // Default to ~/.ghidra-projects
+        // Default to ~/git
         let home = dirs::home_dir()
             .ok_or_else(|| GhidraError::ConfigError("Could not determine home directory".to_string()))?;
 
-        Ok(home.join(".ghidra-projects"))
+        Ok(home.join("git"))
     }
 
     #[cfg(target_os = "windows")]
     pub fn detect_ghidra_windows() -> Option<PathBuf> {
+        // Helper function to check if a path is a valid Ghidra installation
+        let is_valid_ghidra = |path: &PathBuf| -> bool {
+            path.join("support").join("analyzeHeadless.bat").exists()
+        };
+
         // Check common installation paths
-        let common_paths = vec![
+        let mut common_paths = vec![
             PathBuf::from("C:\\Program Files\\Ghidra"),
             PathBuf::from("C:\\Program Files (x86)\\Ghidra"),
             PathBuf::from("C:\\ghidra"),
         ];
 
+        // Add user's home directory paths
+        if let Some(home) = dirs::home_dir() {
+            common_paths.push(home.join("ghidra"));
+        }
+
         for path in common_paths {
-            if path.exists() {
-                // Look for ghidra_* directories
-                if let Ok(entries) = fs::read_dir(&path) {
-                    for entry in entries.flatten() {
-                        let entry_path = entry.path();
-                        if entry_path.is_dir() {
-                            let name = entry_path.file_name()?.to_str()?;
-                            if name.starts_with("ghidra_") {
-                                // Check if analyzeHeadless.bat exists
-                                let headless = entry_path.join("support").join("analyzeHeadless.bat");
-                                if headless.exists() {
-                                    return Some(entry_path);
-                                }
-                            }
+            if !path.exists() {
+                continue;
+            }
+
+            // First check if the path itself is a Ghidra installation
+            if is_valid_ghidra(&path) {
+                return Some(path);
+            }
+
+            // Look for ghidra_* subdirectories
+            if let Ok(entries) = fs::read_dir(&path) {
+                for entry in entries.flatten() {
+                    let entry_path = entry.path();
+                    if entry_path.is_dir() {
+                        let name = entry_path.file_name()?.to_str()?;
+                        if name.starts_with("ghidra_") && is_valid_ghidra(&entry_path) {
+                            return Some(entry_path);
                         }
                     }
                 }
