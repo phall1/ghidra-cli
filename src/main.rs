@@ -20,6 +20,9 @@ use query::{Query, DataType, FieldSelector, SortKey};
 use std::path::PathBuf;
 use tracing::{info, error};
 
+#[cfg(unix)]
+use daemonize::Daemonize;
+
 #[tokio::main]
 async fn main() {
     // Initialize logging
@@ -177,11 +180,22 @@ async fn handle_daemon_start(project: Option<String>, port: Option<u16>, foregro
         println!("Starting daemon in foreground mode...");
         run_daemon(daemon_config).await?;
     } else {
-        // TODO: Daemonize properly (fork, detach, etc.)
-        // For now, just run in foreground
+        // Run in background - platform-specific daemonization
         println!("Starting daemon for project: {}", project_path.display());
-        println!("Note: Background mode not yet implemented, running in foreground");
-        run_daemon(daemon_config).await?;
+
+        #[cfg(unix)]
+        {
+            daemonize_unix(daemon_config)?;
+        }
+
+        #[cfg(windows)]
+        {
+            daemonize_windows(daemon_config, port)?;
+        }
+
+        println!("Daemon started successfully");
+        println!("  Log file: {}", data_dir.join("daemon.log").display());
+        println!("  Use 'ghidra daemon status' to check daemon status");
     }
 
     Ok(())
@@ -309,6 +323,87 @@ async fn handle_daemon_clear_cache(project: Option<String>) -> anyhow::Result<()
     } else {
         println!("No daemon running for project: {}", project_path.display());
     }
+
+    Ok(())
+}
+
+/// Daemonize on Unix systems using fork and detach.
+#[cfg(unix)]
+fn daemonize_unix(daemon_config: DaemonConfig) -> anyhow::Result<()> {
+    use std::fs::OpenOptions;
+
+    let log_file_path = daemon_config.log_file.clone();
+    let project_path = daemon_config.project_path.clone();
+
+    // Open log file for stdout/stderr
+    let log_file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_file_path)?;
+
+    let stdout = log_file.try_clone()?;
+    let stderr = log_file;
+
+    // Get PID file path - use hash of project path like lock file
+    let data_dir = get_data_dir()?;
+    let project_hash = format!("{:x}", md5::compute(project_path.to_string_lossy().as_bytes()));
+    let pid_file = data_dir.join(format!("daemon-{}.pid", project_hash));
+
+    // Configure daemonization
+    let daemonize = Daemonize::new()
+        .pid_file(pid_file)
+        .working_directory("/")
+        .stdout(stdout)
+        .stderr(stderr);
+
+    // Fork and daemonize
+    daemonize.start()
+        .map_err(|e| anyhow::anyhow!("Failed to daemonize: {}", e))?;
+
+    // We're now in the daemon process - initialize tokio runtime and run
+    let runtime = tokio::runtime::Runtime::new()?;
+    runtime.block_on(async {
+        run_daemon(daemon_config).await
+    })?;
+
+    Ok(())
+}
+
+/// Daemonize on Windows by spawning a detached process.
+#[cfg(windows)]
+fn daemonize_windows(daemon_config: DaemonConfig, port: Option<u16>) -> anyhow::Result<()> {
+    use std::process::Command;
+
+    // Get the current executable path
+    let exe_path = std::env::current_exe()?;
+
+    // Build the command to spawn ourselves with --foreground flag
+    let mut cmd = Command::new(exe_path);
+    cmd.arg("daemon")
+        .arg("start")
+        .arg("--foreground");
+
+    // Add project path
+    cmd.arg("--project")
+        .arg(daemon_config.project_path.to_string_lossy().to_string());
+
+    // Add port if specified
+    if let Some(p) = port {
+        cmd.arg("--port").arg(p.to_string());
+    }
+
+    // Windows-specific: CREATE_NO_WINDOW flag
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        const DETACHED_PROCESS: u32 = 0x00000008;
+        cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
+    }
+
+    // Spawn the detached process
+    cmd.spawn()
+        .map_err(|e| anyhow::anyhow!("Failed to spawn daemon process: {}", e))?;
 
     Ok(())
 }
