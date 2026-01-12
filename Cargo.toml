@@ -71,6 +71,10 @@ strsim = "0.11"
 dunce = "1.0"  # Windows path handling
 atty = "0.2"   # TTY detection
 
+# Daemonization (Unix only)
+[target.'cfg(unix)'.dependencies]
+daemonize = "0.5"
+
 [dev-dependencies]
 assert_cmd = "2.0"
 predicates = "3.0"
