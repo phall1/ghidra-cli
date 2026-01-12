@@ -47,6 +47,7 @@ impl<'a> HeadlessExecutor<'a> {
         let headless = self.client.get_headless_script();
 
         let mut cmd = Command::new(&headless);
+
         cmd.arg(project_path.to_str().unwrap())
             .arg(project_name)
             .arg("-process")

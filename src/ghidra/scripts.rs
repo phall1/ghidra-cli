@@ -107,29 +107,38 @@ pub fn get_list_strings_script() -> &'static str {
     r#"
 # List all strings in the program
 # @category Analysis
+# @runtime Jython
 
 import json
 
 strings = []
-string_table = currentProgram.getListing().getDefinedData(True)
+listing = currentProgram.getListing()
+data_iterator = listing.getDefinedData(True)
 
-for data in string_table:
+while data_iterator.hasNext():
+    data = data_iterator.next()
     if data.hasStringValue():
-        string_data = {
-            "address": data.getAddress().toString(),
-            "value": data.getValue().toString(),
-            "length": len(data.getValue().toString()),
-            "encoding": "ascii"
-        }
+        try:
+            # Get string value, handle Unicode properly
+            string_val = unicode(data.getValue())
+            string_data = {
+                "address": str(data.getAddress()),
+                "value": string_val,
+                "length": len(string_val),
+                "encoding": "unicode"
+            }
 
-        # Get references to this string
-        refs = []
-        refs_to = currentProgram.getReferenceManager().getReferencesTo(data.getAddress())
-        for ref in refs_to:
-            refs.append(ref.getFromAddress().toString())
+            # Get references to this string
+            refs = []
+            refs_to = currentProgram.getReferenceManager().getReferencesTo(data.getAddress())
+            for ref in refs_to:
+                refs.append(str(ref.getFromAddress()))
 
-        string_data["references"] = refs
-        strings.append(string_data)
+            string_data["references"] = refs
+            strings.append(string_data)
+        except Exception as e:
+            # Skip strings that cause encoding issues
+            pass
 
 print(json.dumps(strings, indent=2))
 "#
@@ -292,6 +301,7 @@ print(json.dumps(xrefs, indent=2))
 
 /// Save a script to disk
 pub fn save_script(name: &str, content: &str, scripts_dir: &std::path::Path) -> crate::error::Result<std::path::PathBuf> {
+    // All scripts are Python now with PyGhidra support
     let script_path = scripts_dir.join(format!("{}.py", name));
     std::fs::write(&script_path, content)?;
     Ok(script_path)

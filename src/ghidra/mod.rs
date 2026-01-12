@@ -30,16 +30,22 @@ impl GhidraClient {
         })
     }
 
+    pub fn install_dir(&self) -> &PathBuf {
+        &self.install_dir
+    }
+
     pub fn get_headless_script(&self) -> PathBuf {
         let support_dir = self.install_dir.join("support");
 
         #[cfg(target_os = "windows")]
         {
+            // Use analyzeHeadless with Jython support
             support_dir.join("analyzeHeadless.bat")
         }
 
         #[cfg(not(target_os = "windows"))]
         {
+            // Use analyzeHeadless with Jython support
             support_dir.join("analyzeHeadless")
         }
     }
@@ -70,20 +76,9 @@ impl GhidraClient {
             return Ok(());
         }
 
+        // Ghidra creates the project automatically when you import or process a file
+        // Just create the directory structure
         std::fs::create_dir_all(&project_path)?;
-
-        // Run headless to create project
-        let headless = self.get_headless_script();
-        let output = Command::new(&headless)
-            .arg(project_path.to_str().unwrap())
-            .arg(project_name)
-            .output()?;
-
-        if !output.status.success() {
-            return Err(GhidraError::ExecutionFailed(
-                String::from_utf8_lossy(&output.stderr).to_string()
-            ));
-        }
 
         Ok(())
     }
@@ -128,9 +123,6 @@ impl GhidraClient {
             .arg(project_name)
             .arg("-process")
             .arg(program_name)
-            .arg("-noanalysis")  // Don't auto-analyze
-            .arg("-scriptPath")
-            .arg(self.get_scripts_dir()?.to_str().unwrap())
             .output()?;
 
         if !output.status.success() {
