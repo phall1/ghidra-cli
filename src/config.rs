@@ -105,7 +105,7 @@ impl Config {
     }
 
     #[cfg(target_os = "windows")]
-    fn detect_ghidra_windows() -> Option<PathBuf> {
+    pub fn detect_ghidra_windows() -> Option<PathBuf> {
         // Check common installation paths
         let common_paths = vec![
             PathBuf::from("C:\\Program Files\\Ghidra"),
