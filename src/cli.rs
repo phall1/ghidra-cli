@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand, Args};
+use serde::{Deserialize, Serialize};
 
 #[derive(Parser)]
 #[command(name = "ghidra")]
@@ -16,7 +17,7 @@ pub struct Cli {
     pub quiet: bool,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
 pub enum Commands {
     /// Universal query command for any data type
     Query(QueryArgs),
@@ -119,9 +120,13 @@ pub enum Commands {
 
     /// Analyze a program
     Analyze(AnalyzeArgs),
+
+    /// Daemon management commands
+    #[command(subcommand)]
+    Daemon(DaemonCommands),
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct QueryArgs {
     /// Data type to query (functions, strings, imports, etc.)
     pub data_type: String,
@@ -167,13 +172,13 @@ pub struct QueryArgs {
     pub json: bool,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct ProjectArgs {
     #[command(subcommand)]
     pub command: ProjectCommands,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
 pub enum ProjectCommands {
     /// Create a new project
     Create { name: String },
@@ -185,7 +190,7 @@ pub enum ProjectCommands {
     Info { name: Option<String> },
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
 pub enum ProgramCommands {
     /// Close a program
     Close(ProgramTargetArgs),
@@ -197,7 +202,7 @@ pub enum ProgramCommands {
     Export(ExportArgs),
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct ProgramTargetArgs {
     #[arg(long)]
     pub program: Option<String>,
@@ -205,7 +210,7 @@ pub struct ProgramTargetArgs {
     pub project: Option<String>,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct ExportArgs {
     /// Export format (xml, json, asm, c)
     pub format: String,
@@ -218,7 +223,7 @@ pub struct ExportArgs {
     pub output: Option<String>,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
 pub enum FunctionCommands {
     /// List all functions
     List(QueryOptions),
@@ -240,7 +245,7 @@ pub enum FunctionCommands {
     Delete(FunctionGetArgs),
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct FunctionGetArgs {
     /// Function address or name
     pub target: String,
@@ -248,7 +253,7 @@ pub struct FunctionGetArgs {
     pub options: QueryOptions,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct RenameArgs {
     pub old_name: String,
     pub new_name: String,
@@ -258,7 +263,7 @@ pub struct RenameArgs {
     pub project: Option<String>,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct CreateFunctionArgs {
     pub address: String,
     pub name: Option<String>,
@@ -268,7 +273,7 @@ pub struct CreateFunctionArgs {
     pub project: Option<String>,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
 pub enum StringsCommands {
     /// List all strings
     List(QueryOptions),
@@ -276,14 +281,14 @@ pub enum StringsCommands {
     Refs(StringRefsArgs),
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct StringRefsArgs {
     pub string: String,
     #[command(flatten)]
     pub options: QueryOptions,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
 pub enum SymbolCommands {
     /// List all symbols
     List(QueryOptions),
@@ -297,14 +302,14 @@ pub enum SymbolCommands {
     Rename(RenameArgs),
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct SymbolGetArgs {
     pub name: String,
     #[command(flatten)]
     pub options: QueryOptions,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct CreateSymbolArgs {
     pub address: String,
     pub name: String,
@@ -314,7 +319,7 @@ pub struct CreateSymbolArgs {
     pub project: Option<String>,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
 pub enum MemoryCommands {
     /// Show memory map
     Map(QueryOptions),
@@ -326,7 +331,7 @@ pub enum MemoryCommands {
     Search(MemSearchArgs),
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct MemReadArgs {
     pub address: String,
     pub size: usize,
@@ -334,7 +339,7 @@ pub struct MemReadArgs {
     pub options: QueryOptions,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct MemWriteArgs {
     pub address: String,
     pub bytes: String,
@@ -344,14 +349,14 @@ pub struct MemWriteArgs {
     pub project: Option<String>,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct MemSearchArgs {
     pub pattern: String,
     #[command(flatten)]
     pub options: QueryOptions,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
 pub enum XRefCommands {
     /// Get cross-references to address
     To(XRefArgs),
@@ -361,14 +366,14 @@ pub enum XRefCommands {
     List(XRefArgs),
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct XRefArgs {
     pub address: String,
     #[command(flatten)]
     pub options: QueryOptions,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
 pub enum TypeCommands {
     /// List data types
     List(QueryOptions),
@@ -380,14 +385,14 @@ pub enum TypeCommands {
     Apply(ApplyTypeArgs),
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct TypeGetArgs {
     pub name: String,
     #[command(flatten)]
     pub options: QueryOptions,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct CreateTypeArgs {
     pub definition: String,
     #[arg(long)]
@@ -396,7 +401,7 @@ pub struct CreateTypeArgs {
     pub project: Option<String>,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct ApplyTypeArgs {
     pub address: String,
     pub type_name: String,
@@ -406,7 +411,7 @@ pub struct ApplyTypeArgs {
     pub project: Option<String>,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
 pub enum CommentCommands {
     /// List all comments
     List(QueryOptions),
@@ -418,14 +423,14 @@ pub enum CommentCommands {
     Delete(CommentGetArgs),
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct CommentGetArgs {
     pub address: String,
     #[command(flatten)]
     pub options: QueryOptions,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct CommentSetArgs {
     pub address: String,
     pub text: String,
@@ -437,7 +442,7 @@ pub struct CommentSetArgs {
     pub project: Option<String>,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
 pub enum FindCommands {
     /// Find strings
     String(FindStringArgs),
@@ -453,35 +458,35 @@ pub enum FindCommands {
     Interesting(QueryOptions),
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct FindStringArgs {
     pub pattern: String,
     #[command(flatten)]
     pub options: QueryOptions,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct FindBytesArgs {
     pub hex: String,
     #[command(flatten)]
     pub options: QueryOptions,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct FindFunctionArgs {
     pub pattern: String,
     #[command(flatten)]
     pub options: QueryOptions,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct FindCallsArgs {
     pub function: String,
     #[command(flatten)]
     pub options: QueryOptions,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
 pub enum GraphCommands {
     /// Call graph
     Calls(QueryOptions),
@@ -493,7 +498,7 @@ pub enum GraphCommands {
     Export(GraphExportArgs),
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct GraphFunctionArgs {
     pub function: String,
     #[arg(long)]
@@ -502,21 +507,21 @@ pub struct GraphFunctionArgs {
     pub options: QueryOptions,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct GraphExportArgs {
     pub format: String,
     #[command(flatten)]
     pub options: QueryOptions,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct DecompileArgs {
     pub target: String,
     #[command(flatten)]
     pub options: QueryOptions,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct DisasmArgs {
     pub address: String,
     #[arg(long)]
@@ -525,7 +530,7 @@ pub struct DisasmArgs {
     pub options: QueryOptions,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
 pub enum DiffCommands {
     /// Compare two programs
     Programs(DiffProgramsArgs),
@@ -533,7 +538,7 @@ pub enum DiffCommands {
     Functions(QueryOptions),
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct DiffProgramsArgs {
     pub program1: String,
     pub program2: String,
@@ -541,7 +546,7 @@ pub struct DiffProgramsArgs {
     pub format: Option<String>,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
 pub enum DumpCommands {
     /// Dump imports
     Imports(QueryOptions),
@@ -553,7 +558,7 @@ pub enum DumpCommands {
     Strings(QueryOptions),
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
 pub enum PatchCommands {
     /// Patch bytes
     Bytes(PatchBytesArgs),
@@ -563,7 +568,7 @@ pub enum PatchCommands {
     Export(PatchExportArgs),
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct PatchBytesArgs {
     pub address: String,
     pub hex: String,
@@ -573,7 +578,7 @@ pub struct PatchBytesArgs {
     pub project: Option<String>,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct PatchNopArgs {
     pub address: String,
     #[arg(long)]
@@ -584,7 +589,7 @@ pub struct PatchNopArgs {
     pub project: Option<String>,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct PatchExportArgs {
     #[arg(short, long)]
     pub output: String,
@@ -594,7 +599,7 @@ pub struct PatchExportArgs {
     pub project: Option<String>,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
 pub enum ScriptCommands {
     /// Run a script file
     Run(ScriptRunArgs),
@@ -606,7 +611,7 @@ pub enum ScriptCommands {
     List,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct ScriptRunArgs {
     pub script_path: String,
     #[arg(long)]
@@ -618,7 +623,7 @@ pub struct ScriptRunArgs {
     pub args: Vec<String>,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct ScriptInlineArgs {
     pub code: String,
     #[arg(long)]
@@ -627,12 +632,12 @@ pub struct ScriptInlineArgs {
     pub project: Option<String>,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct BatchArgs {
     pub script_file: String,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
 pub enum ConfigCommands {
     /// List all configuration
     List,
@@ -644,32 +649,32 @@ pub enum ConfigCommands {
     Reset,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct SetDefaultArgs {
     pub kind: String,
     pub value: String,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct QuickArgs {
     pub binary: String,
     #[arg(long)]
     pub project: Option<String>,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct SummaryArgs {
     #[command(flatten)]
     pub options: QueryOptions,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct StatsArgs {
     #[command(flatten)]
     pub options: QueryOptions,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct ImportArgs {
     pub binary: String,
     #[arg(long)]
@@ -678,7 +683,7 @@ pub struct ImportArgs {
     pub project: Option<String>,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct AnalyzeArgs {
     #[arg(long)]
     pub program: Option<String>,
@@ -687,7 +692,7 @@ pub struct AnalyzeArgs {
 }
 
 /// Common query options used across commands
-#[derive(Args)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct QueryOptions {
     #[arg(long)]
     pub program: Option<String>,
@@ -719,3 +724,62 @@ pub struct QueryOptions {
     #[arg(long)]
     pub json: bool,
 }
+
+/// Daemon management commands
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
+pub enum DaemonCommands {
+    /// Start the daemon
+    Start {
+        /// Project path
+        #[arg(long)]
+        project: Option<String>,
+
+        /// Port to listen on (default: auto-select)
+        #[arg(long)]
+        port: Option<u16>,
+
+        /// Run in foreground (don't daemonize)
+        #[arg(long)]
+        foreground: bool,
+    },
+
+    /// Stop the daemon
+    Stop {
+        /// Project path
+        #[arg(long)]
+        project: Option<String>,
+    },
+
+    /// Restart the daemon
+    Restart {
+        /// Project path
+        #[arg(long)]
+        project: Option<String>,
+
+        /// Port to listen on (default: auto-select)
+        #[arg(long)]
+        port: Option<u16>,
+    },
+
+    /// Get daemon status
+    Status {
+        /// Project path
+        #[arg(long)]
+        project: Option<String>,
+    },
+
+    /// Ping the daemon
+    Ping {
+        /// Project path
+        #[arg(long)]
+        project: Option<String>,
+    },
+
+    /// Clear the cache
+    ClearCache {
+        /// Project path
+        #[arg(long)]
+        project: Option<String>,
+    },
+}
+

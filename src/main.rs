@@ -1,5 +1,6 @@
 mod cli;
 mod config;
+mod daemon;
 mod error;
 mod filter;
 mod format;
@@ -7,26 +8,42 @@ mod ghidra;
 mod query;
 
 use clap::Parser;
-use cli::{Cli, Commands, QueryArgs, QueryOptions};
+use cli::{Cli, Commands, DaemonCommands, QueryArgs, QueryOptions};
 use config::Config;
+use daemon::process::{get_data_dir, get_running_daemon_info, ensure_not_running};
+use daemon::rpc as daemon_rpc;
+use daemon::{DaemonConfig, run as run_daemon};
 use error::{GhidraError, Result};
 use format::OutputFormat;
 use ghidra::GhidraClient;
 use query::{Query, DataType, FieldSelector, SortKey};
 use std::path::PathBuf;
+use tracing::{info, error};
 
-fn main() {
-    env_logger::init();
+#[tokio::main]
+async fn main() {
+    // Initialize logging
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
 
     let cli = Cli::parse();
 
-    if let Err(e) = run(cli) {
+    let result = if let Commands::Daemon(_) = &cli.command {
+        // Daemon commands are async
+        run_async(cli).await
+    } else {
+        // Other commands can be sync or we check if daemon is running
+        run_with_daemon_check(cli).await
+    };
+
+    if let Err(e) = result {
         eprintln!("Error: {}", e);
         std::process::exit(1);
     }
 }
 
-fn run(cli: Cli) -> Result<()> {
+fn run(cli: Cli) -> anyhow::Result<()> {
     match cli.command {
         Commands::Query(args) => handle_query(args),
         Commands::Init => handle_init(),
@@ -51,7 +68,252 @@ fn run(cli: Cli) -> Result<()> {
     }
 }
 
-fn handle_query(args: QueryArgs) -> Result<()> {
+/// Run async commands (daemon management).
+async fn run_async(cli: Cli) -> anyhow::Result<()> {
+    match cli.command {
+        Commands::Daemon(cmd) => handle_daemon_command(cmd).await,
+        _ => unreachable!("run_async called with non-daemon command"),
+    }
+}
+
+/// Run commands with daemon check - route through daemon if running.
+async fn run_with_daemon_check(cli: Cli) -> anyhow::Result<()> {
+    let config = Config::load()?;
+    let data_dir = get_data_dir()?;
+
+    // Determine project path
+    let project_path = match &cli.command {
+        Commands::Query(args) => {
+            let program = resolve_program(&args.program, &config)?;
+            PathBuf::from(resolve_project(&args.project, &config, &program)?)
+        }
+        Commands::Import(args) => {
+            let program = resolve_program(&args.program, &config)?;
+            PathBuf::from(resolve_project(&args.project, &config, &program)?)
+        }
+        Commands::Analyze(args) => {
+            let program = resolve_program(&args.program, &config)?;
+            PathBuf::from(resolve_project(&args.project, &config, &program)?)
+        }
+        _ => {
+            // For commands that don't specify project, use default or run directly
+            if let Some(ref proj) = config.default_project {
+                PathBuf::from(proj)
+            } else {
+                // No project specified, run command directly
+                return run(cli);
+            }
+        }
+    };
+
+    // Check if daemon is running for this project
+    if let Some(daemon_info) = get_running_daemon_info(&data_dir, &project_path)? {
+        info!("Daemon is running, routing command through daemon (port: {})", daemon_info.port);
+
+        // Connect to daemon and execute command
+        let mut client = daemon_rpc::DaemonClient::connect(daemon_info.port).await?;
+        let output = client.execute(cli.command).await?;
+        println!("{}", output);
+        Ok(())
+    } else {
+        // No daemon running, execute directly
+        run(cli)
+    }
+}
+
+/// Handle daemon management commands.
+async fn handle_daemon_command(cmd: DaemonCommands) -> anyhow::Result<()> {
+    match cmd {
+        DaemonCommands::Start { project, port, foreground } => {
+            handle_daemon_start(project, port, foreground).await
+        }
+        DaemonCommands::Stop { project } => {
+            handle_daemon_stop(project).await
+        }
+        DaemonCommands::Restart { project, port } => {
+            handle_daemon_restart(project, port).await
+        }
+        DaemonCommands::Status { project } => {
+            handle_daemon_status(project).await
+        }
+        DaemonCommands::Ping { project } => {
+            handle_daemon_ping(project).await
+        }
+        DaemonCommands::ClearCache { project } => {
+            handle_daemon_clear_cache(project).await
+        }
+    }
+}
+
+/// Start the daemon.
+async fn handle_daemon_start(project: Option<String>, port: Option<u16>, foreground: bool) -> anyhow::Result<()> {
+    let config = Config::load()?;
+    let data_dir = get_data_dir()?;
+
+    // Resolve project path
+    let project_path = if let Some(proj) = project {
+        PathBuf::from(proj)
+    } else if let Some(ref default_proj) = config.default_project {
+        PathBuf::from(default_proj)
+    } else {
+        anyhow::bail!("No project specified and no default project configured");
+    };
+
+    // Check if daemon is already running
+    ensure_not_running(&data_dir, &project_path)?;
+
+    // Create log file path
+    let log_file = data_dir.join("daemon.log");
+
+    let daemon_config = DaemonConfig {
+        project_path: project_path.clone(),
+        port,
+        ghidra_install_dir: config.ghidra_install_dir.map(PathBuf::from),
+        log_file,
+    };
+
+    if foreground {
+        // Run in foreground
+        println!("Starting daemon in foreground mode...");
+        run_daemon(daemon_config).await?;
+    } else {
+        // TODO: Daemonize properly (fork, detach, etc.)
+        // For now, just run in foreground
+        println!("Starting daemon for project: {}", project_path.display());
+        println!("Note: Background mode not yet implemented, running in foreground");
+        run_daemon(daemon_config).await?;
+    }
+
+    Ok(())
+}
+
+/// Stop the daemon.
+async fn handle_daemon_stop(project: Option<String>) -> anyhow::Result<()> {
+    let config = Config::load()?;
+    let data_dir = get_data_dir()?;
+
+    let project_path = if let Some(proj) = project {
+        PathBuf::from(proj)
+    } else if let Some(ref default_proj) = config.default_project {
+        PathBuf::from(default_proj)
+    } else {
+        anyhow::bail!("No project specified and no default project configured");
+    };
+
+    if let Some(daemon_info) = get_running_daemon_info(&data_dir, &project_path)? {
+        println!("Stopping daemon (PID: {}, port: {})...", daemon_info.pid, daemon_info.port);
+
+        // Connect and send shutdown
+        let mut client = daemon_rpc::DaemonClient::connect(daemon_info.port).await?;
+        client.shutdown().await?;
+
+        println!("Daemon stopped successfully");
+    } else {
+        println!("No daemon running for project: {}", project_path.display());
+    }
+
+    Ok(())
+}
+
+/// Restart the daemon.
+async fn handle_daemon_restart(project: Option<String>, port: Option<u16>) -> anyhow::Result<()> {
+    // Stop first
+    handle_daemon_stop(project.clone()).await?;
+
+    // Wait a moment
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+    // Start again
+    handle_daemon_start(project, port, false).await
+}
+
+/// Get daemon status.
+async fn handle_daemon_status(project: Option<String>) -> anyhow::Result<()> {
+    let config = Config::load()?;
+    let data_dir = get_data_dir()?;
+
+    let project_path = if let Some(proj) = project {
+        PathBuf::from(proj)
+    } else if let Some(ref default_proj) = config.default_project {
+        PathBuf::from(default_proj)
+    } else {
+        anyhow::bail!("No project specified and no default project configured");
+    };
+
+    if let Some(daemon_info) = get_running_daemon_info(&data_dir, &project_path)? {
+        println!("Daemon is running:");
+        println!("  PID: {}", daemon_info.pid);
+        println!("  Port: {}", daemon_info.port);
+        println!("  Project: {}", daemon_info.project_path.display());
+        println!("  Started: {}", daemon_info.started_at);
+        println!("  Log file: {}", daemon_info.log_file.display());
+
+        // Try to get detailed status from daemon
+        if let Ok(mut client) = daemon_rpc::DaemonClient::connect(daemon_info.port).await {
+            if let Ok(status) = client.status().await {
+                println!("\nDaemon status:");
+                println!("  Queue depth: {}", status.queue_depth);
+                println!("  Completed commands: {}", status.completed_commands);
+                println!("  Uptime: {} seconds", status.uptime_seconds);
+            }
+        }
+    } else {
+        println!("No daemon running for project: {}", project_path.display());
+    }
+
+    Ok(())
+}
+
+/// Ping the daemon.
+async fn handle_daemon_ping(project: Option<String>) -> anyhow::Result<()> {
+    let config = Config::load()?;
+    let data_dir = get_data_dir()?;
+
+    let project_path = if let Some(proj) = project {
+        PathBuf::from(proj)
+    } else if let Some(ref default_proj) = config.default_project {
+        PathBuf::from(default_proj)
+    } else {
+        anyhow::bail!("No project specified and no default project configured");
+    };
+
+    if let Some(daemon_info) = get_running_daemon_info(&data_dir, &project_path)? {
+        let mut client = daemon_rpc::DaemonClient::connect(daemon_info.port).await?;
+        client.ping().await?;
+        println!("Daemon is responsive (port: {})", daemon_info.port);
+    } else {
+        println!("No daemon running for project: {}", project_path.display());
+    }
+
+    Ok(())
+}
+
+/// Clear daemon cache.
+async fn handle_daemon_clear_cache(project: Option<String>) -> anyhow::Result<()> {
+    let config = Config::load()?;
+    let data_dir = get_data_dir()?;
+
+    let project_path = if let Some(proj) = project {
+        PathBuf::from(proj)
+    } else if let Some(ref default_proj) = config.default_project {
+        PathBuf::from(default_proj)
+    } else {
+        anyhow::bail!("No project specified and no default project configured");
+    };
+
+    if let Some(daemon_info) = get_running_daemon_info(&data_dir, &project_path)? {
+        // TODO: Implement cache clear via RPC
+        println!("Cache clear not yet implemented via RPC");
+        // For now, just notify
+        println!("Note: Cache will naturally expire after TTL");
+    } else {
+        println!("No daemon running for project: {}", project_path.display());
+    }
+
+    Ok(())
+}
+
+fn handle_query(args: QueryArgs) -> anyhow::Result<()> {
     let config = Config::load()?;
     let client = GhidraClient::new(config.clone())?;
 
@@ -116,7 +378,7 @@ fn handle_query(args: QueryArgs) -> Result<()> {
     Ok(())
 }
 
-fn handle_function_command(cmd: cli::FunctionCommands) -> Result<()> {
+fn handle_function_command(cmd: cli::FunctionCommands) -> anyhow::Result<()> {
     use cli::FunctionCommands;
 
     match cmd {
@@ -160,7 +422,7 @@ fn handle_function_command(cmd: cli::FunctionCommands) -> Result<()> {
     }
 }
 
-fn handle_decompile(args: cli::DecompileArgs) -> Result<()> {
+fn handle_decompile(args: cli::DecompileArgs) -> anyhow::Result<()> {
     let query_args = QueryArgs {
         data_type: "functions".to_string(),
         program: args.options.program,
@@ -177,7 +439,7 @@ fn handle_decompile(args: cli::DecompileArgs) -> Result<()> {
     handle_decompile_impl(args.target, query_args)
 }
 
-fn handle_decompile_impl(target: String, args: QueryArgs) -> Result<()> {
+fn handle_decompile_impl(target: String, args: QueryArgs) -> anyhow::Result<()> {
     let config = Config::load()?;
     let client = GhidraClient::new(config.clone())?;
 
@@ -200,7 +462,7 @@ fn handle_decompile_impl(target: String, args: QueryArgs) -> Result<()> {
     Ok(())
 }
 
-fn handle_strings_command(cmd: cli::StringsCommands) -> Result<()> {
+fn handle_strings_command(cmd: cli::StringsCommands) -> anyhow::Result<()> {
     use cli::StringsCommands;
 
     match cmd {
@@ -227,7 +489,7 @@ fn handle_strings_command(cmd: cli::StringsCommands) -> Result<()> {
     }
 }
 
-fn handle_memory_command(cmd: cli::MemoryCommands) -> Result<()> {
+fn handle_memory_command(cmd: cli::MemoryCommands) -> anyhow::Result<()> {
     use cli::MemoryCommands;
 
     match cmd {
@@ -254,7 +516,7 @@ fn handle_memory_command(cmd: cli::MemoryCommands) -> Result<()> {
     }
 }
 
-fn handle_dump_command(cmd: cli::DumpCommands) -> Result<()> {
+fn handle_dump_command(cmd: cli::DumpCommands) -> anyhow::Result<()> {
     use cli::DumpCommands;
 
     match cmd {
@@ -325,7 +587,7 @@ fn handle_dump_command(cmd: cli::DumpCommands) -> Result<()> {
     }
 }
 
-fn handle_init() -> Result<()> {
+fn handle_init() -> anyhow::Result<()> {
     println!("Ghidra CLI Initialization");
     println!("========================\n");
 
@@ -364,7 +626,7 @@ fn handle_init() -> Result<()> {
     Ok(())
 }
 
-fn handle_doctor() -> Result<()> {
+fn handle_doctor() -> anyhow::Result<()> {
     println!("Ghidra CLI Doctor");
     println!("=================\n");
 
@@ -429,13 +691,13 @@ fn handle_doctor() -> Result<()> {
     Ok(())
 }
 
-fn handle_version() -> Result<()> {
+fn handle_version() -> anyhow::Result<()> {
     println!("ghidra-cli {}", env!("CARGO_PKG_VERSION"));
     println!("Rust CLI for Ghidra reverse engineering");
     Ok(())
 }
 
-fn handle_import(args: cli::ImportArgs) -> Result<()> {
+fn handle_import(args: cli::ImportArgs) -> anyhow::Result<()> {
     let config = Config::load()?;
     let client = GhidraClient::new(config.clone())?;
 
@@ -443,7 +705,7 @@ fn handle_import(args: cli::ImportArgs) -> Result<()> {
 
     let binary_path = PathBuf::from(&args.binary);
     if !binary_path.exists() {
-        return Err(GhidraError::Other(format!("Binary not found: {}", args.binary)));
+        anyhow::bail!(format!("Binary not found: {}", args.binary));
     }
 
     println!("Importing {} into project {}...", args.binary, project);
@@ -455,7 +717,7 @@ fn handle_import(args: cli::ImportArgs) -> Result<()> {
     Ok(())
 }
 
-fn handle_analyze(args: cli::AnalyzeArgs) -> Result<()> {
+fn handle_analyze(args: cli::AnalyzeArgs) -> anyhow::Result<()> {
     let config = Config::load()?;
     let client = GhidraClient::new(config.clone())?;
 
@@ -471,7 +733,7 @@ fn handle_analyze(args: cli::AnalyzeArgs) -> Result<()> {
     Ok(())
 }
 
-fn handle_summary(opts: QueryOptions) -> Result<()> {
+fn handle_summary(opts: QueryOptions) -> anyhow::Result<()> {
     let config = Config::load()?;
     let client = GhidraClient::new(config.clone())?;
 
@@ -504,7 +766,7 @@ fn handle_summary(opts: QueryOptions) -> Result<()> {
     Ok(())
 }
 
-fn handle_quick(args: cli::QuickArgs) -> Result<()> {
+fn handle_quick(args: cli::QuickArgs) -> anyhow::Result<()> {
     let config = Config::load()?;
     let client = GhidraClient::new(config.clone())?;
 
@@ -540,7 +802,7 @@ fn handle_quick(args: cli::QuickArgs) -> Result<()> {
     Ok(())
 }
 
-fn handle_config_command(cmd: cli::ConfigCommands) -> Result<()> {
+fn handle_config_command(cmd: cli::ConfigCommands) -> anyhow::Result<()> {
     use cli::ConfigCommands;
 
     match cmd {
@@ -568,7 +830,7 @@ fn handle_config_command(cmd: cli::ConfigCommands) -> Result<()> {
                     config.timeout = Some(timeout);
                 }
                 _ => {
-                    return Err(GhidraError::ConfigError(format!("Unknown config key: {}", key)));
+                    anyhow::bail!("Unknown config key: {}", key);
                 }
             }
             config.save()?;
@@ -584,7 +846,7 @@ fn handle_config_command(cmd: cli::ConfigCommands) -> Result<()> {
     Ok(())
 }
 
-fn handle_set_default(args: cli::SetDefaultArgs) -> Result<()> {
+fn handle_set_default(args: cli::SetDefaultArgs) -> anyhow::Result<()> {
     let mut config = Config::load()?;
 
     match args.kind.as_str() {
@@ -599,14 +861,14 @@ fn handle_set_default(args: cli::SetDefaultArgs) -> Result<()> {
             println!("Default project set to: {}", args.value);
         }
         _ => {
-            return Err(GhidraError::Other(format!("Unknown default kind: {}", args.kind)));
+            anyhow::bail!(format!("Unknown default kind: {}", args.kind));
         }
     }
 
     Ok(())
 }
 
-fn handle_project_command(cmd: cli::ProjectCommands) -> Result<()> {
+fn handle_project_command(cmd: cli::ProjectCommands) -> anyhow::Result<()> {
     use cli::ProjectCommands;
 
     let config = Config::load()?;
