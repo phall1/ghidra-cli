@@ -8,7 +8,7 @@ mod ghidra;
 mod query;
 
 use clap::Parser;
-use cli::{Cli, Commands, DaemonCommands, QueryArgs, QueryOptions};
+use cli::{Cli, Commands, DaemonCommands, QueryArgs, QueryOptions, SetupArgs};
 use config::Config;
 use daemon::process::{get_data_dir, get_running_daemon_info, ensure_not_running};
 use daemon::rpc as daemon_rpc;
@@ -32,12 +32,15 @@ async fn main() {
 
     let cli = Cli::parse();
 
-    let result = if let Commands::Daemon(_) = &cli.command {
-        // Daemon commands are async
-        run_async(cli).await
-    } else {
-        // Other commands can be sync or we check if daemon is running
-        run_with_daemon_check(cli).await
+    let result = match &cli.command {
+        Commands::Daemon(_) | Commands::Setup(_) => {
+            // Daemon and Setup commands are async
+            run_async(cli).await
+        }
+        _ => {
+            // Other commands can be sync or we check if daemon is running
+            run_with_daemon_check(cli).await
+        }
     };
 
     if let Err(e) = result {
@@ -71,11 +74,12 @@ fn run(cli: Cli) -> anyhow::Result<()> {
     }
 }
 
-/// Run async commands (daemon management).
+/// Run async commands (daemon management, setup).
 async fn run_async(cli: Cli) -> anyhow::Result<()> {
     match cli.command {
         Commands::Daemon(cmd) => handle_daemon_command(cmd).await,
-        _ => unreachable!("run_async called with non-daemon command"),
+        Commands::Setup(args) => handle_setup(args).await,
+        _ => unreachable!("run_async called with non-async command"),
     }
 }
 
@@ -322,6 +326,61 @@ async fn handle_daemon_clear_cache(project: Option<String>) -> anyhow::Result<()
         println!("Note: Cache will naturally expire after TTL");
     } else {
         println!("No daemon running for project: {}", project_path.display());
+    }
+
+    Ok(())
+}
+
+/// Handle the setup command - download and install Ghidra.
+async fn handle_setup(args: SetupArgs) -> anyhow::Result<()> {
+    println!("Ghidra Setup Wizard");
+    println!("===================\n");
+
+    // 1. Check Java
+    if !args.force {
+        if let Err(e) = ghidra::setup::check_java_requirement() {
+            eprintln!("⚠ Java prerequisite check failed: {}", e);
+            eprintln!("Ghidra requires JDK 17+. Use --force to continue anyway.");
+            std::process::exit(1);
+        }
+    } else {
+        println!("⚠ Skipping Java check (--force specified)");
+    }
+
+    // 2. Determine Install Directory
+    let install_base = if let Some(d) = args.dir {
+        PathBuf::from(d)
+    } else {
+        // Default to XDG_DATA_HOME/ghidra-cli/ghidra
+        dirs::data_local_dir()
+            .ok_or(anyhow::anyhow!("Could not determine data directory"))?
+            .join("ghidra-cli")
+            .join("ghidra")
+    };
+
+    std::fs::create_dir_all(&install_base)?;
+
+    // 3. Install
+    println!("\nInstalling to: {}", install_base.display());
+    let final_path = ghidra::setup::install_ghidra(args.version, install_base).await?;
+
+    // 4. Update Config
+    let mut config = Config::load()?;
+    config.ghidra_install_dir = Some(final_path.clone());
+    config.save()?;
+
+    println!("\n✓ Success! Ghidra installed at: {}", final_path.display());
+    println!("✓ Configuration updated.");
+
+    // 5. Verify
+    println!("\nVerifying installation...");
+    let client = GhidraClient::new(config)?;
+    if client.verify_installation().is_ok() {
+        println!("✓ Verification passed!");
+        println!("\nYou can now run: ghidra quick <binary>");
+    } else {
+        println!("⚠ Verification failed - analyzeHeadless not found");
+        println!("  The installation may be incomplete.");
     }
 
     Ok(())

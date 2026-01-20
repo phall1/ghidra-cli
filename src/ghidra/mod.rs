@@ -1,6 +1,7 @@
 pub mod headless;
 pub mod data;
 pub mod scripts;
+pub mod setup;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

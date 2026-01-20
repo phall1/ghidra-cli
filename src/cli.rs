@@ -124,6 +124,9 @@ pub enum Commands {
     /// Daemon management commands
     #[command(subcommand)]
     Daemon(DaemonCommands),
+
+    /// Download and setup Ghidra automatically
+    Setup(SetupArgs),
 }
 
 #[derive(Args, Clone, Serialize, Deserialize, Debug)]
@@ -783,3 +786,18 @@ pub enum DaemonCommands {
     },
 }
 
+/// Arguments for the setup command
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct SetupArgs {
+    /// Specific Ghidra version to install (e.g., "11.0"). Defaults to latest.
+    #[arg(long)]
+    pub version: Option<String>,
+
+    /// Installation directory. Defaults to standard data directory.
+    #[arg(long, short = 'd')]
+    pub dir: Option<String>,
+
+    /// Skip Java check
+    #[arg(long)]
+    pub force: bool,
+}
