@@ -78,43 +78,22 @@ impl<'a> HeadlessExecutor<'a> {
     }
 
     fn extract_json_from_output(&self, output: &str) -> Result<String> {
-        // Find the JSON output in the Ghidra output
-        // Look for lines starting with { or [
-        let lines: Vec<&str> = output.lines().collect();
-
-        let mut json_start = None;
-        let mut json_end = None;
-        let mut brace_count = 0;
-
-        for (i, line) in lines.iter().enumerate() {
-            let trimmed = line.trim();
-
-            if json_start.is_none() && (trimmed.starts_with('{') || trimmed.starts_with('[')) {
-                json_start = Some(i);
-                brace_count = trimmed.chars().filter(|&c| c == '{' || c == '[').count() as i32;
-                brace_count -= trimmed.chars().filter(|&c| c == '}' || c == ']').count() as i32;
-
-                if brace_count == 0 {
-                    json_end = Some(i);
-                    break;
-                }
-            } else if json_start.is_some() {
-                brace_count += trimmed.chars().filter(|&c| c == '{' || c == '[').count() as i32;
-                brace_count -= trimmed.chars().filter(|&c| c == '}' || c == ']').count() as i32;
-
-                if brace_count == 0 {
-                    json_end = Some(i);
-                    break;
-                }
-            }
-        }
-
-        if let (Some(start), Some(end)) = (json_start, json_end) {
-            let json_lines = &lines[start..=end];
-            Ok(json_lines.join("\n"))
-        } else {
-            Err(GhidraError::ExecutionFailed("Could not find JSON in script output".to_string()))
-        }
+        // Use marker-based extraction for reliable JSON parsing
+        const START_MARKER: &str = "---GHIDRA_CLI_START---";
+        const END_MARKER: &str = "---GHIDRA_CLI_END---";
+        
+        let start = output.find(START_MARKER)
+            .ok_or_else(|| GhidraError::ExecutionFailed(
+                "Missing start marker in script output".to_string()
+            ))?
+            + START_MARKER.len();
+            
+        let end = output.find(END_MARKER)
+            .ok_or_else(|| GhidraError::ExecutionFailed(
+                "Missing end marker in script output".to_string()
+            ))?;
+            
+        Ok(output[start..end].trim().to_string())
     }
 
     fn get_scripts_dir(&self) -> Result<std::path::PathBuf> {

@@ -40,6 +40,9 @@ tokio = { version = "1.35", features = ["full"] }
 # RPC
 remoc = { version = "0.16", features = ["full"] }
 
+# IPC (local sockets)
+interprocess = { version = "2.2", features = ["tokio"] }
+
 # Time
 chrono = { version = "0.4", features = ["serde"] }
 

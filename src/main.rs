@@ -5,6 +5,7 @@ mod error;
 mod filter;
 mod format;
 mod ghidra;
+mod ipc;
 mod query;
 
 use clap::Parser;
@@ -177,6 +178,7 @@ async fn handle_daemon_start(project: Option<String>, port: Option<u16>, foregro
         port,
         ghidra_install_dir: config.ghidra_install_dir.map(PathBuf::from),
         log_file,
+        program_name: config.default_program.clone(),
     };
 
     if foreground {

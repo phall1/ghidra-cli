@@ -1,3 +1,4 @@
+pub mod bridge;
 pub mod headless;
 pub mod data;
 pub mod scripts;
@@ -8,6 +9,7 @@ use std::process::Command;
 use crate::config::Config;
 use crate::error::{GhidraError, Result};
 
+#[derive(Debug)]
 pub struct GhidraClient {
     config: Config,
     install_dir: PathBuf,

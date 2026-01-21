@@ -1,23 +1,23 @@
 //! Daemon core logic.
 //!
 //! The daemon is the main runtime that:
-//! - Loads and maintains project state in memory
-//! - Queues commands to prevent Ghidra conflicts
-//! - Serves RPC requests from clients
+//! - Manages a persistent Ghidra bridge process
+//! - Serves commands via local socket IPC
 //! - Handles graceful shutdown
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, Mutex};
 use tracing::{error, info, warn};
 
 use crate::daemon::process::{write_daemon_info, remove_lock_file, DaemonInfo, get_data_dir};
-use crate::daemon::queue::CommandQueue;
-use crate::daemon::state::DaemonState;
+use crate::ghidra::bridge::GhidraBridge;
 
 pub mod cache;
+pub mod handler;
+pub mod ipc_server;
 pub mod process;
 pub mod queue;
 pub mod rpc;
@@ -27,15 +27,17 @@ pub mod state;
 pub struct DaemonConfig {
     /// Path to the project directory
     pub project_path: PathBuf,
-    /// RPC port (None = auto-select)
+    /// RPC port (None = auto-select) - kept for backwards compatibility
     pub port: Option<u16>,
     /// Ghidra installation directory
     pub ghidra_install_dir: Option<PathBuf>,
     /// Log file path
     pub log_file: PathBuf,
+    /// Program name to load
+    pub program_name: Option<String>,
 }
 
-/// Run the daemon.
+/// Run the daemon with the new bridge architecture.
 pub async fn run(config: DaemonConfig) -> Result<()> {
     info!("Starting Ghidra daemon");
     info!("Project: {}", config.project_path.display());
@@ -44,52 +46,60 @@ pub async fn run(config: DaemonConfig) -> Result<()> {
     let data_dir = get_data_dir()
         .context("Failed to get data directory")?;
 
-    // Load project state
-    let _state = Arc::new(
-        DaemonState::load(&config.project_path, config.ghidra_install_dir.as_deref())
-            .context("Failed to load project state")?
-    );
-
-    info!("Project state loaded successfully");
-
-    // Create command queue
-    let queue = Arc::new(CommandQueue::new(config.project_path.clone()));
-
     // Create shutdown channel
     let (shutdown_tx, _shutdown_rx) = broadcast::channel::<()>(1);
 
-    // Start RPC server
-    let port = self::rpc::run_server(queue.clone(), config.port, shutdown_tx.clone()).await
-        .context("Failed to start RPC server")?;
+    // Initialize the Ghidra bridge (starts as None until we have a program)
+    let bridge: Arc<Mutex<Option<GhidraBridge>>> = Arc::new(Mutex::new(None));
 
-    info!("RPC server listening on port {}", port);
+    // If we have Ghidra install dir and program name, start the bridge
+    if let (Some(ghidra_dir), Some(program_name)) = (&config.ghidra_install_dir, &config.program_name) {
+        info!("Starting Ghidra bridge for program: {}", program_name);
+        
+        let project_name = config.project_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("project")
+            .to_string();
+        
+        let mut new_bridge = GhidraBridge::new(
+            ghidra_dir.clone(),
+            config.project_path.clone(),
+            project_name,
+            program_name.clone(),
+        );
+        
+        if let Err(e) = new_bridge.start() {
+            warn!("Failed to start Ghidra bridge: {}. Will operate without persistent connection.", e);
+        } else {
+            info!("Ghidra bridge started successfully");
+            let mut bridge_guard = bridge.lock().await;
+            *bridge_guard = Some(new_bridge);
+        }
+    } else {
+        info!("No program specified, bridge will be started on first command");
+    }
 
-    // Write lock file
-    let daemon_info = DaemonInfo::new(&config.project_path, port, &config.log_file);
+    // Write lock file with a placeholder port (IPC doesn't use TCP ports)
+    let placeholder_port = config.port.unwrap_or(0);
+    let daemon_info = DaemonInfo::new(&config.project_path, placeholder_port, &config.log_file);
     write_daemon_info(&data_dir, &config.project_path, &daemon_info)
         .context("Failed to write lock file")?;
 
-    // Start cache cleanup task
-    let cache_cleanup_handle = {
-        let queue = queue.clone();
-        let shutdown_tx = shutdown_tx.clone();
-        tokio::spawn(async move {
-            let mut shutdown_rx = shutdown_tx.subscribe();
-            loop {
-                tokio::select! {
-                    _ = tokio::time::sleep(tokio::time::Duration::from_secs(300)) => {
-                        // Cleanup cache every 5 minutes
-                        // Note: This would need access to the cache
-                        // For now, we'll skip this as the cache is internal to the queue
-                    }
-                    _ = shutdown_rx.recv() => {
-                        info!("Cache cleanup task stopping");
-                        break;
-                    }
-                }
-            }
-        })
-    };
+    // Start IPC server task
+    let ipc_bridge = bridge.clone();
+    let ipc_shutdown_tx = shutdown_tx.clone();
+    let ipc_handle = tokio::spawn(async move {
+        if let Err(e) = ipc_server::run_ipc_server(ipc_bridge, ipc_shutdown_tx).await {
+            error!("IPC server error: {}", e);
+        }
+    });
+
+    // Also start the legacy RPC server for backwards compatibility
+    let queue = Arc::new(queue::CommandQueue::new(config.project_path.clone()));
+    let rpc_port = rpc::run_server(queue.clone(), config.port, shutdown_tx.clone()).await
+        .context("Failed to start RPC server")?;
+    info!("Legacy RPC server listening on port {} (for backwards compatibility)", rpc_port);
 
     // Wait for shutdown signal
     let shutdown_reason = wait_for_shutdown(shutdown_tx.clone()).await;
@@ -99,13 +109,24 @@ pub async fn run(config: DaemonConfig) -> Result<()> {
     // Clean up
     shutdown_tx.send(()).ok(); // Signal all tasks to stop
 
-    // Wait for cache cleanup to stop (with timeout)
+    // Stop the bridge
+    {
+        let mut bridge_guard = bridge.lock().await;
+        if let Some(mut b) = bridge_guard.take() {
+            info!("Stopping Ghidra bridge...");
+            if let Err(e) = b.stop() {
+                error!("Error stopping bridge: {}", e);
+            }
+        }
+    }
+
+    // Wait for IPC server to stop (with timeout)
     tokio::select! {
-        _ = cache_cleanup_handle => {
-            info!("Cache cleanup task stopped");
+        _ = ipc_handle => {
+            info!("IPC server stopped");
         }
         _ = tokio::time::sleep(tokio::time::Duration::from_secs(5)) => {
-            warn!("Cache cleanup task did not stop in time");
+            warn!("IPC server did not stop in time");
         }
     }
 
@@ -185,6 +206,7 @@ mod tests {
             port: Some(17700),
             ghidra_install_dir: None,
             log_file: PathBuf::from("/test/logs/daemon.log"),
+            program_name: None,
         };
 
         assert_eq!(config.port, Some(17700));

@@ -52,7 +52,9 @@ for func in function_manager.getFunctions(True):
 
     functions.append(func_data)
 
+print("---GHIDRA_CLI_START---")
 print(json.dumps(functions, indent=2))
+print("---GHIDRA_CLI_END---")
 "#
 }
 
@@ -97,9 +99,13 @@ if results.decompileCompleted():
         "code": code
     }
 
+    print("---GHIDRA_CLI_START---")
     print(json.dumps(result, indent=2))
+    print("---GHIDRA_CLI_END---")
 else:
+    print("---GHIDRA_CLI_START---")
     print(json.dumps({"error": "Decompilation failed"}))
+    print("---GHIDRA_CLI_END---")
 "#
 }
 
@@ -140,7 +146,9 @@ while data_iterator.hasNext():
             # Skip strings that cause encoding issues
             pass
 
+print("---GHIDRA_CLI_START---")
 print(json.dumps(strings, indent=2))
+print("---GHIDRA_CLI_END---")
 "#
 }
 
@@ -167,7 +175,9 @@ for symbol in symbol_table.getExternalSymbols():
         }
         imports.append(import_data)
 
+print("---GHIDRA_CLI_START---")
 print(json.dumps(imports, indent=2))
+print("---GHIDRA_CLI_END---")
 "#
 }
 
@@ -189,7 +199,9 @@ for symbol in symbol_table.getSymbolIterator():
         }
         exports.append(export_data)
 
+print("---GHIDRA_CLI_START---")
 print(json.dumps(exports, indent=2))
+print("---GHIDRA_CLI_END---")
 "#
 }
 
@@ -226,7 +238,9 @@ for block in memory.getBlocks():
     block_data["permissions"] = perms
     blocks.append(block_data)
 
+print("---GHIDRA_CLI_START---")
 print(json.dumps(blocks, indent=2))
+print("---GHIDRA_CLI_END---")
 "#
 }
 
@@ -259,7 +273,9 @@ for instruction in listing.getInstructions(True):
 
 info["instruction_count"] = instruction_count
 
+print("---GHIDRA_CLI_START---")
 print(json.dumps(info, indent=2))
+print("---GHIDRA_CLI_END---")
 "#
 }
 
@@ -295,7 +311,9 @@ for ref in refs:
     }
     xrefs.append(xref_data)
 
+print("---GHIDRA_CLI_START---")
 print(json.dumps(xrefs, indent=2))
+print("---GHIDRA_CLI_END---")
 "#
 }
 
