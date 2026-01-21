@@ -61,7 +61,7 @@ print("---GHIDRA_CLI_END---")
 
 pub fn get_decompile_function_script() -> &'static str {
     r#"
-# Decompile a specific function
+# Decompile a specific function by address or name
 # @category Analysis
 # @runtime Jython
 
@@ -69,19 +69,52 @@ import json
 from ghidra.app.decompiler import DecompInterface
 from ghidra.util.task import ConsoleTaskMonitor
 
-# Get function address from args
-if len(args) < 1:
-    print(json.dumps({"error": "No address provided"}))
+# Get function target from args (can be address or name)
+script_args = getScriptArgs()
+if len(script_args) < 1:
+    print("---GHIDRA_CLI_START---")
+    print(json.dumps({"error": "No target provided. Specify an address (0x...) or function name."}))
+    print("---GHIDRA_CLI_END---")
     exit(1)
 
-addr_str = args[0]
-addr = currentProgram.getAddressFactory().getAddress(addr_str)
-
+target = script_args[0]
 function_manager = currentProgram.getFunctionManager()
-func = function_manager.getFunctionContaining(addr)
+func = None
+
+# Try to parse as address first
+if target.startswith("0x") or target.startswith("0X"):
+    # It's an address
+    addr = currentProgram.getAddressFactory().getAddress(target)
+    if addr:
+        func = function_manager.getFunctionContaining(addr)
+elif target.isdigit() or (len(target) > 1 and target[0].isdigit()):
+    # Might be a hex address without 0x prefix
+    try:
+        addr = currentProgram.getAddressFactory().getAddress(target)
+        if addr:
+            func = function_manager.getFunctionContaining(addr)
+    except:
+        pass
+
+# If not found by address, try by name
+if not func:
+    # Search for function by name (exact match first)
+    for f in function_manager.getFunctions(True):
+        if f.getName() == target:
+            func = f
+            break
+    
+    # If still not found, try partial match
+    if not func:
+        for f in function_manager.getFunctions(True):
+            if target in f.getName():
+                func = f
+                break
 
 if not func:
-    print(json.dumps({"error": "No function at address " + addr_str}))
+    print("---GHIDRA_CLI_START---")
+    print(json.dumps({"error": "No function found for: " + target}))
+    print("---GHIDRA_CLI_END---")
     exit(1)
 
 # Decompile
@@ -106,10 +139,11 @@ if results.decompileCompleted():
     print("---GHIDRA_CLI_END---")
 else:
     print("---GHIDRA_CLI_START---")
-    print(json.dumps({"error": "Decompilation failed"}))
+    print(json.dumps({"error": "Decompilation failed for: " + func.getName()}))
     print("---GHIDRA_CLI_END---")
 "#
 }
+
 
 pub fn get_list_strings_script() -> &'static str {
     r#"
@@ -293,11 +327,14 @@ pub fn get_xrefs_to_script() -> &'static str {
 
 import json
 
-if len(args) < 1:
+script_args = getScriptArgs()
+if len(script_args) < 1:
+    print("---GHIDRA_CLI_START---")
     print(json.dumps({"error": "No address provided"}))
+    print("---GHIDRA_CLI_END---")
     exit(1)
 
-addr_str = args[0]
+addr_str = script_args[0]
 addr = currentProgram.getAddressFactory().getAddress(addr_str)
 
 xrefs = []
