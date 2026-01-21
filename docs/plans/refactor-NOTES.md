@@ -48,17 +48,20 @@ The `debugger-cli` project at `~/git/debugger-cli` provides a good pattern for d
 - `BridgeResponse<T>` typed response handling
 - Embeds bridge.py via `include_str!` macro
 
-### Phase 5: Daemon Update 🚧
-- Status: Not yet wired up
-- Remaining: Refactor daemon to use new IPC layer and bridge
+### Phase 5: Daemon Update ✅
+- Created `src/daemon/handler.rs` - routes IPC commands to bridge
+- Created `src/daemon/ipc_server.rs` - local socket IPC server
+- Refactored `src/daemon/mod.rs` to manage `GhidraBridge` and IPC server
+- Daemon now starts both IPC server (port 18701) and legacy TCP RPC
 
-### Phase 6: Typed Responses ⚙️
-- `BridgeResponse<T>` created in `bridge.rs`
-- Remaining: Update all response handling
+### Phase 6: Typed Responses ✅
+- `BridgeResponse<T>` created in `bridge.rs` for typed deserialization
+- IPC `Response` uses `serde_json::Value` for flexibility
+- Handler deserializes bridge responses into typed structures
 
 ### Phase 7: GUI Integration (Optional)
 - Status: Not started
-- Future work
+- Future work: `goto`, `highlight` commands
 
 ---
 
@@ -72,30 +75,31 @@ The `debugger-cli` project at `~/git/debugger-cli` provides a good pattern for d
 - `src/ipc/transport.rs` - Socket transport layer
 - `src/ipc/client.rs` - Daemon client
 
+- `src/daemon/handler.rs` - IPC command handler
+- `src/daemon/ipc_server.rs` - Local socket IPC server
+
 ### Modified Files
 - `Cargo.toml` - Added `interprocess` crate
-- `src/main.rs` - Added `mod ipc`
+- `src/main.rs` - Added `mod ipc`, updated daemon config
 - `src/ghidra/mod.rs` - Added `mod bridge`, `#[derive(Debug)]` on `GhidraClient`
 - `src/ghidra/scripts.rs` - All scripts now have output markers
 - `src/ghidra/headless.rs` - Marker-based JSON extraction
+- `src/daemon/mod.rs` - Integrated bridge and IPC server
 
 ---
 
 ## Remaining Work
 
-To complete the refactoring:
-
-1. **Wire up bridge to daemon** - Modify `daemon/mod.rs` to hold `GhidraBridge`
-2. **Route commands through bridge** - Update `daemon/queue.rs` to use bridge instead of spawning headless
-3. **Switch to IPC layer** - Replace TCP RPC with local socket IPC
-4. **Remove one-shot execution** - Clean up legacy headless spawning code
-5. **Manual testing** - Test with actual Ghidra installation
+1. **Manual testing** - Test with actual Ghidra installation
+2. **GUI Integration (Phase 7)** - Optional `goto`, `highlight` commands
+3. **Cleanup** - Remove unused transport functions, fix warnings
 
 ---
 
 ## Build Status
 
 ```
-✅ cargo check - PASSED
+✅ cargo build --release - PASSED
 ✅ cargo test - 30 passed, 1 pre-existing failure (test_parse_hex)
+⚠️ 48 warnings (mostly unused code, can be cleaned up)
 ```
