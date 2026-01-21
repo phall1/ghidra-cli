@@ -5,6 +5,7 @@ pub fn get_list_functions_script() -> &'static str {
     r#"
 # List all functions in the program
 # @category Analysis
+# @runtime Jython
 
 import json
 
@@ -62,6 +63,7 @@ pub fn get_decompile_function_script() -> &'static str {
     r#"
 # Decompile a specific function
 # @category Analysis
+# @runtime Jython
 
 import json
 from ghidra.app.decompiler import DecompInterface
@@ -156,6 +158,7 @@ pub fn get_list_imports_script() -> &'static str {
     r#"
 # List all imports in the program
 # @category Analysis
+# @runtime Jython
 
 import json
 
@@ -185,6 +188,7 @@ pub fn get_list_exports_script() -> &'static str {
     r#"
 # List all exports in the program
 # @category Analysis
+# @runtime Jython
 
 import json
 
@@ -209,6 +213,7 @@ pub fn get_memory_map_script() -> &'static str {
     r#"
 # Get memory map
 # @category Analysis
+# @runtime Jython
 
 import json
 
@@ -248,6 +253,7 @@ pub fn get_program_info_script() -> &'static str {
     r#"
 # Get program information
 # @category Analysis
+# @runtime Jython
 
 import json
 
@@ -283,6 +289,7 @@ pub fn get_xrefs_to_script() -> &'static str {
     r#"
 # Get cross-references to an address
 # @category Analysis
+# @runtime Jython
 
 import json
 
