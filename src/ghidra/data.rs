@@ -1,3 +1,9 @@
+//! Data structures for Ghidra query results.
+//!
+//! These are used to parse JSON responses from Ghidra scripts.
+
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

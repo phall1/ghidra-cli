@@ -5,6 +5,10 @@ use crate::error::{GhidraError, Result};
 use super::GhidraClient;
 use super::scripts;
 
+#[deprecated(
+    since = "0.2.0",
+    note = "Use daemon for query operations. HeadlessExecutor spawns a new Ghidra process per command, which is slow. The daemon maintains a persistent connection."
+)]
 pub struct HeadlessExecutor<'a> {
     client: &'a GhidraClient,
 }

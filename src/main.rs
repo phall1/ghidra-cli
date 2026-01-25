@@ -19,7 +19,7 @@ use format::OutputFormat;
 use ghidra::GhidraClient;
 use query::{Query, DataType, FieldSelector, SortKey};
 use std::path::PathBuf;
-use tracing::{info, error};
+use tracing::info;
 
 #[cfg(unix)]
 use daemonize::Daemonize;
@@ -84,49 +84,119 @@ async fn run_async(cli: Cli) -> anyhow::Result<()> {
     }
 }
 
-/// Run commands with daemon check - route through daemon if running.
-async fn run_with_daemon_check(cli: Cli) -> anyhow::Result<()> {
-    let config = Config::load()?;
-    let data_dir = get_data_dir()?;
+/// Determines if a command requires the daemon to be running.
+fn requires_daemon(command: &Commands) -> bool {
+    matches!(
+        command,
+        Commands::Query(_)
+            | Commands::Decompile(_)
+            | Commands::Function(_)
+            | Commands::Strings(_)
+            | Commands::Memory(_)
+            | Commands::Dump(_)
+            | Commands::Summary(_)
+            | Commands::XRef(_)
+    )
+}
 
-    // Determine project path
-    let project_path = match &cli.command {
+/// Run commands with daemon check - route through daemon if required.
+async fn run_with_daemon_check(cli: Cli) -> anyhow::Result<()> {
+    // Commands that don't require daemon can run directly
+    if !requires_daemon(&cli.command) {
+        return run(cli);
+    }
+
+    // Query-type commands REQUIRE the daemon
+    match ipc::client::DaemonClient::connect().await {
+        Ok(mut client) => {
+            info!("Connected to daemon via IPC");
+            let output = execute_via_daemon(&mut client, &cli.command).await?;
+            println!("{}", output);
+            Ok(())
+        }
+        Err(_) => {
+            eprintln!("Error: This command requires the daemon to be running.");
+            eprintln!();
+            eprintln!("Start the daemon with:");
+            eprintln!("  ghidra daemon start --project <project-name>");
+            eprintln!();
+            eprintln!("Or run a quick analysis first:");
+            eprintln!("  ghidra quick <binary>");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Execute a command via the daemon IPC connection.
+async fn execute_via_daemon(
+    client: &mut ipc::client::DaemonClient,
+    command: &Commands,
+) -> anyhow::Result<String> {
+    let result = match command {
         Commands::Query(args) => {
-            let program = resolve_program(&args.program, &config)?;
-            PathBuf::from(resolve_project(&args.project, &config, &program)?)
-        }
-        Commands::Import(args) => {
-            let program = resolve_program(&args.program, &config)?;
-            PathBuf::from(resolve_project(&args.project, &config, &program)?)
-        }
-        Commands::Analyze(args) => {
-            let program = resolve_program(&args.program, &config)?;
-            PathBuf::from(resolve_project(&args.project, &config, &program)?)
-        }
-        _ => {
-            // For commands that don't specify project, use default or run directly
-            if let Some(ref proj) = config.default_project {
-                PathBuf::from(proj)
-            } else {
-                // No project specified, run command directly
-                return run(cli);
+            match args.data_type.as_str() {
+                "functions" => client.list_functions(args.limit, args.filter.clone()).await?,
+                "strings" => client.list_strings(args.limit).await?,
+                "imports" => client.list_imports().await?,
+                "exports" => client.list_exports().await?,
+                "memory" => client.memory_map().await?,
+                other => anyhow::bail!("Query type '{}' not yet supported via daemon", other),
             }
         }
+        Commands::Decompile(args) => {
+            client.decompile(args.target.clone()).await?
+        }
+        Commands::Function(cmd) => {
+            use cli::FunctionCommands;
+            match cmd {
+                FunctionCommands::List(opts) => {
+                    client.list_functions(opts.limit, opts.filter.clone()).await?
+                }
+                FunctionCommands::Decompile(args) => {
+                    client.decompile(args.target.clone()).await?
+                }
+                _ => anyhow::bail!("Function subcommand not yet supported via daemon"),
+            }
+        }
+        Commands::Strings(cmd) => {
+            use cli::StringsCommands;
+            match cmd {
+                StringsCommands::List(opts) => client.list_strings(opts.limit).await?,
+                _ => anyhow::bail!("Strings subcommand not yet supported via daemon"),
+            }
+        }
+        Commands::Memory(cmd) => {
+            use cli::MemoryCommands;
+            match cmd {
+                MemoryCommands::Map(_) => client.memory_map().await?,
+                _ => anyhow::bail!("Memory subcommand not yet supported via daemon"),
+            }
+        }
+        Commands::Dump(cmd) => {
+            use cli::DumpCommands;
+            match cmd {
+                DumpCommands::Imports(_) => client.list_imports().await?,
+                DumpCommands::Exports(_) => client.list_exports().await?,
+                DumpCommands::Functions(opts) => {
+                    client.list_functions(opts.limit, opts.filter.clone()).await?
+                }
+                DumpCommands::Strings(opts) => client.list_strings(opts.limit).await?,
+            }
+        }
+        Commands::Summary(_) => client.program_info().await?,
+        Commands::XRef(cmd) => {
+            use cli::XRefCommands;
+            match cmd {
+                XRefCommands::To(args) => client.xrefs_to(args.address.clone()).await?,
+                XRefCommands::From(args) => client.xrefs_from(args.address.clone()).await?,
+                XRefCommands::List(_) => anyhow::bail!("XRef list not yet supported via daemon"),
+            }
+        }
+        _ => anyhow::bail!("Command not supported via daemon"),
     };
 
-    // Check if daemon is running for this project
-    if let Some(daemon_info) = get_running_daemon_info(&data_dir, &project_path)? {
-        info!("Daemon is running, routing command through daemon (port: {})", daemon_info.port);
-
-        // Connect to daemon and execute command
-        let mut client = daemon_rpc::DaemonClient::connect(daemon_info.port).await?;
-        let output = client.execute(cli.command).await?;
-        println!("{}", output);
-        Ok(())
-    } else {
-        // No daemon running, execute directly
-        run(cli)
-    }
+    // Format the JSON output nicely
+    serde_json::to_string_pretty(&result).map_err(Into::into)
 }
 
 /// Handle daemon management commands.
@@ -321,10 +391,9 @@ async fn handle_daemon_clear_cache(project: Option<String>) -> anyhow::Result<()
         anyhow::bail!("No project specified and no default project configured");
     };
 
-    if let Some(daemon_info) = get_running_daemon_info(&data_dir, &project_path)? {
-        // TODO: Implement cache clear via RPC
-        println!("Cache clear not yet implemented via RPC");
-        // For now, just notify
+    if let Some(_daemon_info) = get_running_daemon_info(&data_dir, &project_path)? {
+        // TODO: Implement cache clear via IPC
+        println!("Cache clear not yet implemented via IPC");
         println!("Note: Cache will naturally expire after TTL");
     } else {
         println!("No daemon running for project: {}", project_path.display());
@@ -539,7 +608,7 @@ fn handle_function_command(cmd: cli::FunctionCommands) -> anyhow::Result<()> {
 
     match cmd {
         FunctionCommands::List(opts) => {
-            let mut args = QueryArgs {
+            let args = QueryArgs {
                 data_type: "functions".to_string(),
                 program: opts.program,
                 project: opts.project,
@@ -556,7 +625,7 @@ fn handle_function_command(cmd: cli::FunctionCommands) -> anyhow::Result<()> {
         }
         FunctionCommands::Decompile(args) => {
             // Decompile specific function
-            let mut query_args = QueryArgs {
+            let query_args = QueryArgs {
                 data_type: "functions".to_string(),
                 program: args.options.program,
                 project: args.options.project,

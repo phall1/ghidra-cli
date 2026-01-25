@@ -1,6 +1,6 @@
 use serde_json::Value as JsonValue;
 use crate::error::{GhidraError, Result};
-use crate::filter::{Filter, FilterExpr};
+use crate::filter::Filter;
 use crate::format::{OutputFormat, Formatter, DefaultFormatter};
 use crate::ghidra::GhidraClient;
 use crate::ghidra::headless::HeadlessExecutor;

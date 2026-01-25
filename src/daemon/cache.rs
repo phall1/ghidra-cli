@@ -2,6 +2,8 @@
 //!
 //! Caches results of expensive Ghidra operations to speed up repeated queries.
 
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};

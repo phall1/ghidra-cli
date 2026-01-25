@@ -1,5 +1,7 @@
 //! CLI-side IPC client for communicating with the daemon.
 
+#![allow(dead_code)]
+
 use anyhow::{Context, Result};
 use tokio::io::{ReadHalf, WriteHalf};
 

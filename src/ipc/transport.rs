@@ -3,6 +3,8 @@
 //! Abstracts Unix domain sockets (Unix/macOS) and named pipes (Windows)
 //! using the interprocess crate. Uses length-prefixed message framing.
 
+#![allow(dead_code)]
+
 use std::io;
 use std::path::PathBuf;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};

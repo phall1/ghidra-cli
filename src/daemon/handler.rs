@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use serde_json::json;
 use tokio::sync::Mutex;
-use tracing::{debug, info, warn};
+use tracing::debug;
 
 use crate::ghidra::bridge::GhidraBridge;
 use crate::ipc::protocol::{Command, Response};

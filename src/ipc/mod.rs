@@ -11,5 +11,8 @@ pub mod client;
 pub mod protocol;
 pub mod transport;
 
+// Re-export for external use
+#[allow(unused_imports)]
 pub use client::DaemonClient;
+#[allow(unused_imports)]
 pub use protocol::{Command, Request, Response};

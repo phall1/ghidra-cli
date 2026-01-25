@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub mod bridge;
 pub mod headless;
 pub mod data;

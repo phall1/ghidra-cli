@@ -3,6 +3,8 @@
 //! Uses local sockets (Unix domain sockets / Windows named pipes) with
 //! the new IPC layer instead of TCP.
 
+#![allow(dead_code)]
+
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -13,7 +15,7 @@ use tracing::{debug, error, info};
 
 use crate::ghidra::bridge::GhidraBridge;
 use crate::ipc::protocol::{Command, Request, Response};
-use crate::ipc::transport::{self, platform::Listener};
+use crate::ipc::transport;
 
 use super::handler;
 

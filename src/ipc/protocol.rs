@@ -3,6 +3,8 @@
 //! Defines the request/response format for CLI ↔ daemon communication.
 //! Uses a typed command enum (not wrapping CLI Commands) for clean separation.
 
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 
 /// IPC request from CLI to daemon.

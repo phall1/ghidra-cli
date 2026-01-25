@@ -2,6 +2,8 @@
 //!
 //! Defines the request/response types and RPC server/client implementations.
 
+#![allow(dead_code)]
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 

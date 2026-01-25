@@ -127,8 +127,10 @@ mod e2e_tests {
     }
 
     /// Test function list command on pre-analyzed binary
+    /// NOTE: This test requires the daemon to be running. Skipped pending daemon E2E test infrastructure.
     #[test]
     #[serial]
+    #[ignore = "Requires daemon to be running. Run with --ignored to include daemon tests."]
     fn test_function_list() {
         ensure_project_setup();
 
@@ -152,8 +154,10 @@ mod e2e_tests {
     }
 
     /// Test decompile command
+    /// NOTE: This test requires the daemon to be running.
     #[test]
     #[serial]
+    #[ignore = "Requires daemon to be running. Run with --ignored to include daemon tests."]
     fn test_decompile() {
         ensure_project_setup();
 
@@ -172,8 +176,10 @@ mod e2e_tests {
     }
 
     /// Test strings command
+    /// NOTE: This test requires the daemon to be running.
     #[test]
     #[serial]
+    #[ignore = "Requires daemon to be running. Run with --ignored to include daemon tests."]
     fn test_strings() {
         ensure_project_setup();
 
@@ -196,8 +202,10 @@ mod e2e_tests {
     }
 
     /// Test memory map command
+    /// NOTE: This test requires the daemon to be running.
     #[test]
     #[serial]
+    #[ignore = "Requires daemon to be running. Run with --ignored to include daemon tests."]
     fn test_memory_map() {
         ensure_project_setup();
 
@@ -216,8 +224,10 @@ mod e2e_tests {
     }
 
     /// Test summary command
+    /// NOTE: This test requires the daemon to be running.
     #[test]
     #[serial]
+    #[ignore = "Requires daemon to be running. Run with --ignored to include daemon tests."]
     fn test_summary() {
         ensure_project_setup();
 

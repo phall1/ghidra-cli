@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 use crate::error::{GhidraError, Result};

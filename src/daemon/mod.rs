@@ -96,7 +96,7 @@ pub async fn run(config: DaemonConfig) -> Result<()> {
     });
 
     // Also start the legacy RPC server for backwards compatibility
-    let queue = Arc::new(queue::CommandQueue::new(config.project_path.clone()));
+    let queue = Arc::new(queue::CommandQueue::new(config.project_path.clone(), bridge.clone()));
     let rpc_port = rpc::run_server(queue.clone(), config.port, shutdown_tx.clone()).await
         .context("Failed to start RPC server")?;
     info!("Legacy RPC server listening on port {} (for backwards compatibility)", rpc_port);
