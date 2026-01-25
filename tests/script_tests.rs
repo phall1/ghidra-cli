@@ -1,42 +1,45 @@
-//! Tests for daemon lifecycle commands.
+//! Tests for script execution operations.
 
 use assert_cmd::Command;
 use predicates::prelude::*;
 use serial_test::serial;
+use std::fs;
+use std::path::PathBuf;
 
 #[macro_use]
 mod common;
 use common::{ensure_test_project, DaemonTestHarness};
 
-const TEST_PROJECT: &str = "daemon-test";
+const TEST_PROJECT: &str = "script-test";
 const TEST_PROGRAM: &str = "sample_binary";
 
-#[test]
-#[serial]
-#[ignore] // Requires Ghidra installation
-fn test_daemon_start() {
+fn get_test_script_path() -> PathBuf {
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.push("tests");
+    path.push("fixtures");
+    path.push("test_script.py");
+    path
+}
 
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
+fn create_test_script() -> PathBuf {
+    let script_path = get_test_script_path();
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    fs::create_dir_all(script_path.parent().unwrap()).ok();
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
-        .env("GHIDRA_CLI_SOCKET", harness.socket_path())
-        .arg("daemon")
-        .arg("status")
-        .assert()
-        .success();
+    let script_content = r#"# Test script
+# @category Test
 
-    drop(harness);
+print("Test script executed")
+"#;
+
+    fs::write(&script_path, script_content).expect("Failed to write test script");
+    script_path
 }
 
 #[test]
 #[serial]
 #[ignore] // Requires Ghidra installation
-fn test_daemon_status() {
-
+fn test_script_list() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
@@ -45,11 +48,13 @@ fn test_daemon_status() {
     Command::cargo_bin("ghidra")
         .unwrap()
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
-        .arg("daemon")
-        .arg("status")
+        .arg("script")
+        .arg("list")
+        .arg("--program")
+        .arg(TEST_PROGRAM)
         .assert()
         .success()
-        .stdout(predicate::str::contains("running"));
+        .stdout(predicate::str::contains("scripts"));
 
     drop(harness);
 }
@@ -57,9 +62,10 @@ fn test_daemon_status() {
 #[test]
 #[serial]
 #[ignore] // Requires Ghidra installation
-fn test_daemon_ping() {
-
+fn test_script_run() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
+
+    let script_path = create_test_script();
 
     let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
         .expect("Failed to start daemon");
@@ -67,67 +73,63 @@ fn test_daemon_ping() {
     Command::cargo_bin("ghidra")
         .unwrap()
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
-        .arg("daemon")
-        .arg("ping")
-        .assert()
-        .success();
-
-    drop(harness);
-}
-
-#[test]
-#[serial]
-#[ignore] // Requires Ghidra installation
-fn test_daemon_clear_cache() {
-
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
-
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
-
-    Command::cargo_bin("ghidra")
-        .unwrap()
-        .env("GHIDRA_CLI_SOCKET", harness.socket_path())
-        .arg("daemon")
-        .arg("clear-cache")
-        .assert()
-        .success();
-
-    drop(harness);
-}
-
-#[test]
-#[serial]
-#[ignore] // Requires Ghidra installation
-fn test_daemon_lifecycle() {
-
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
-
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
-
-    Command::cargo_bin("ghidra")
-        .unwrap()
-        .env("GHIDRA_CLI_SOCKET", harness.socket_path())
-        .arg("daemon")
-        .arg("status")
+        .arg("script")
+        .arg("run")
+        .arg(script_path.to_str().unwrap())
+        .arg("--program")
+        .arg(TEST_PROGRAM)
         .assert()
         .success()
-        .stdout(predicate::str::contains("running"));
+        .stdout(predicate::str::contains("executed"));
+
+    drop(harness);
+
+    fs::remove_file(script_path).ok();
+}
+
+#[test]
+#[serial]
+#[ignore] // Requires Ghidra installation
+fn test_script_python_inline() {
+    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
+
+    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
+        .expect("Failed to start daemon");
 
     Command::cargo_bin("ghidra")
         .unwrap()
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
-        .arg("daemon")
-        .arg("ping")
+        .arg("script")
+        .arg("python")
+        .arg("output = 'Hello from Python'")
+        .arg("--program")
+        .arg(TEST_PROGRAM)
         .assert()
-        .success();
+        .success()
+        .stdout(predicate::str::contains("executed"));
+
+    drop(harness);
+}
+
+#[test]
+#[serial]
+#[ignore] // Requires Ghidra installation
+fn test_script_run_nonexistent() {
+    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
+
+    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
+        .expect("Failed to start daemon");
 
     Command::cargo_bin("ghidra")
         .unwrap()
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
-        .arg("daemon")
-        .arg("stop")
+        .arg("script")
+        .arg("run")
+        .arg("/nonexistent/script.py")
+        .arg("--program")
+        .arg(TEST_PROGRAM)
         .assert()
-        .success();
+        .failure();
+
+    drop(harness);
 }

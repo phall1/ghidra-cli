@@ -99,6 +99,16 @@ fn requires_daemon(command: &Commands) -> bool {
             | Commands::Dump(_)
             | Commands::Summary(_)
             | Commands::XRef(_)
+            | Commands::Symbol(_)
+            | Commands::Type(_)
+            | Commands::Comment(_)
+            | Commands::Graph(_)
+            | Commands::Find(_)
+            | Commands::Diff(_)
+            | Commands::Patch(_)
+            | Commands::Script(_)
+            | Commands::Disasm(_)
+            | Commands::Stats(_)
     )
 }
 
@@ -194,6 +204,21 @@ async fn execute_via_daemon(
                 XRefCommands::From(args) => client.xrefs_from(args.address.clone()).await?,
                 XRefCommands::List(_) => anyhow::bail!("XRef list not yet supported via daemon"),
             }
+        }
+        // New commands - forward through ExecuteCli
+        Commands::Symbol(_)
+        | Commands::Type(_)
+        | Commands::Comment(_)
+        | Commands::Graph(_)
+        | Commands::Find(_)
+        | Commands::Diff(_)
+        | Commands::Patch(_)
+        | Commands::Script(_)
+        | Commands::Disasm(_)
+        | Commands::Stats(_) => {
+            let command_json = serde_json::to_string(command)
+                .map_err(|e| anyhow::anyhow!("Failed to serialize command: {}", e))?;
+            client.execute_cli_json(command_json).await?
         }
         _ => anyhow::bail!("Command not supported via daemon"),
     };

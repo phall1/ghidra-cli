@@ -97,7 +97,7 @@ pub enum Command {
     /// List imports
     ListImports,
 
-    /// List exports  
+    /// List exports
     ListExports,
 
     /// Get memory map
@@ -124,6 +124,13 @@ pub enum Command {
 
     /// Shutdown the daemon
     Shutdown,
+
+    // === Generic CLI Command Forwarding ===
+    /// Execute a CLI command through the daemon's queue
+    ExecuteCli {
+        /// The serialized CLI command
+        command_json: String,
+    },
 }
 
 #[cfg(test)]

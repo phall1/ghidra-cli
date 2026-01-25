@@ -13,6 +13,7 @@ fn unique_project_name(prefix: &str) -> String {
 }
 
 #[test]
+#[ignore] // Requires Ghidra installation
 fn test_project_create() {
     let project = unique_project_name("create");
 
@@ -36,6 +37,7 @@ fn test_project_create() {
 }
 
 #[test]
+#[ignore] // Requires Ghidra installation
 fn test_project_list() {
     Command::cargo_bin("ghidra")
         .unwrap()
@@ -46,6 +48,7 @@ fn test_project_list() {
 }
 
 #[test]
+#[ignore] // Requires Ghidra installation
 fn test_project_info() {
     let project = unique_project_name("info");
 
@@ -76,6 +79,7 @@ fn test_project_info() {
 }
 
 #[test]
+#[ignore] // Requires Ghidra installation
 fn test_project_lifecycle() {
     let project = unique_project_name("lifecycle");
 
@@ -106,6 +110,7 @@ fn test_project_lifecycle() {
 
 #[test]
 #[serial]
+#[ignore] // Requires Ghidra installation
 fn test_import_binary() {
     let project = unique_project_name("import");
     let binary = common::fixture_binary();
@@ -134,6 +139,7 @@ fn test_import_binary() {
 
 #[test]
 #[serial]
+#[ignore] // Requires Ghidra installation
 fn test_analyze_program() {
     let project = unique_project_name("analyze");
     let binary = common::fixture_binary();

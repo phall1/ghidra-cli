@@ -541,13 +541,23 @@ pub enum DiffCommands {
     /// Compare two programs
     Programs(DiffProgramsArgs),
     /// Compare functions
-    Functions(QueryOptions),
+    Functions(DiffFunctionsArgs),
 }
 
 #[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct DiffProgramsArgs {
     pub program1: String,
     pub program2: String,
+    #[arg(long)]
+    pub format: Option<String>,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct DiffFunctionsArgs {
+    /// First function (name or address)
+    pub func1: String,
+    /// Second function (name or address)
+    pub func2: String,
     #[arg(long)]
     pub format: Option<String>,
 }

@@ -256,24 +256,24 @@ def handle_xrefs_from(args):
     """Get cross-references from an address."""
     if currentProgram is None:
         return {"error": "No program loaded"}
-    
+
     addr_str = args.get("address")
     if not addr_str:
         return {"error": "No address provided"}
-    
+
     addr = currentProgram.getAddressFactory().getAddress(addr_str)
     if addr is None:
         return {"error": "Invalid address: " + addr_str}
-    
+
     xrefs = []
     refs = currentProgram.getReferenceManager().getReferencesFrom(addr)
     function_manager = currentProgram.getFunctionManager()
-    
+
     for ref in refs:
         to_addr = ref.getToAddress()
         from_func = function_manager.getFunctionContaining(addr)
         to_func = function_manager.getFunctionContaining(to_addr)
-        
+
         xref_data = {
             "from": str(addr),
             "to": str(to_addr),
@@ -282,14 +282,509 @@ def handle_xrefs_from(args):
             "to_function": to_func.getName() if to_func else None
         }
         xrefs.append(xref_data)
-    
+
     return {"xrefs": xrefs, "count": len(xrefs)}
 
+def handle_program_close(args):
+    """Close the current program."""
+    if currentProgram is None:
+        return {"error": "No program loaded"}
+
+    program_name = currentProgram.getName()
+    state.getTool().closeProgram(currentProgram, False)
+
+    return {"status": "closed", "program": program_name}
+
+def handle_program_delete(args):
+    """Delete a program from the project."""
+    program_name = args.get("program")
+    if not program_name:
+        return {"error": "Program name required"}
+
+    project = state.getProject()
+    if project is None:
+        return {"error": "No project open"}
+
+    project_data = project.getProjectData()
+
+    try:
+        program_file = project_data.getFile(program_name)
+        if program_file is None:
+            return {"error": "Program not found: " + program_name}
+
+        project_data.deleteFile(program_name)
+        return {"status": "deleted", "program": program_name}
+    except Exception as e:
+        return {"error": "Failed to delete program: " + str(e)}
+
+def handle_program_export(args):
+    """Export program to specified format."""
+    if currentProgram is None:
+        return {"error": "No program loaded"}
+
+    export_format = args.get("format", "json")
+    output_path = args.get("output")
+
+    if export_format == "json":
+        data = handle_program_info({})
+        if "error" in data:
+            return data
+
+        function_manager = currentProgram.getFunctionManager()
+        functions = []
+        for func in function_manager.getFunctions(True):
+            functions.append({
+                "name": func.getName(),
+                "address": str(func.getEntryPoint()),
+                "size": func.getBody().getNumAddresses()
+            })
+        data["functions"] = functions
+
+        if output_path:
+            try:
+                with open(output_path, 'w') as f:
+                    json.dump(data, f, indent=2)
+                return {"status": "exported", "format": "json", "output": output_path}
+            except Exception as e:
+                return {"error": "Failed to write file: " + str(e)}
+        else:
+            return data
+    else:
+        return {"error": "Unsupported export format: " + export_format}
+
 # --- Command Router ---
+
+def handle_find_string(args):
+    """Find string references."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import find
+        return find.find_strings(args.get("pattern", ""))
+    except Exception as e:
+        return {"error": "Failed to find strings: " + str(e)}
+
+def handle_find_bytes(args):
+    """Find byte patterns."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import find
+        return find.find_bytes(args.get("hex", ""))
+    except Exception as e:
+        return {"error": "Failed to find bytes: " + str(e)}
+
+def handle_find_function(args):
+    """Find functions by pattern."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import find
+        return find.find_functions(args.get("pattern", ""))
+    except Exception as e:
+        return {"error": "Failed to find functions: " + str(e)}
+
+def handle_find_calls(args):
+    """Find calls to function."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import find
+        return find.find_calls(args.get("function", ""))
+    except Exception as e:
+        return {"error": "Failed to find calls: " + str(e)}
+
+def handle_find_crypto(args):
+    """Find crypto constants."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import find
+        return find.find_crypto()
+    except Exception as e:
+        return {"error": "Failed to find crypto: " + str(e)}
+
+def handle_find_interesting(args):
+    """Find interesting functions."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import find
+        return find.find_interesting()
+    except Exception as e:
+        return {"error": "Failed to find interesting: " + str(e)}
+
+def handle_script_run(args):
+    """Run a script file."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import script_runner
+        return script_runner.run_script(args.get("path", ""), args.get("args", []))
+    except Exception as e:
+        return {"error": "Failed to run script: " + str(e)}
+
+def handle_script_python(args):
+    """Execute Python code."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import script_runner
+        return script_runner.exec_python(args.get("code", ""))
+    except Exception as e:
+        return {"error": "Failed to execute Python: " + str(e)}
+
+def handle_script_java(args):
+    """Execute Java code."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import script_runner
+        return script_runner.exec_java(args.get("code", ""))
+    except Exception as e:
+        return {"error": "Failed to execute Java: " + str(e)}
+
+def handle_script_list(args):
+    """List available scripts."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import script_runner
+        return script_runner.list_scripts()
+    except Exception as e:
+        return {"error": "Failed to list scripts: " + str(e)}
+
+# --- Symbol Handlers ---
+
+def handle_symbol_list(args):
+    """List symbols."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import symbols
+        return symbols.list_symbols(args.get("filter"))
+    except Exception as e:
+        return {"error": "Failed to list symbols: " + str(e)}
+
+def handle_symbol_get(args):
+    """Get symbol details."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import symbols
+        return symbols.get_symbol(args.get("name", ""))
+    except Exception as e:
+        return {"error": "Failed to get symbol: " + str(e)}
+
+def handle_symbol_create(args):
+    """Create a symbol."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import symbols
+        return symbols.create_symbol(args.get("address", ""), args.get("name", ""))
+    except Exception as e:
+        return {"error": "Failed to create symbol: " + str(e)}
+
+def handle_symbol_delete(args):
+    """Delete a symbol."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import symbols
+        return symbols.delete_symbol(args.get("name", ""))
+    except Exception as e:
+        return {"error": "Failed to delete symbol: " + str(e)}
+
+def handle_symbol_rename(args):
+    """Rename a symbol."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import symbols
+        return symbols.rename_symbol(args.get("old_name", ""), args.get("new_name", ""))
+    except Exception as e:
+        return {"error": "Failed to rename symbol: " + str(e)}
+
+# --- Type Handlers ---
+
+def handle_type_list(args):
+    """List data types."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import types
+        return types.list_types()
+    except Exception as e:
+        return {"error": "Failed to list types: " + str(e)}
+
+def handle_type_get(args):
+    """Get type details."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import types
+        return types.get_type(args.get("name", ""))
+    except Exception as e:
+        return {"error": "Failed to get type: " + str(e)}
+
+def handle_type_create(args):
+    """Create a data type."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import types
+        # The Python script expects a type name; CLI passes "definition" as the name
+        return types.create_type(args.get("definition", args.get("name", "")))
+    except Exception as e:
+        return {"error": "Failed to create type: " + str(e)}
+
+def handle_type_apply(args):
+    """Apply a type to an address."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import types
+        return types.apply_type(args.get("address", ""), args.get("type_name", ""))
+    except Exception as e:
+        return {"error": "Failed to apply type: " + str(e)}
+
+# --- Comment Handlers ---
+
+def handle_comment_list(args):
+    """List comments."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import comments
+        return comments.list_comments()
+    except Exception as e:
+        return {"error": "Failed to list comments: " + str(e)}
+
+def handle_comment_get(args):
+    """Get comments at address."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import comments
+        return comments.get_comments(args.get("address", ""))
+    except Exception as e:
+        return {"error": "Failed to get comments: " + str(e)}
+
+def handle_comment_set(args):
+    """Set a comment at address."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import comments
+        return comments.set_comment(args.get("address", ""), args.get("text", ""), args.get("comment_type"))
+    except Exception as e:
+        return {"error": "Failed to set comment: " + str(e)}
+
+def handle_comment_delete(args):
+    """Delete comment at address."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import comments
+        return comments.delete_comment(args.get("address", ""))
+    except Exception as e:
+        return {"error": "Failed to delete comment: " + str(e)}
+
+# --- Graph Handlers ---
+
+def handle_graph_calls(args):
+    """Get call graph."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import graph
+        return graph.get_call_graph(args.get("limit"))
+    except Exception as e:
+        return {"error": "Failed to get call graph: " + str(e)}
+
+def handle_graph_callers(args):
+    """Get callers of a function."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import graph
+        return graph.get_callers(args.get("function", ""), args.get("depth", 1))
+    except Exception as e:
+        return {"error": "Failed to get callers: " + str(e)}
+
+def handle_graph_callees(args):
+    """Get callees of a function."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import graph
+        return graph.get_callees(args.get("function", ""), args.get("depth", 1))
+    except Exception as e:
+        return {"error": "Failed to get callees: " + str(e)}
+
+def handle_graph_export(args):
+    """Export call graph."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import graph
+        return graph.export_graph(args.get("format", "dot"))
+    except Exception as e:
+        return {"error": "Failed to export graph: " + str(e)}
+
+# --- Diff Handlers ---
+
+def handle_diff_programs(args):
+    """Diff two programs."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import diff
+        return diff.diff_programs(args.get("program1", ""), args.get("program2", ""))
+    except Exception as e:
+        return {"error": "Failed to diff programs: " + str(e)}
+
+def handle_diff_functions(args):
+    """Diff two functions."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import diff
+        return diff.diff_functions(args.get("func1", ""), args.get("func2", ""))
+    except Exception as e:
+        return {"error": "Failed to diff functions: " + str(e)}
+
+# --- Patch Handlers ---
+
+def handle_patch_bytes(args):
+    """Patch bytes at address."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import patch
+        return patch.patch_bytes(args.get("address", ""), args.get("hex", ""))
+    except Exception as e:
+        return {"error": "Failed to patch bytes: " + str(e)}
+
+def handle_patch_nop(args):
+    """NOP instruction at address."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import patch
+        return patch.patch_nop(args.get("address", ""))
+    except Exception as e:
+        return {"error": "Failed to NOP: " + str(e)}
+
+def handle_patch_export(args):
+    """Export patches."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import patch
+        return patch.export_patches(args.get("output", ""))
+    except Exception as e:
+        return {"error": "Failed to export patches: " + str(e)}
+
+# --- Disasm Handler ---
+
+def handle_disasm(args):
+    """Disassemble at address."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import disasm
+        return disasm.disassemble(args.get("address", ""), args.get("count", 10))
+    except Exception as e:
+        return {"error": "Failed to disassemble: " + str(e)}
+
+# --- Stats Handler ---
+
+def handle_stats(args):
+    """Get program statistics."""
+    import sys
+    import os
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        import stats
+        return stats.get_stats()
+    except Exception as e:
+        return {"error": "Failed to get stats: " + str(e)}
 
 COMMANDS = {
     "ping": handle_ping,
     "program_info": handle_program_info,
+    "program_close": handle_program_close,
+    "program_delete": handle_program_delete,
+    "program_export": handle_program_export,
     "list_functions": handle_list_functions,
     "decompile": handle_decompile,
     "list_strings": handle_list_strings,
@@ -298,6 +793,47 @@ COMMANDS = {
     "memory_map": handle_memory_map,
     "xrefs_to": handle_xrefs_to,
     "xrefs_from": handle_xrefs_from,
+    "find_string": handle_find_string,
+    "find_bytes": handle_find_bytes,
+    "find_function": handle_find_function,
+    "find_calls": handle_find_calls,
+    "find_crypto": handle_find_crypto,
+    "find_interesting": handle_find_interesting,
+    "script_run": handle_script_run,
+    "script_python": handle_script_python,
+    "script_java": handle_script_java,
+    "script_list": handle_script_list,
+    # Symbol commands
+    "symbol_list": handle_symbol_list,
+    "symbol_get": handle_symbol_get,
+    "symbol_create": handle_symbol_create,
+    "symbol_delete": handle_symbol_delete,
+    "symbol_rename": handle_symbol_rename,
+    # Type commands
+    "type_list": handle_type_list,
+    "type_get": handle_type_get,
+    "type_create": handle_type_create,
+    "type_apply": handle_type_apply,
+    # Comment commands
+    "comment_list": handle_comment_list,
+    "comment_get": handle_comment_get,
+    "comment_set": handle_comment_set,
+    "comment_delete": handle_comment_delete,
+    # Graph commands
+    "graph_calls": handle_graph_calls,
+    "graph_callers": handle_graph_callers,
+    "graph_callees": handle_graph_callees,
+    "graph_export": handle_graph_export,
+    # Diff commands
+    "diff_programs": handle_diff_programs,
+    "diff_functions": handle_diff_functions,
+    # Patch commands
+    "patch_bytes": handle_patch_bytes,
+    "patch_nop": handle_patch_nop,
+    "patch_export": handle_patch_export,
+    # Other commands
+    "disasm": handle_disasm,
+    "stats": handle_stats,
 }
 
 # --- Server Logic ---

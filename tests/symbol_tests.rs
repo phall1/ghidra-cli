@@ -1,4 +1,4 @@
-//! Tests for daemon lifecycle commands.
+//! Tests for symbol operations.
 
 use assert_cmd::Command;
 use predicates::prelude::*;
@@ -8,14 +8,13 @@ use serial_test::serial;
 mod common;
 use common::{ensure_test_project, DaemonTestHarness};
 
-const TEST_PROJECT: &str = "daemon-test";
+const TEST_PROJECT: &str = "symbol-test";
 const TEST_PROGRAM: &str = "sample_binary";
 
 #[test]
 #[serial]
 #[ignore] // Requires Ghidra installation
-fn test_daemon_start() {
-
+fn test_symbol_list() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
@@ -24,32 +23,13 @@ fn test_daemon_start() {
     Command::cargo_bin("ghidra")
         .unwrap()
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
-        .arg("daemon")
-        .arg("status")
-        .assert()
-        .success();
-
-    drop(harness);
-}
-
-#[test]
-#[serial]
-#[ignore] // Requires Ghidra installation
-fn test_daemon_status() {
-
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
-
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
-
-    Command::cargo_bin("ghidra")
-        .unwrap()
-        .env("GHIDRA_CLI_SOCKET", harness.socket_path())
-        .arg("daemon")
-        .arg("status")
+        .arg("symbol")
+        .arg("list")
+        .arg("--program")
+        .arg(TEST_PROGRAM)
         .assert()
         .success()
-        .stdout(predicate::str::contains("running"));
+        .stdout(predicate::str::contains("symbols"));
 
     drop(harness);
 }
@@ -57,8 +37,7 @@ fn test_daemon_status() {
 #[test]
 #[serial]
 #[ignore] // Requires Ghidra installation
-fn test_daemon_ping() {
-
+fn test_symbol_create_and_get() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
@@ -67,67 +46,85 @@ fn test_daemon_ping() {
     Command::cargo_bin("ghidra")
         .unwrap()
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
-        .arg("daemon")
-        .arg("ping")
+        .arg("symbol")
+        .arg("create")
+        .arg("0x1000")
+        .arg("test_symbol")
+        .arg("--program")
+        .arg(TEST_PROGRAM)
         .assert()
         .success();
 
-    drop(harness);
-}
-
-#[test]
-#[serial]
-#[ignore] // Requires Ghidra installation
-fn test_daemon_clear_cache() {
-
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
-
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
-
     Command::cargo_bin("ghidra")
         .unwrap()
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
-        .arg("daemon")
-        .arg("clear-cache")
-        .assert()
-        .success();
-
-    drop(harness);
-}
-
-#[test]
-#[serial]
-#[ignore] // Requires Ghidra installation
-fn test_daemon_lifecycle() {
-
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
-
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
-
-    Command::cargo_bin("ghidra")
-        .unwrap()
-        .env("GHIDRA_CLI_SOCKET", harness.socket_path())
-        .arg("daemon")
-        .arg("status")
+        .arg("symbol")
+        .arg("get")
+        .arg("test_symbol")
+        .arg("--program")
+        .arg(TEST_PROGRAM)
         .assert()
         .success()
-        .stdout(predicate::str::contains("running"));
+        .stdout(predicate::str::contains("test_symbol"));
+
+    drop(harness);
+}
+
+#[test]
+#[serial]
+#[ignore] // Requires Ghidra installation
+fn test_symbol_rename() {
+    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
+
+    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
+        .expect("Failed to start daemon");
 
     Command::cargo_bin("ghidra")
         .unwrap()
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
-        .arg("daemon")
-        .arg("ping")
+        .arg("symbol")
+        .arg("create")
+        .arg("0x2000")
+        .arg("old_symbol")
+        .arg("--program")
+        .arg(TEST_PROGRAM)
         .assert()
         .success();
 
     Command::cargo_bin("ghidra")
         .unwrap()
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
-        .arg("daemon")
-        .arg("stop")
+        .arg("symbol")
+        .arg("rename")
+        .arg("old_symbol")
+        .arg("new_symbol")
+        .arg("--program")
+        .arg(TEST_PROGRAM)
         .assert()
         .success();
+
+    drop(harness);
+}
+
+#[test]
+#[serial]
+#[ignore] // Requires Ghidra installation
+fn test_symbol_get_nonexistent() {
+    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
+
+    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
+        .expect("Failed to start daemon");
+
+    Command::cargo_bin("ghidra")
+        .unwrap()
+        .env("GHIDRA_CLI_SOCKET", harness.socket_path())
+        .arg("symbol")
+        .arg("get")
+        .arg("nonexistent_symbol_12345")
+        .arg("--program")
+        .arg(TEST_PROGRAM)
+        .assert()
+        .failure();
+
+    drop(harness);
 }

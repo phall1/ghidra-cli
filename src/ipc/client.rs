@@ -147,6 +147,11 @@ impl DaemonClient {
     pub async fn xrefs_from(&mut self, address: String) -> Result<serde_json::Value> {
         self.send_command(Command::XRefsFrom { address }).await
     }
+
+    /// Execute a CLI command through the daemon (takes pre-serialized JSON).
+    pub async fn execute_cli_json(&mut self, command_json: String) -> Result<serde_json::Value> {
+        self.send_command(Command::ExecuteCli { command_json }).await
+    }
 }
 
 /// Check if daemon is running (without establishing a full connection).

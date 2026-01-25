@@ -96,6 +96,19 @@ async fn handle_command_inner(
                 "address": address,
             }))).await
         }
+
+        Command::ExecuteCli { command_json } => {
+            // Deserialize and execute CLI command through the queue handlers
+            let cli_command: crate::cli::Commands = serde_json::from_str(&command_json)
+                .map_err(|e| anyhow::anyhow!("Failed to deserialize CLI command: {}", e))?;
+
+            // Execute using the queue's command execution logic
+            let result = crate::daemon::queue::execute_command_direct(bridge, &cli_command).await?;
+
+            // Parse the result as JSON (handlers return JSON strings)
+            Ok(serde_json::from_str(&result)
+                .unwrap_or_else(|_| json!({"output": result})))
+        }
     }
 }
 

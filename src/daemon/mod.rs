@@ -17,6 +17,7 @@ use crate::ghidra::bridge::GhidraBridge;
 
 pub mod cache;
 pub mod handler;
+pub mod handlers;
 pub mod ipc_server;
 pub mod process;
 pub mod queue;
