@@ -512,6 +512,8 @@ pub struct GraphFunctionArgs {
 
 #[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct GraphExportArgs {
+    /// Export format (e.g., dot, json)
+    #[arg(id = "export_format")]
     pub format: String,
     #[command(flatten)]
     pub options: QueryOptions,
@@ -527,8 +529,9 @@ pub struct DecompileArgs {
 #[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct DisasmArgs {
     pub address: String,
-    #[arg(long)]
-    pub count: Option<usize>,
+    /// Number of instructions to disassemble
+    #[arg(long = "instructions", short = 'n')]
+    pub num_instructions: Option<usize>,
     #[command(flatten)]
     pub options: QueryOptions,
 }
