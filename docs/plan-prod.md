@@ -19,7 +19,7 @@ Prepare ghidra-cli for professional open source release on GitHub. The project i
 | XRefs uses HeadlessExecutor not Bridge | Bridge requires daemon running -> HeadlessExecutor pattern matches other query types (functions, strings, etc.) -> consistent user experience |
 | Remove dead code over #[allow(dead_code)] | Dead code indicates incomplete features or abandoned refactoring -> removal is cleaner than suppression -> forces decision on whether code is needed |
 | Keep data.rs structs despite being unused | Structs define data model for future query types -> removing would require re-adding later -> suppress with #[allow(dead_code)] annotation |
-| Keep IPC infrastructure despite current non-use | Daemon mode planned for v0.2 with 10x faster queries -> removing would require full re-implementation -> suppression with #[allow(dead_code)] cheaper than removal+restoration |
+| Keep IPC infrastructure despite current non-use | IPC layer (src/ipc/) is newer local-socket infrastructure -> daemon already works via daemon/rpc.rs (TCP) -> IPC provides cross-platform local socket support for future -> suppress with #[allow(dead_code)] |
 | README 9-section structure | User confirmed standard open source structure -> covers all stakeholders (users, developers, contributors) -> comprehensive without being excessive |
 
 ### Rejected Alternatives
@@ -140,7 +140,20 @@ XRefs differs from other types by requiring a target address parameter, which is
 **Code Intent**:
 - Modify `Cargo.toml` line 8: change repository URL from `http://127.0.0.1:62915/git/akiselev/ghidra-cli` to `https://github.com/akiselev/ghidra-cli`
 
-**Code Changes**: (Developer fills)
+**Code Changes**:
+```diff
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -5,7 +5,7 @@ edition = "2021"
+ authors = ["Alexander Kiselev"]
+ description = "Rust CLI to run Ghidra headless for reverse engineering with Claude Code and other agents"
+ license = "GPL-3.0"
+-repository = "http://127.0.0.1:62915/git/akiselev/ghidra-cli"
++repository = "https://github.com/akiselev/ghidra-cli"
+
+ [dependencies]
+ # CLI framework
+```
 
 ---
 
@@ -176,7 +189,99 @@ XRefs differs from other types by requiring a target address parameter, which is
 - `query/mod.rs:3`: Remove `FilterExpr` from filter import
 - `main.rs:22`: Remove `error` from tracing import
 
-**Code Changes**: (Developer fills)
+**Code Changes**:
+```diff
+--- a/src/daemon/handler.rs
++++ b/src/daemon/handler.rs
+@@ -6,7 +6,7 @@ use std::sync::Arc;
+
+ use serde_json::json;
+ use tokio::sync::Mutex;
+-use tracing::{debug, info, warn};
++use tracing::debug;
+
+ use crate::ghidra::bridge::GhidraBridge;
+ use crate::ipc::protocol::{Command, Response};
+```
+
+```diff
+--- a/src/daemon/queue.rs
++++ b/src/daemon/queue.rs
+@@ -8,7 +8,7 @@ use std::sync::Arc;
+
+ use anyhow::{Context, Result};
+ use tokio::sync::{Mutex, Semaphore, oneshot};
+-use tracing::{info, warn, error};
++use tracing::{info, warn};
+
+ use crate::cli::Commands;
+ use crate::daemon::cache::Cache;
+```
+
+```diff
+--- a/src/daemon/ipc_server.rs
++++ b/src/daemon/ipc_server.rs
+@@ -13,7 +13,6 @@ use tracing::{debug, error, info};
+
+ use crate::ghidra::bridge::GhidraBridge;
+ use crate::ipc::protocol::{Command, Request, Response};
+-use crate::ipc::transport::{self, platform::Listener};
++use crate::ipc::transport;
+
+ use super::handler;
+```
+
+```diff
+--- a/src/ghidra/bridge.rs
++++ b/src/ghidra/bridge.rs
+@@ -6,7 +6,7 @@
+
+ use std::io::{BufRead, BufReader, Write};
+ use std::net::TcpStream;
+-use std::path::{Path, PathBuf};
++use std::path::PathBuf;
+ use std::process::{Child, Command, Stdio};
+ use std::sync::atomic::{AtomicBool, Ordering};
+ use std::sync::Arc;
+```
+
+```diff
+--- a/src/ghidra/setup.rs
++++ b/src/ghidra/setup.rs
+@@ -1,5 +1,5 @@
+ use std::fs::File;
+-use std::io::{Read, Write, Seek};
++use std::io::Write;
+ use std::path::{Path, PathBuf};
+ use anyhow::{Context, Result, anyhow};
+ use futures_util::StreamExt;
+```
+
+```diff
+--- a/src/query/mod.rs
++++ b/src/query/mod.rs
+@@ -1,6 +1,6 @@
+ use serde_json::Value as JsonValue;
+ use crate::error::{GhidraError, Result};
+-use crate::filter::{Filter, FilterExpr};
++use crate::filter::Filter;
+ use crate::format::{OutputFormat, Formatter, DefaultFormatter};
+ use crate::ghidra::GhidraClient;
+ use crate::ghidra::headless::HeadlessExecutor;
+```
+
+```diff
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -19,7 +19,7 @@ use ghidra::GhidraClient;
+ use query::{Query, DataType, FieldSelector, SortKey};
+ use std::path::PathBuf;
+-use tracing::{info, error};
++use tracing::info;
+
+ #[cfg(unix)]
+ use daemonize::Daemonize;
+```
 
 ---
 
@@ -217,7 +322,193 @@ XRefs differs from other types by requiring a target address parameter, which is
 - `ipc/client.rs`, `ipc/transport.rs`, `ipc/protocol.rs`: Add `#[allow(dead_code)]` with comment "IPC infrastructure for daemon communication - preserved for v0.2 daemon mode" (Decision: "Keep IPC infrastructure despite current non-use")
 - `format/mod.rs:47`: Remove `is_human_friendly()`, `is_machine_friendly()` if unused
 
-**Code Changes**: (Developer fills)
+**Code Changes**:
+```diff
+--- a/src/daemon/ipc_server.rs
++++ b/src/daemon/ipc_server.rs
+@@ -21,10 +21,6 @@ use super::handler;
+ pub struct IpcServer {
+     /// The Ghidra bridge instance
+     bridge: Arc<Mutex<Option<GhidraBridge>>>,
+-    // Shutdown signal and timing are unused: current IPC implementation
+-    // delegates to the TCP-based daemon/rpc.rs for shutdown coordination
+-    /// Shutdown signal sender
+-    shutdown_tx: broadcast::Sender<()>,
+-    /// Server start time
+-    started_at: Instant,
+ }
+
+ impl IpcServer {
+@@ -35,8 +31,6 @@ impl IpcServer {
+     ) -> Self {
+         Self {
+             bridge,
+-            shutdown_tx,
+-            started_at: Instant::now(),
+         }
+     }
+```
+
+```diff
+--- a/src/daemon/queue.rs
++++ b/src/daemon/queue.rs
+@@ -111,34 +111,6 @@ impl CommandQueue {
+         });
+     }
+
+-    // Removed sync/async queue depth and completed count methods:
+-    // Sync versions returned hardcoded 0 (unreliable), async versions unused.
+-    // Decision: remove incomplete/unused methods to reduce dead code.
+-    /// Get the current queue depth.
+-    pub fn queue_depth(&self) -> usize {
+-        // This is a synchronous method, so we can't await the lock
+-        // Return 0 as an estimate (actual depth available via async method)
+-        0
+-    }
+-
+-    /// Get the current queue depth (async version).
+-    pub async fn queue_depth_async(&self) -> usize {
+-        let queue = self.queue.lock().await;
+-        queue.len()
+-    }
+-
+-    /// Get the number of completed commands.
+-    pub fn completed_count(&self) -> usize {
+-        // This is a synchronous method, so we can't await the lock
+-        // Return 0 as an estimate (actual count available via async method)
+-        0
+-    }
+-
+-    /// Get the number of completed commands (async version).
+-    pub async fn completed_count_async(&self) -> usize {
+-        let count = self.completed_count.lock().await;
+-        *count
+-    }
+-
+     /// Get the project path.
+     pub fn project_path(&self) -> &Path {
+         &self.project_path
+```
+
+```diff
+--- a/src/config.rs
++++ b/src/config.rs
+@@ -150,13 +150,6 @@ impl Config {
+         None
+     }
+
+-    pub fn get_timeout(&self) -> u64 {
+-        std::env::var("GHIDRA_TIMEOUT")
+-            .ok()
+-            .and_then(|s| s.parse().ok())
+-            .or(self.timeout)
+-            .unwrap_or(300)
+-    }
+-
+     pub fn get_default_program(&self) -> Option<String> {
+         std::env::var("GHIDRA_DEFAULT_PROGRAM")
+             .ok()
+```
+
+```diff
+--- a/src/daemon/cache.rs
++++ b/src/daemon/cache.rs
+@@ -78,20 +78,6 @@ impl Cache {
+         }
+     }
+
+-    /// Clear all cached entries.
+-    pub async fn clear(&self) {
+-        let mut entries = self.entries.write().await;
+-        entries.clear();
+-        debug!("Cache cleared");
+-    }
+-
+-    /// Remove expired entries.
+-    pub async fn cleanup(&self) {
+-        let mut entries = self.entries.write().await;
+-        let ttl = self.ttl;
+-        entries.retain(|_, entry| !entry.is_expired(ttl));
+-        debug!("Cache cleanup completed");
+-    }
+-
+     /// Generate a cache key for a command.
+     /// Only cacheable commands return Some.
+     fn cache_key(&self, command: &Commands) -> Option<String> {
+```
+
+```diff
+--- a/src/ghidra/data.rs
++++ b/src/ghidra/data.rs
+@@ -1,3 +1,5 @@
++// Data structures for query type implementations
++#![allow(dead_code)]
+ use serde::{Deserialize, Serialize};
+
+ #[derive(Debug, Clone, Serialize, Deserialize)]
+```
+
+```diff
+--- a/src/daemon/state.rs
++++ b/src/daemon/state.rs
+@@ -1,6 +1,8 @@
+ //! Daemon state management.
+ //!
+ //! Manages the state of loaded Ghidra projects and maintains metadata.
++// State tracking for daemon lifecycle management
++#![allow(dead_code)]
+
+ use std::path::{Path, PathBuf};
+ use std::sync::Arc;
+```
+
+```diff
+--- a/src/ipc/client.rs
++++ b/src/ipc/client.rs
+@@ -1,3 +1,5 @@
++// IPC infrastructure: provides cross-platform local socket support for daemon communication
++#![allow(dead_code)]
+ // IPC client implementation will go here
+```
+
+```diff
+--- a/src/ipc/transport.rs
++++ b/src/ipc/transport.rs
+@@ -1,3 +1,5 @@
++// IPC infrastructure: provides cross-platform local socket support for daemon communication
++#![allow(dead_code)]
+ // IPC transport layer implementation will go here
+```
+
+```diff
+--- a/src/ipc/protocol.rs
++++ b/src/ipc/protocol.rs
+@@ -1,3 +1,5 @@
++// IPC infrastructure: provides cross-platform local socket support for daemon communication
++#![allow(dead_code)]
+ use serde::{Deserialize, Serialize};
+```
+
+```diff
+--- a/src/format/mod.rs
++++ b/src/format/mod.rs
+@@ -44,14 +44,6 @@ impl OutputFormat {
+         }
+     }
+
+-    pub fn is_human_friendly(&self) -> bool {
+-        matches!(self, Self::Full | Self::Compact | Self::Table | Self::Tree)
+-    }
+-
+-    pub fn is_machine_friendly(&self) -> bool {
+-        matches!(self, Self::Json | Self::JsonCompact | Self::JsonStream | Self::Csv | Self::Tsv)
+-    }
+-}
+-
+ pub trait Formatter {
+     fn format<T: Serialize>(&self, data: &[T], format: OutputFormat) -> Result<String>;
+ }
+```
 
 ---
 
@@ -256,7 +547,88 @@ XRefs differs from other types by requiring a target address parameter, which is
 - `headless.rs`: Add `pub fn get_xrefs_to(&self, project: &str, program: &str, target: &str) -> Result<JsonValue>` method using existing `get_xrefs_to_script()` pattern
 - `cli.rs`: Add `--to <ADDRESS>` parameter to query subcommand, required when data_type is xrefs (Decision: "XRefs requires target address")
 
-**Code Changes**: (Developer fills)
+**Code Changes**:
+```diff
+--- a/src/query/mod.rs
++++ b/src/query/mod.rs
+@@ -49,6 +49,7 @@ impl DataType {
+
+ pub struct Query {
+     pub data_type: DataType,
++    // Target address for XRefs queries; unused by other query types.
++    // XRefs requires specifying where references point (a function or address).
++    pub target: Option<String>,
+     pub filter: Option<Filter>,
+     pub fields: Option<FieldSelector>,
+     pub format: OutputFormat,
+@@ -62,6 +63,7 @@ impl Query {
+     pub fn new(data_type: DataType) -> Self {
+         Self {
+             data_type,
++            target: None,
+             filter: None,
+             fields: None,
+             format: OutputFormat::Json,
+@@ -97,6 +99,11 @@ impl Query {
+         self
+     }
+
++    pub fn with_target(mut self, target: String) -> Self {
++        self.target = Some(target);
++        self
++    }
++
+     pub fn execute(&self, client: &GhidraClient, project: &str, program: &str) -> Result<String> {
+         let executor = HeadlessExecutor::new(client);
+
+@@ -107,6 +114,11 @@ impl Query {
+             DataType::Imports => executor.list_imports(project, program)?,
+             DataType::Exports => executor.list_exports(project, program)?,
+             DataType::Memory => executor.get_memory_map(project, program)?,
++            DataType::XRefs => {
++                let target = self.target.as_ref()
++                    .ok_or_else(|| GhidraError::Other("XRefs query requires --to parameter".to_string()))?;
++                executor.get_xrefs_to(project, program, target)?
++            }
+             _ => {
+                 return Err(GhidraError::Other(format!(
+                     "Data type {:?} not yet implemented",
+```
+
+```diff
+--- a/src/cli.rs
++++ b/src/cli.rs
+@@ -145,6 +145,10 @@ pub struct QueryArgs {
+     /// Filter expression
+     #[arg(short, long)]
+     pub filter: Option<String>,
++
++    /// Target address or function name (required for xrefs)
++    #[arg(long)]
++    pub to: Option<String>,
+
+     /// Field selection (comma-separated)
+     #[arg(long)]
+```
+
+```diff
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -483,6 +483,11 @@ fn handle_query(args: QueryArgs) -> anyhow::Result<()> {
+     // Build query
+     let mut query = Query::new(data_type);
+
++    // Target address for XRefs query type
++    if let Some(target) = args.to {
++        query = query.with_target(target);
++    }
++
+     // Add filter if provided
+     if let Some(filter_str) = args.filter {
+         let filter = filter::Filter::parse(&filter_str)?;
+```
+
+Note: `get_xrefs_to()` method already exists in headless.rs at lines 182-190, no changes needed to headless.rs.
 
 ---
 
@@ -293,7 +665,94 @@ XRefs differs from other types by requiring a target address parameter, which is
   - Query xrefs --to 0xdeadbeef (invalid address)
   - Assert success (returns empty array, not error)
 
-**Code Changes**: (Developer fills)
+**Code Changes**:
+```diff
+--- a/tests/e2e.rs
++++ b/tests/e2e.rs
+@@ -232,4 +232,67 @@ mod e2e_tests {
+             .assert()
+             .success()
+             .stdout(predicate::str::contains("Program Summary"));
+     }
++
++    /// Test xrefs query by function name
++    #[test]
++    #[serial]
++    fn test_xrefs_by_name() {
++        ensure_project_setup();
++
++        let mut cmd = Command::cargo_bin("ghidra").unwrap();
++        cmd.arg("query")
++            .arg("xrefs")
++            .arg("--to")
++            .arg("main")
++            .arg("--project")
++            .arg(PROJECT_NAME)
++            .arg("--program")
++            .arg(PROGRAM_NAME)
++            .timeout(std::time::Duration::from_secs(300))
++            .assert()
++            .success()
++            .stdout(predicate::str::contains("from"))
++            .stdout(predicate::str::contains("to"))
++            .stdout(predicate::str::contains("ref_type"));
++    }
++
++    /// Test xrefs query by address
++    #[test]
++    #[serial]
++    fn test_xrefs_by_address() {
++        ensure_project_setup();
++
++        // First get the entry point address from summary
++        let mut summary_cmd = Command::cargo_bin("ghidra").unwrap();
++        let summary_output = summary_cmd
++            .arg("summary")
++            .arg("--project")
++            .arg(PROJECT_NAME)
++            .arg("--program")
++            .arg(PROGRAM_NAME)
++            .timeout(std::time::Duration::from_secs(300))
++            .output()
++            .expect("Failed to get summary");
++
++        // Query xrefs using a hardcoded entry point (typical for x86_64 ELF)
++        let mut cmd = Command::cargo_bin("ghidra").unwrap();
++        cmd.arg("query")
++            .arg("xrefs")
++            .arg("--to")
++            .arg("0x00100000") // Common entry point for test binary
++            .arg("--project")
++            .arg(PROJECT_NAME)
++            .arg("--program")
++            .arg(PROGRAM_NAME)
++            .timeout(std::time::Duration::from_secs(300))
++            .assert()
++            .success();
++    }
++
++    /// Test xrefs query to nonexistent address (should return empty array)
++    #[test]
++    #[serial]
++    fn test_xrefs_nonexistent() {
++        ensure_project_setup();
++
++        let mut cmd = Command::cargo_bin("ghidra").unwrap();
++        cmd.arg("query")
++            .arg("xrefs")
++            .arg("--to")
++            .arg("0xdeadbeef")
++            .arg("--project")
++            .arg(PROJECT_NAME)
++            .arg("--program")
++            .arg(PROGRAM_NAME)
++            .timeout(std::time::Duration::from_secs(300))
++            .assert()
++            .success()
++            .stdout(predicate::str::contains("[]"));
++    }
+ }
+```
 
 ---
 
@@ -322,7 +781,227 @@ XRefs differs from other types by requiring a target address parameter, which is
 - Sections: Overview, Features, Installation, Quick Start, CLI Reference (brief), AI Agent Integration (link to CLAUDE_SKILL.md), Configuration, Development, Contributing, License
 - Include code examples for: ghidra doctor, ghidra import, ghidra query functions, ghidra decompile
 
-**Code Changes**: (Developer fills)
+**Code Changes**:
+```diff
+--- a/README.md
++++ b/README.md
+@@ -1,4 +1,215 @@
+ # Ghidra CLI
+
+ A high-performance Rust CLI for automating Ghidra reverse engineering tasks, designed for both direct usage and AI agent integration (like Claude Code).
+
++## Overview
++
++`ghidra-cli` is a Rust-based command-line interface for Ghidra, the NSA's reverse engineering platform. It enables:
++
++- **Headless automation**: Run Ghidra analysis without the GUI
++- **Query-based data extraction**: Functions, strings, imports, exports, memory maps, cross-references
++- **Decompilation**: Extract C pseudocode from binaries
++- **Project management**: Create, import, and manage Ghidra projects from the command line
++- **AI agent integration**: Structured output formats (JSON, CSV) for use with Claude Code and other AI tools
++
++## Features
++
++- **Universal query system**: Query any Ghidra data type (functions, strings, xrefs, etc.) with filtering, sorting, and pagination
++- **Multiple output formats**: JSON, CSV, TSV, table, minimal
++- **Headless execution**: Runs Ghidra scripts without opening the GUI
++- **Built-in setup**: Automatic Ghidra download and installation
++- **Fast**: Rust implementation with optimized Jython scripts
++- **Type-safe**: Rust's type system ensures reliable operations
++
++## Installation
++
++### Prerequisites
++
++- **JDK 17+** (required by Ghidra)
++- **Ghidra 10.x+** (can be auto-installed via `ghidra setup`)
++
++### From source
++
++```bash
++git clone https://github.com/akiselev/ghidra-cli
++cd ghidra-cli
++cargo build --release
++cargo install --path .
++```
++
++### Install Ghidra
++
++If you don't have Ghidra installed, use the built-in setup command:
++
++```bash
++ghidra setup
++```
++
++This downloads and installs the latest Ghidra release automatically.
++
++## Quick Start
++
++### 1. Verify installation
++
++```bash
++ghidra doctor
++```
++
++### 2. Import a binary
++
++```bash
++ghidra import /path/to/binary --project my-project --program my-binary
++```
++
++### 3. Query functions
++
++```bash
++# List all functions
++ghidra query functions --project my-project --program my-binary
++
++# List functions with filtering
++ghidra query functions --project my-project --program my-binary --filter "size > 100"
++
++# Output as CSV
++ghidra query functions --project my-project --program my-binary --format csv
++```
++
++### 4. Decompile a function
++
++```bash
++ghidra decompile main --project my-project --program my-binary
++```
++
++### 5. Query cross-references
++
++```bash
++# XRefs to main function
++ghidra query xrefs --to main --project my-project --program my-binary
++
++# XRefs to a specific address
++ghidra query xrefs --to 0x401000 --project my-project --program my-binary
++```
++
++### Quick analysis
++
++For a one-shot analysis without setting up a project:
++
++```bash
++ghidra quick /path/to/binary
++```
++
++This imports, analyzes, and displays a summary in one command.
++
++## CLI Reference
++
++### Core Commands
++
++- `ghidra query <type>` - Query Ghidra data (functions, strings, imports, exports, xrefs, memory)
++- `ghidra decompile <target>` - Decompile a function by name or address
++- `ghidra import <binary>` - Import a binary into a project
++- `ghidra analyze` - Run Ghidra analysis on a program
++- `ghidra summary` - Display program summary
++- `ghidra quick <binary>` - Quick analysis (import + analyze + summary)
++
++### Project Management
++
++- `ghidra project create <name>` - Create a new project
++- `ghidra project list` - List all projects
++- `ghidra project info <name>` - Show project details
++- `ghidra project delete <name>` - Delete a project
++
++### Configuration
++
++- `ghidra config list` - Show current configuration
++- `ghidra config get <key>` - Get a specific config value
++- `ghidra config set <key> <value>` - Set a config value
++- `ghidra set-default program <name>` - Set default program
++- `ghidra set-default project <name>` - Set default project
++
++### Utilities
++
++- `ghidra doctor` - Verify installation and configuration
++- `ghidra init` - Initialize configuration
++- `ghidra setup` - Download and install Ghidra
++- `ghidra version` - Show version information
++
++### Query Options
++
++All query commands support:
++
++- `--filter <expr>` - Filter results (e.g., `"name LIKE main"`, `"size > 100"`)
++- `--fields <fields>` - Select specific fields (comma-separated)
++- `--sort <field>` - Sort by field (prefix with `-` for descending)
++- `--limit <n>` - Limit number of results
++- `--offset <n>` - Skip first N results
++- `--format <format>` - Output format (json, csv, tsv, table, minimal)
++- `--count` - Only return count of results
++
++## AI Agent Integration
++
++ghidra-cli is designed for AI agent integration. See [CLAUDE_SKILL.md](CLAUDE_SKILL.md) for detailed usage with Claude Code, including:
++
++- Skill configuration for Claude Code
++- Example workflows and commands
++- Advanced usage patterns
++- Tool integration examples
++
++### Example: Using with Claude Code
++
++```bash
++# Claude can use this to analyze a binary
++ghidra query functions --project malware-analysis --program sample.exe --format json
++```
++
++The JSON output is structured for parsing by AI agents, enabling automated reverse engineering workflows.
++
++## Configuration
++
++Configuration is stored in `~/.config/ghidra-cli/config.yaml` (Linux/macOS) or `%APPDATA%\ghidra-cli\config.yaml` (Windows).
++
++### Environment Variables
++
++- `GHIDRA_INSTALL_DIR` - Path to Ghidra installation
++- `GHIDRA_PROJECT_DIR` - Default project directory
++- `GHIDRA_DEFAULT_PROJECT` - Default project name
++- `GHIDRA_DEFAULT_PROGRAM` - Default program name
++- `GHIDRA_TIMEOUT` - Timeout for Ghidra operations (seconds)
++
++### Configuration File
++
++```yaml
++ghidra_install_dir: /path/to/ghidra_10.4_PUBLIC
++ghidra_project_dir: ~/git
++default_project: my-project
++default_program: my-binary
++default_output_format: json
++timeout: 300
++```
++
++## Development
++
++### Building from source
++
++```bash
++cargo build --release
++```
++
++### Running tests
++
++```bash
++# Unit tests
++cargo test
++
++# E2E tests (requires Ghidra installation)
++cargo test --test e2e
++```
++
++## Contributing
++
++Contributions are welcome! Please open an issue or pull request on [GitHub](https://github.com/akiselev/ghidra-cli).
++
++## License
++
++GPL-3.0 - See [LICENSE](LICENSE) for details.
++
++Ghidra is developed by the National Security Agency and is licensed separately under the Apache License 2.0.
+```
 
 ---
 
