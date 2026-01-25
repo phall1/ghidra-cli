@@ -1,9 +1,9 @@
+#![allow(dead_code)]
+
 use serde_json::Value as JsonValue;
 use crate::error::{GhidraError, Result};
 use crate::filter::Filter;
 use crate::format::{OutputFormat, Formatter, DefaultFormatter};
-use crate::ghidra::GhidraClient;
-use crate::ghidra::headless::HeadlessExecutor;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DataType {
@@ -97,39 +97,16 @@ impl Query {
         self
     }
 
-    pub fn execute(&self, client: &GhidraClient, project: &str, program: &str) -> Result<String> {
-        let executor = HeadlessExecutor::new(client);
-
-        // Fetch data based on type
-        let data = match self.data_type {
-            DataType::Functions => executor.list_functions(project, program)?,
-            DataType::Strings => executor.list_strings(project, program)?,
-            DataType::Imports => executor.list_imports(project, program)?,
-            DataType::Exports => executor.list_exports(project, program)?,
-            DataType::Memory => executor.get_memory_map(project, program)?,
-            _ => {
-                return Err(GhidraError::Other(format!(
-                    "Data type {:?} not yet implemented",
-                    self.data_type
-                )));
-            }
-        };
-
-        // Data should be an array
-        let data_array = match data {
-            JsonValue::Array(arr) => arr,
-            _ => {
-                return Err(GhidraError::ExecutionFailed(
-                    "Expected array from Ghidra script".to_string()
-                ));
-            }
-        };
-
+    /// Process query results from pre-fetched data.
+    ///
+    /// Note: Data fetching is now handled by the daemon via IPC.
+    /// This method only handles filtering, field selection, sorting, and formatting.
+    pub fn process_results(&self, data: Vec<JsonValue>) -> Result<String> {
         // Apply filter
         let filtered = if let Some(filter) = &self.filter {
-            self.apply_filter(&data_array, filter)?
+            self.apply_filter(&data, filter)?
         } else {
-            data_array
+            data
         };
 
         // Apply field selection

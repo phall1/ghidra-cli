@@ -9,15 +9,13 @@ mod ipc;
 mod query;
 
 use clap::Parser;
-use cli::{Cli, Commands, DaemonCommands, QueryArgs, QueryOptions, SetupArgs};
+use cli::{Cli, Commands, DaemonCommands, SetupArgs};
 use config::Config;
 use daemon::process::{get_data_dir, get_running_daemon_info, ensure_not_running};
 use daemon::rpc as daemon_rpc;
 use daemon::{DaemonConfig, run as run_daemon};
 use error::{GhidraError, Result};
-use format::OutputFormat;
 use ghidra::GhidraClient;
-use query::{Query, DataType, FieldSelector, SortKey};
 use std::path::PathBuf;
 use tracing::info;
 
@@ -52,22 +50,27 @@ async fn main() {
 
 fn run(cli: Cli) -> anyhow::Result<()> {
     match cli.command {
-        Commands::Query(args) => handle_query(args),
+        // Non-daemon commands
         Commands::Init => handle_init(),
         Commands::Doctor => handle_doctor(),
         Commands::Version => handle_version(),
         Commands::Import(args) => handle_import(args),
         Commands::Analyze(args) => handle_analyze(args),
-        Commands::Summary(args) => handle_summary(args.options),
         Commands::Quick(args) => handle_quick(args),
-        Commands::Function(cmd) => handle_function_command(cmd),
-        Commands::Strings(cmd) => handle_strings_command(cmd),
-        Commands::Memory(cmd) => handle_memory_command(cmd),
-        Commands::Dump(cmd) => handle_dump_command(cmd),
-        Commands::Decompile(args) => handle_decompile(args),
         Commands::Config(cmd) => handle_config_command(cmd),
         Commands::SetDefault(args) => handle_set_default(args),
         Commands::Project(args) => handle_project_command(args.command),
+        // Commands requiring daemon are handled by run_with_daemon_check
+        Commands::Query(_)
+        | Commands::Summary(_)
+        | Commands::Function(_)
+        | Commands::Strings(_)
+        | Commands::Memory(_)
+        | Commands::Dump(_)
+        | Commands::Decompile(_)
+        | Commands::XRef(_) => {
+            unreachable!("Daemon-required commands should go through run_with_daemon_check")
+        }
         _ => {
             println!("Command not yet implemented");
             Ok(())
@@ -538,280 +541,6 @@ fn daemonize_windows(daemon_config: DaemonConfig, port: Option<u16>) -> anyhow::
     Ok(())
 }
 
-fn handle_query(args: QueryArgs) -> anyhow::Result<()> {
-    let config = Config::load()?;
-    let client = GhidraClient::new(config.clone())?;
-
-    // Resolve program and project
-    let program = resolve_program(&args.program, &config)?;
-    let project = resolve_project(&args.project, &config, &program)?;
-
-    // Parse data type
-    let data_type = DataType::from_str(&args.data_type)?;
-
-    // Build query
-    let mut query = Query::new(data_type);
-
-    // Add filter if provided
-    if let Some(filter_str) = args.filter {
-        let filter = filter::Filter::parse(&filter_str)?;
-        query = query.with_filter(filter);
-    }
-
-    // Add format
-    let format = if args.json {
-        OutputFormat::Json
-    } else if let Some(fmt) = args.format {
-        OutputFormat::from_str(&fmt)?
-    } else {
-        // Auto-detect based on TTY
-        format::auto_detect_format(atty::is(atty::Stream::Stdout))
-    };
-    query = query.with_format(format);
-
-    // Add limit
-    if let Some(limit) = args.limit {
-        query = query.with_limit(limit);
-    }
-
-    // Add offset
-    if let Some(offset) = args.offset {
-        query = query.with_offset(offset);
-    }
-
-    // Add sort
-    if let Some(sort_str) = args.sort {
-        let sort_keys = SortKey::parse(&sort_str);
-        query.sort = Some(sort_keys);
-    }
-
-    // Add field selection
-    if let Some(fields_str) = args.fields {
-        let selector = FieldSelector::parse(&fields_str)?;
-        query.fields = Some(selector);
-    }
-
-    // Count only?
-    if args.count {
-        query = query.count_only();
-    }
-
-    // Execute query
-    let result = query.execute(&client, &project, &program)?;
-    println!("{}", result);
-
-    Ok(())
-}
-
-fn handle_function_command(cmd: cli::FunctionCommands) -> anyhow::Result<()> {
-    use cli::FunctionCommands;
-
-    match cmd {
-        FunctionCommands::List(opts) => {
-            let args = QueryArgs {
-                data_type: "functions".to_string(),
-                program: opts.program,
-                project: opts.project,
-                filter: opts.filter,
-                fields: opts.fields,
-                format: opts.format,
-                limit: opts.limit,
-                offset: opts.offset,
-                sort: opts.sort,
-                count: opts.count,
-                json: opts.json,
-            };
-            handle_query(args)
-        }
-        FunctionCommands::Decompile(args) => {
-            // Decompile specific function
-            let query_args = QueryArgs {
-                data_type: "functions".to_string(),
-                program: args.options.program,
-                project: args.options.project,
-                filter: Some(format!("address={} OR name={}", args.target, args.target)),
-                fields: args.options.fields,
-                format: args.options.format,
-                limit: Some(1),
-                offset: None,
-                sort: None,
-                count: false,
-                json: args.options.json,
-            };
-            handle_decompile_impl(args.target, query_args)
-        }
-        _ => {
-            println!("Function subcommand not yet implemented");
-            Ok(())
-        }
-    }
-}
-
-fn handle_decompile(args: cli::DecompileArgs) -> anyhow::Result<()> {
-    let query_args = QueryArgs {
-        data_type: "functions".to_string(),
-        program: args.options.program,
-        project: args.options.project,
-        filter: None,
-        fields: None,
-        format: Some("c".to_string()),
-        limit: None,
-        offset: None,
-        sort: None,
-        count: false,
-        json: false,
-    };
-    handle_decompile_impl(args.target, query_args)
-}
-
-fn handle_decompile_impl(target: String, args: QueryArgs) -> anyhow::Result<()> {
-    let config = Config::load()?;
-    let client = GhidraClient::new(config.clone())?;
-
-    let program = resolve_program(&args.program, &config)?;
-    let project = resolve_project(&args.project, &config, &program)?;
-
-    // Use headless executor to decompile
-    let executor = ghidra::headless::HeadlessExecutor::new(&client);
-    let result = executor.decompile_function(&project, &program, &target)?;
-
-    // Format output
-    if let Some(code) = result.get("code") {
-        if let Some(code_str) = code.as_str() {
-            println!("{}", code_str);
-            return Ok(());
-        }
-    }
-
-    println!("{}", serde_json::to_string_pretty(&result)?);
-    Ok(())
-}
-
-fn handle_strings_command(cmd: cli::StringsCommands) -> anyhow::Result<()> {
-    use cli::StringsCommands;
-
-    match cmd {
-        StringsCommands::List(opts) => {
-            let args = QueryArgs {
-                data_type: "strings".to_string(),
-                program: opts.program,
-                project: opts.project,
-                filter: opts.filter,
-                fields: opts.fields,
-                format: opts.format,
-                limit: opts.limit,
-                offset: opts.offset,
-                sort: opts.sort,
-                count: opts.count,
-                json: opts.json,
-            };
-            handle_query(args)
-        }
-        _ => {
-            println!("Strings subcommand not yet implemented");
-            Ok(())
-        }
-    }
-}
-
-fn handle_memory_command(cmd: cli::MemoryCommands) -> anyhow::Result<()> {
-    use cli::MemoryCommands;
-
-    match cmd {
-        MemoryCommands::Map(opts) => {
-            let args = QueryArgs {
-                data_type: "memory".to_string(),
-                program: opts.program,
-                project: opts.project,
-                filter: opts.filter,
-                fields: opts.fields,
-                format: opts.format,
-                limit: opts.limit,
-                offset: opts.offset,
-                sort: opts.sort,
-                count: opts.count,
-                json: opts.json,
-            };
-            handle_query(args)
-        }
-        _ => {
-            println!("Memory subcommand not yet implemented");
-            Ok(())
-        }
-    }
-}
-
-fn handle_dump_command(cmd: cli::DumpCommands) -> anyhow::Result<()> {
-    use cli::DumpCommands;
-
-    match cmd {
-        DumpCommands::Imports(opts) => {
-            let args = QueryArgs {
-                data_type: "imports".to_string(),
-                program: opts.program,
-                project: opts.project,
-                filter: opts.filter,
-                fields: opts.fields,
-                format: opts.format,
-                limit: opts.limit,
-                offset: opts.offset,
-                sort: opts.sort,
-                count: opts.count,
-                json: opts.json,
-            };
-            handle_query(args)
-        }
-        DumpCommands::Exports(opts) => {
-            let args = QueryArgs {
-                data_type: "exports".to_string(),
-                program: opts.program,
-                project: opts.project,
-                filter: opts.filter,
-                fields: opts.fields,
-                format: opts.format,
-                limit: opts.limit,
-                offset: opts.offset,
-                sort: opts.sort,
-                count: opts.count,
-                json: opts.json,
-            };
-            handle_query(args)
-        }
-        DumpCommands::Functions(opts) => {
-            let args = QueryArgs {
-                data_type: "functions".to_string(),
-                program: opts.program,
-                project: opts.project,
-                filter: opts.filter,
-                fields: opts.fields,
-                format: opts.format,
-                limit: opts.limit,
-                offset: opts.offset,
-                sort: opts.sort,
-                count: opts.count,
-                json: opts.json,
-            };
-            handle_query(args)
-        }
-        DumpCommands::Strings(opts) => {
-            let args = QueryArgs {
-                data_type: "strings".to_string(),
-                program: opts.program,
-                project: opts.project,
-                filter: opts.filter,
-                fields: opts.fields,
-                format: opts.format,
-                limit: opts.limit,
-                offset: opts.offset,
-                sort: opts.sort,
-                count: opts.count,
-                json: opts.json,
-            };
-            handle_query(args)
-        }
-    }
-}
-
 fn handle_init() -> anyhow::Result<()> {
     println!("Ghidra CLI Initialization");
     println!("========================\n");
@@ -958,39 +687,6 @@ fn handle_analyze(args: cli::AnalyzeArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn handle_summary(opts: QueryOptions) -> anyhow::Result<()> {
-    let config = Config::load()?;
-    let client = GhidraClient::new(config.clone())?;
-
-    let program = resolve_program(&opts.program, &config)?;
-    let project = resolve_project(&opts.project, &config, &program)?;
-
-    println!("Program Summary");
-    println!("===============\n");
-
-    // Get program info
-    let executor = ghidra::headless::HeadlessExecutor::new(&client);
-    let info = executor.get_program_info(&project, &program)?;
-
-    if let Some(name) = info.get("name") {
-        println!("Name: {}", name);
-    }
-    if let Some(format) = info.get("executable_format") {
-        println!("Format: {}", format);
-    }
-    if let Some(lang) = info.get("language") {
-        println!("Language: {}", lang);
-    }
-    if let Some(count) = info.get("function_count") {
-        println!("Functions: {}", count);
-    }
-    if let Some(count) = info.get("instruction_count") {
-        println!("Instructions: {}", count);
-    }
-
-    Ok(())
-}
-
 fn handle_quick(args: cli::QuickArgs) -> anyhow::Result<()> {
     let config = Config::load()?;
     let client = GhidraClient::new(config.clone())?;
@@ -1008,21 +704,14 @@ fn handle_quick(args: cli::QuickArgs) -> anyhow::Result<()> {
     println!("[2/3] Running analysis...");
     client.analyze_program(&project, &program_name)?;
 
-    // Summary
-    println!("[3/3] Generating summary...\n");
-    let opts = QueryOptions {
-        program: Some(program_name),
-        project: Some(project),
-        filter: None,
-        fields: None,
-        format: None,
-        limit: None,
-        offset: None,
-        sort: None,
-        count: false,
-        json: false,
-    };
-    handle_summary(opts)?;
+    // Done
+    println!("[3/3] Done!\n");
+    println!("Analysis complete. To query the binary, start the daemon:");
+    println!("  ghidra daemon start --project {} --program {}", project, program_name);
+    println!("\nThen run queries like:");
+    println!("  ghidra function list");
+    println!("  ghidra decompile main");
+    println!("  ghidra summary");
 
     Ok(())
 }
