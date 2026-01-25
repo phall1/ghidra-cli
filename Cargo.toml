@@ -88,6 +88,7 @@ daemonize = "0.5"
 assert_cmd = "2.0"
 predicates = "3.0"
 tempfile = "3.8"
+serial_test = "3.0"
 
 [[bin]]
 name = "ghidra"
