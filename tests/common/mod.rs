@@ -1,4 +1,16 @@
 //! Common test utilities for E2E tests.
+//!
+//! This module provides:
+//! - `schemas`: Typed data structures for JSON output validation
+//! - `helpers`: Fluent test helpers and utilities
+//! - `DaemonTestHarness`: Daemon lifecycle management for tests
+
+pub mod helpers;
+pub mod schemas;
+
+// Re-export commonly used items
+pub use helpers::{ghidra, get_function_address, normalize_json, normalize_output, GhidraCommand, GhidraResult};
+pub use schemas::Validate;
 
 use anyhow::{Context, Result};
 use std::path::PathBuf;
