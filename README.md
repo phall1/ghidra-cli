@@ -21,7 +21,8 @@ A high-performance Rust CLI for automating Ghidra reverse engineering tasks, des
 ```
 ┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
 │   CLI Command   │────▶│  Daemon (IPC)    │────▶│  GhidraBridge   │
-│  ghidra ...     │     │  Unix socket     │     │  TCP to Ghidra  │
+│  ghidra ...     │     │  Per-project     │     │  TCP to Ghidra  │
+│  --project X    │     │  Unix socket     │     │                 │
 └─────────────────┘     └──────────────────┘     └─────────────────┘
                                                           │
                                                           ▼
@@ -35,6 +36,7 @@ All commands go through the daemon, which maintains a persistent connection to G
 - **Consistent state** - Single Ghidra process for all operations
 - **Fast queries** - No JVM startup overhead per command
 - **Auto-start** - Daemon starts automatically when needed
+- **Per-project isolation** - Each project gets its own daemon and socket, enabling concurrent analysis of multiple binaries
 
 ## Installation
 
@@ -181,24 +183,40 @@ The daemon keeps Ghidra loaded in memory. It starts automatically when needed, b
 ghidra daemon start --project myproject --program mybinary
 
 # Check daemon status
-ghidra daemon status
+ghidra daemon status --project myproject
 
 # All commands use the daemon automatically
-ghidra function list    # Fast!
-ghidra decompile main   # Fast!
+ghidra function list --project myproject    # Fast!
+ghidra decompile main --project myproject   # Fast!
 
 # Stop daemon
-ghidra daemon stop
+ghidra daemon stop --project myproject
 
 # Restart with different program
 ghidra daemon restart --project myproject --program otherbinary
 ```
 
+### Multi-Project Support
+
+Each project gets its own daemon process and socket, allowing concurrent analysis:
+
+```bash
+# Work on multiple projects simultaneously
+ghidra quick ./binary_a --project projA
+ghidra quick ./binary_b --project projB
+
+# Query each independently
+ghidra function list --project projA
+ghidra function list --project projB
+```
+
 ## Output Formats
 
-Default output adapts to context:
-- **Interactive (TTY)**: Compact human-readable format
-- **Piped/scripted**: Compact JSON for machine parsing
+Default output is human-readable in all contexts. Use flags to request machine formats:
+
+- **Default**: Compact human-readable format (designed for both humans and AI agents)
+- **--json**: Compact JSON for machine parsing
+- **--pretty**: Pretty-printed JSON (indented, multi-line)
 
 Override with flags:
 ```bash

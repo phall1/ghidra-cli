@@ -2,18 +2,21 @@
 //!
 //! Abstracts Unix domain sockets (Unix/macOS) and named pipes (Windows)
 //! using the interprocess crate. Uses length-prefixed message framing.
+//!
+//! Socket paths are per-project to allow concurrent daemons for different
+//! projects without conflicts. Socket names use MD5 hash of the project path.
 
 #![allow(dead_code)]
 
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Maximum message size (10 MB)
 const MAX_MESSAGE_SIZE: u32 = 10 * 1024 * 1024;
 
-/// Socket name for the daemon
-const SOCKET_NAME: &str = "ghidra-cli.sock";
+/// Socket name prefix for the daemon
+const SOCKET_PREFIX: &str = "ghidra-cli";
 
 // Platform-specific imports and type aliases
 #[cfg(unix)]
@@ -29,6 +32,12 @@ pub mod platform {
 }
 
 pub use platform::*;
+
+/// Compute MD5 hash of project path for socket naming.
+/// Uses same hashing approach as lock files for consistency.
+fn project_hash(project_path: &Path) -> String {
+    format!("{:x}", md5::compute(project_path.to_string_lossy().as_bytes()))
+}
 
 /// Get the socket directory path.
 fn socket_dir() -> io::Result<PathBuf> {
@@ -49,36 +58,42 @@ fn socket_dir() -> io::Result<PathBuf> {
     }
 }
 
-/// Get the socket path.
+/// Get the socket path for a specific project.
 ///
-/// Checks GHIDRA_CLI_SOCKET env var first (used for testing), then falls back to default.
-pub fn socket_path() -> io::Result<PathBuf> {
+/// Checks GHIDRA_CLI_SOCKET env var first (used for testing), then falls back to
+/// project-specific socket using MD5 hash of project path.
+pub fn socket_path_for_project(project_path: &Path) -> io::Result<PathBuf> {
     if let Ok(path) = std::env::var("GHIDRA_CLI_SOCKET") {
         return Ok(PathBuf::from(path));
     }
     let dir = socket_dir()?;
-    Ok(dir.join(SOCKET_NAME))
+    let hash = project_hash(project_path);
+    Ok(dir.join(format!("{}-{}.sock", SOCKET_PREFIX, hash)))
 }
 
-/// Get the socket name for interprocess.
+/// Get the socket name for interprocess, for a specific project.
 ///
 /// On Unix, respects GHIDRA_CLI_SOCKET env var for test isolation.
-pub fn socket_name() -> String {
+pub fn socket_name_for_project(project_path: &Path) -> String {
     #[cfg(unix)]
     {
         // Check env var first (used for testing)
         if let Ok(path) = std::env::var("GHIDRA_CLI_SOCKET") {
             return path;
         }
-        socket_path()
+        socket_path_for_project(project_path)
             .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|_| format!("/tmp/ghidra-cli/{}", SOCKET_NAME))
+            .unwrap_or_else(|_| {
+                let hash = project_hash(project_path);
+                format!("/tmp/ghidra-cli/{}-{}.sock", SOCKET_PREFIX, hash)
+            })
     }
 
     #[cfg(windows)]
     {
-        // Windows uses named pipe namespace
-        format!("ghidra-cli-{}", std::process::id())
+        // Windows uses named pipe namespace with project hash
+        let hash = project_hash(project_path);
+        format!("{}-{}", SOCKET_PREFIX, hash)
     }
 }
 
@@ -99,11 +114,11 @@ pub fn ensure_socket_dir() -> io::Result<()> {
     }
 }
 
-/// Remove the socket file if it exists.
-pub fn remove_socket() -> io::Result<()> {
+/// Remove the socket file for a specific project if it exists.
+pub fn remove_socket_for_project(project_path: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {
-        let path = socket_path()?;
+        let path = socket_path_for_project(project_path)?;
         if path.exists() {
             std::fs::remove_file(&path)?;
         }
@@ -112,32 +127,34 @@ pub fn remove_socket() -> io::Result<()> {
 
     #[cfg(windows)]
     {
+        let _ = project_path; // unused on Windows
         Ok(())
     }
 }
 
-/// Check if the socket exists.
-pub fn socket_exists() -> bool {
+/// Check if the socket for a specific project exists.
+pub fn socket_exists_for_project(project_path: &Path) -> bool {
     #[cfg(unix)]
     {
-        socket_path().map(|p| p.exists()).unwrap_or(false)
+        socket_path_for_project(project_path).map(|p| p.exists()).unwrap_or(false)
     }
 
     #[cfg(windows)]
     {
         // On Windows, we can't easily check if a named pipe exists
         // We'll rely on connection attempts instead
+        let _ = project_path;
         true
     }
 }
 
-/// Create a listener for incoming IPC connections.
-pub async fn create_listener() -> io::Result<Listener> {
+/// Create a listener for incoming IPC connections for a specific project.
+pub async fn create_listener_for_project(project_path: &Path) -> io::Result<Listener> {
     // Ensure socket directory exists and clean up stale socket
     ensure_socket_dir()?;
-    remove_socket()?;
+    remove_socket_for_project(project_path)?;
 
-    let name = socket_name();
+    let name = socket_name_for_project(project_path);
 
     #[cfg(unix)]
     let listener = {
@@ -155,16 +172,16 @@ pub async fn create_listener() -> io::Result<Listener> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let path = socket_path()?;
+        let path = socket_path_for_project(project_path)?;
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
     }
 
     Ok(listener)
 }
 
-/// Connect to the daemon's IPC socket.
-pub async fn connect() -> io::Result<Stream> {
-    let name = socket_name();
+/// Connect to the daemon's IPC socket for a specific project.
+pub async fn connect_for_project(project_path: &Path) -> io::Result<Stream> {
+    let name = socket_name_for_project(project_path);
 
     #[cfg(unix)]
     let stream = {

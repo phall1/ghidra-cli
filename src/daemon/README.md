@@ -7,7 +7,8 @@ The daemon is the central execution authority for ghidra-cli. All commands route
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
 │ CLI Client  │────▶│ IPC Server  │────▶│   Handler   │────▶│ GhidraBridge│
-│ (DaemonCli) │     │ (Unix sock) │     │  (Routing)  │     │ (TCP→Ghidra)│
+│ (DaemonCli) │     │ Per-project │     │  (Routing)  │     │ (TCP→Ghidra)│
+│             │     │ Unix socket │     │             │     │             │
 └─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
                                                                     │
                                                                     ▼
@@ -16,6 +17,16 @@ The daemon is the central execution authority for ghidra-cli. All commands route
                                                             │ (In Ghidra) │
                                                             └─────────────┘
 ```
+
+### Per-Project Socket Isolation
+
+Each project gets its own Unix socket to enable concurrent daemon operation:
+
+- **Socket naming**: `ghidra-cli-{hash}.sock` where `{hash}` is MD5 of project path
+- **Socket location**: `$XDG_RUNTIME_DIR/ghidra-cli/` or `/tmp/ghidra-cli/`
+- **Lock file naming**: `daemon-{hash}.lock` (same hash for consistency)
+
+This allows multiple agents or terminals to work on different projects without conflicts.
 
 ## Key Components
 
@@ -56,7 +67,10 @@ Import, Analyze, and Quick commands auto-start the daemon:
 - **One program per daemon** - Daemon loads a single program
 - **Graceful shutdown** - Handles SIGTERM, SIGINT, IPC shutdown command
 - **Lock files** - Located at `~/.local/share/ghidra-cli/daemon-{hash}.lock`
+- **Socket files** - Located at `$XDG_RUNTIME_DIR/ghidra-cli/ghidra-cli-{hash}.sock`
 - **Logs** - Located at `~/.local/share/ghidra-cli/daemon.log`
+
+The `{hash}` is computed as `MD5(project_path_string)` ensuring each project has unique socket and lock file names.
 
 ## Handlers
 

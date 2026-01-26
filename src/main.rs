@@ -127,7 +127,7 @@ async fn run_with_daemon_check(cli: Cli) -> anyhow::Result<()> {
 
     ensure_daemon_running(&project_path).await?;
 
-    match ipc::client::DaemonClient::connect().await {
+    match ipc::client::DaemonClient::connect(&project_path).await {
         Ok(mut client) => {
             info!("Connected to daemon via IPC");
             let output = execute_via_daemon(&mut client, &cli.command, cli.json, cli.pretty).await?;
@@ -430,8 +430,8 @@ async fn handle_daemon_stop(project: Option<String>) -> anyhow::Result<()> {
     if let Some(daemon_info) = get_running_daemon_info(&data_dir, &project_path)? {
         println!("Stopping daemon (PID: {})...", daemon_info.pid);
 
-        // Connect via IPC and send shutdown
-        let mut client = ipc::client::DaemonClient::connect().await?;
+        // Connect via IPC and send shutdown (using project path for socket)
+        let mut client = ipc::client::DaemonClient::connect(&project_path).await?;
         client.shutdown().await?;
 
         println!("Daemon stopped successfully");
@@ -468,7 +468,7 @@ async fn handle_daemon_status(project: Option<String>) -> anyhow::Result<()> {
         println!("  Log file: {}", daemon_info.log_file.display());
 
         // Try to get detailed status from daemon via IPC
-        if let Ok(mut client) = ipc::client::DaemonClient::connect().await {
+        if let Ok(mut client) = ipc::client::DaemonClient::connect(&project_path).await {
             if let Ok(status) = client.status().await {
                 if let Some(bridge_running) = status.get("bridge_running").and_then(|v| v.as_bool()) {
                     println!("  Bridge: {}", if bridge_running { "running" } else { "stopped" });
@@ -489,7 +489,7 @@ async fn handle_daemon_ping(project: Option<String>) -> anyhow::Result<()> {
     let project_path = resolve_project_path(&project, &config)?;
 
     if let Some(_daemon_info) = get_running_daemon_info(&data_dir, &project_path)? {
-        let mut client = ipc::client::DaemonClient::connect().await?;
+        let mut client = ipc::client::DaemonClient::connect(&project_path).await?;
         client.ping().await?;
         println!("Daemon is responsive");
     } else {

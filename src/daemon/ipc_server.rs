@@ -2,9 +2,12 @@
 //!
 //! Uses local sockets (Unix domain sockets / Windows named pipes) with
 //! the new IPC layer instead of TCP.
+//!
+//! Each project gets its own socket for concurrent daemon operation.
 
 #![allow(dead_code)]
 
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -108,16 +111,17 @@ impl IpcServer {
     }
 }
 
-/// Run the IPC server.
+/// Run the IPC server for a specific project.
 pub async fn run_ipc_server(
     bridge: Arc<Mutex<Option<GhidraBridge>>>,
     shutdown_tx: broadcast::Sender<()>,
+    project_path: &Path,
 ) -> anyhow::Result<()> {
-    // Create the IPC listener
-    let listener = transport::create_listener().await
+    // Create the IPC listener for this project
+    let listener = transport::create_listener_for_project(project_path).await
         .map_err(|e| anyhow::anyhow!("Failed to create IPC listener: {}", e))?;
-    
-    info!("IPC server listening on {}", transport::socket_name());
+
+    info!("IPC server listening on {}", transport::socket_name_for_project(project_path));
 
     let server = Arc::new(IpcServer::new(bridge, shutdown_tx.clone()));
     let mut shutdown_rx = shutdown_tx.subscribe();
@@ -155,8 +159,8 @@ pub async fn run_ipc_server(
         }
     }
 
-    // Clean up socket
-    transport::remove_socket().ok();
-    
+    // Clean up socket for this project
+    transport::remove_socket_for_project(project_path).ok();
+
     Ok(())
 }

@@ -2,6 +2,8 @@
 
 #![allow(dead_code)]
 
+use std::path::Path;
+
 use anyhow::{Context, Result};
 use tokio::io::{ReadHalf, WriteHalf};
 
@@ -16,13 +18,13 @@ pub struct DaemonClient {
 }
 
 impl DaemonClient {
-    /// Connect to the running daemon.
-    pub async fn connect() -> Result<Self> {
-        let stream = transport::connect().await.map_err(|e| {
+    /// Connect to the running daemon for a specific project.
+    pub async fn connect(project_path: &Path) -> Result<Self> {
+        let stream = transport::connect_for_project(project_path).await.map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound
                 || e.kind() == std::io::ErrorKind::ConnectionRefused
             {
-                anyhow::anyhow!("Daemon not running")
+                anyhow::anyhow!("Daemon not running for project: {}", project_path.display())
             } else {
                 anyhow::anyhow!("Failed to connect to daemon: {}", e)
             }
@@ -182,7 +184,7 @@ impl DaemonClient {
     }
 }
 
-/// Check if daemon is running (without establishing a full connection).
-pub fn daemon_available() -> bool {
-    transport::socket_exists()
+/// Check if daemon is running for a specific project (without establishing a full connection).
+pub fn daemon_available(project_path: &Path) -> bool {
+    transport::socket_exists_for_project(project_path)
 }

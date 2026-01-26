@@ -18,12 +18,13 @@ A high-performance Rust CLI for automating Ghidra reverse engineering tasks. Des
 
 ## Architecture Overview
 
-ghidra-cli uses a **daemon-only architecture**:
+ghidra-cli uses a **daemon-only architecture** with **per-project isolation**:
 
 ```
 ┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
 │   CLI Command   │────▶│  Daemon (IPC)    │────▶│  GhidraBridge   │
-│  ghidra ...     │     │  Unix socket     │     │  TCP to Ghidra  │
+│  ghidra ...     │     │  Per-project     │     │  TCP to Ghidra  │
+│  --project X    │     │  Unix socket     │     │                 │
 └─────────────────┘     └──────────────────┘     └─────────────────┘
                                                           │
                                                           ▼
@@ -37,7 +38,8 @@ ghidra-cli uses a **daemon-only architecture**:
 - **Daemon**: Background process managing IPC and Ghidra bridge
 - **Bridge**: Python script running inside Ghidra, executing commands
 - **Auto-start**: Daemon starts automatically when needed (import, analyze, quick)
-- **One daemon per project**: Each project gets its own daemon instance
+- **Per-project sockets**: Each project gets its own socket at `~/.local/share/ghidra-cli/ghidra-cli-{hash}.sock`
+- **One daemon per project**: Multiple agents can work on different projects concurrently without conflicts
 - **One program per daemon**: Daemon loads a single program for queries
 
 ## When to Use
@@ -529,9 +531,34 @@ ghidra daemon start --project myproject --program mybinary --foreground
 ### Reset State
 
 ```bash
-# Stop all daemons
+# Stop daemon for a specific project
 ghidra daemon stop --project myproject
 
-# Remove lock files if needed
+# Remove lock files if needed (per-project, named by hash)
 rm ~/.local/share/ghidra-cli/daemon-*.lock
+
+# Remove sockets if needed (per-project, named by hash)
+rm /run/user/$UID/ghidra-cli/ghidra-cli-*.sock
+# Or on systems without XDG_RUNTIME_DIR:
+rm /tmp/ghidra-cli/ghidra-cli-*.sock
 ```
+
+## Multi-Project Support
+
+ghidra-cli supports concurrent analysis of multiple projects. Each project gets:
+- Its own daemon process (identified by lock file)
+- Its own Unix socket (named by project path hash)
+
+This allows multiple agents or terminals to work on different binaries without conflicts:
+
+```bash
+# Terminal 1: Work on project A
+ghidra quick ./binary_a --project projectA
+ghidra function list --project projectA
+
+# Terminal 2: Work on project B (concurrently)
+ghidra quick ./binary_b --project projectB
+ghidra decompile main --project projectB
+```
+
+Both daemons run independently and don't interfere with each other.

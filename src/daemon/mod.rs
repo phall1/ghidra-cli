@@ -86,8 +86,9 @@ pub async fn run(config: DaemonConfig) -> Result<()> {
     // Start IPC server task
     let ipc_bridge = bridge.clone();
     let ipc_shutdown_tx = shutdown_tx.clone();
+    let ipc_project_path = config.project_path.clone();
     let ipc_handle = tokio::spawn(async move {
-        if let Err(e) = ipc_server::run_ipc_server(ipc_bridge, ipc_shutdown_tx).await {
+        if let Err(e) = ipc_server::run_ipc_server(ipc_bridge, ipc_shutdown_tx, &ipc_project_path).await {
             error!("IPC server error: {}", e);
         }
     });

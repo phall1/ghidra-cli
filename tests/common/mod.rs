@@ -191,8 +191,11 @@ impl DaemonTestHarness {
         // Set GHIDRA_CLI_SOCKET for this process so client connects to the right socket
         // SAFETY: Tests run single-threaded (--test-threads=1), so no data race.
         unsafe { std::env::set_var("GHIDRA_CLI_SOCKET", &self.socket_path); }
+        // When GHIDRA_CLI_SOCKET is set, the project path is ignored
+        // but we still need to pass one for the function signature
+        let project_path = std::path::Path::new(&self.project);
         self.runtime.block_on(async {
-            ghidra_cli::ipc::client::DaemonClient::connect().await
+            ghidra_cli::ipc::client::DaemonClient::connect(project_path).await
         })
     }
 
