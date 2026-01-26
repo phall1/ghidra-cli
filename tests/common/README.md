@@ -114,20 +114,20 @@ ensure_test_project("my-project", "sample_binary");
 
 Handles "already exists" errors gracefully. Safe to call from multiple tests.
 
-## skip_if_no_ghidra! Macro
+## require_ghidra! Macro
 
-Tests should call this macro to skip gracefully when Ghidra unavailable:
+Tests should call this macro to assert Ghidra availability up front:
 
 ```rust
 #[test]
 fn test_something() {
-    skip_if_no_ghidra!();
+    require_ghidra!();
 
     // Test code runs only if ghidra doctor succeeds
 }
 ```
 
-Runs `ghidra doctor` and returns early if fails. Prints message: "Skipping test: Ghidra not available"
+Runs `ghidra doctor` and fails the test if Ghidra is unavailable, including doctor output.
 
 ## Design Decisions
 

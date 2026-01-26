@@ -21,15 +21,12 @@ pub mod handlers;
 pub mod ipc_server;
 pub mod process;
 pub mod queue;
-pub mod rpc;
 pub mod state;
 
 /// Daemon configuration.
 pub struct DaemonConfig {
     /// Path to the project directory
     pub project_path: PathBuf,
-    /// RPC port (None = auto-select) - kept for backwards compatibility
-    pub port: Option<u16>,
     /// Ghidra installation directory
     pub ghidra_install_dir: Option<PathBuf>,
     /// Log file path
@@ -81,9 +78,8 @@ pub async fn run(config: DaemonConfig) -> Result<()> {
         info!("No program specified, bridge will be started on first command");
     }
 
-    // Write lock file with a placeholder port (IPC doesn't use TCP ports)
-    let placeholder_port = config.port.unwrap_or(0);
-    let daemon_info = DaemonInfo::new(&config.project_path, placeholder_port, &config.log_file);
+    // Write lock file
+    let daemon_info = DaemonInfo::new(&config.project_path, &config.log_file);
     write_daemon_info(&data_dir, &config.project_path, &daemon_info)
         .context("Failed to write lock file")?;
 
@@ -95,12 +91,6 @@ pub async fn run(config: DaemonConfig) -> Result<()> {
             error!("IPC server error: {}", e);
         }
     });
-
-    // Also start the legacy RPC server for backwards compatibility
-    let queue = Arc::new(queue::CommandQueue::new(config.project_path.clone(), bridge.clone()));
-    let rpc_port = rpc::run_server(queue.clone(), config.port, shutdown_tx.clone()).await
-        .context("Failed to start RPC server")?;
-    info!("Legacy RPC server listening on port {} (for backwards compatibility)", rpc_port);
 
     // Wait for shutdown signal
     let shutdown_reason = wait_for_shutdown(shutdown_tx.clone()).await;
@@ -204,12 +194,11 @@ mod tests {
     fn test_daemon_config() {
         let config = DaemonConfig {
             project_path: PathBuf::from("/test/project"),
-            port: Some(17700),
             ghidra_install_dir: None,
             log_file: PathBuf::from("/test/logs/daemon.log"),
             program_name: None,
         };
 
-        assert_eq!(config.port, Some(17700));
+        assert_eq!(config.project_path, PathBuf::from("/test/project"));
     }
 }

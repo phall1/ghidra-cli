@@ -80,9 +80,6 @@ zip = "0.6"
 futures-util = "0.3"
 indicatif = "0.17"
 
-# Daemonization (Unix only)
-[target.'cfg(unix)'.dependencies]
-daemonize = "0.5"
 
 [dev-dependencies]
 assert_cmd = "2.0"

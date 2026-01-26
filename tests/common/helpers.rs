@@ -170,6 +170,7 @@ impl GhidraCommand {
     /// Configure for daemon connection.
     pub fn with_daemon(self, harness: &DaemonTestHarness) -> Self {
         self.env("GHIDRA_CLI_SOCKET", harness.socket_path().to_string_lossy())
+            .env("GHIDRA_CLI_DATA_DIR", harness.data_dir().to_string_lossy())
     }
 
     /// Set project and program arguments.

@@ -201,6 +201,11 @@ impl DaemonTestHarness {
         &self.socket_path
     }
 
+    /// Get data directory for this daemon instance.
+    pub fn data_dir(&self) -> &PathBuf {
+        &self.data_dir
+    }
+
     /// Get project name.
     pub fn project(&self) -> &str {
         &self.project
@@ -247,14 +252,20 @@ fn get_unique_data_dir() -> PathBuf {
     dir
 }
 
-/// Skip test if Ghidra is not available.
+/// Require Ghidra to be available for tests to proceed.
 #[macro_export]
-macro_rules! skip_if_no_ghidra {
+macro_rules! require_ghidra {
     () => {
-        let doctor = assert_cmd::Command::cargo_bin("ghidra").unwrap().arg("doctor").output();
-        if doctor.is_err() || !doctor.unwrap().status.success() {
-            eprintln!("Skipping test: Ghidra not available");
-            return;
-        }
+        let doctor = assert_cmd::Command::cargo_bin("ghidra")
+            .unwrap()
+            .arg("doctor")
+            .output()
+            .expect("Failed to run `ghidra doctor`");
+        assert!(
+            doctor.status.success(),
+            "Ghidra is not available for tests.\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&doctor.stdout),
+            String::from_utf8_lossy(&doctor.stderr)
+        );
     };
 }

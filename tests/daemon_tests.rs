@@ -14,6 +14,7 @@ const TEST_PROGRAM: &str = "sample_binary";
 #[test]
 #[serial]
 fn test_daemon_start() {
+    require_ghidra!();
 
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -22,6 +23,7 @@ fn test_daemon_start() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
+        .env("GHIDRA_CLI_DATA_DIR", harness.data_dir())
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
         .arg("daemon")
         .arg("status")
@@ -36,6 +38,7 @@ fn test_daemon_start() {
 #[test]
 #[serial]
 fn test_daemon_status() {
+    require_ghidra!();
 
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -44,6 +47,7 @@ fn test_daemon_status() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
+        .env("GHIDRA_CLI_DATA_DIR", harness.data_dir())
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
         .arg("daemon")
         .arg("status")
@@ -59,6 +63,7 @@ fn test_daemon_status() {
 #[test]
 #[serial]
 fn test_daemon_ping() {
+    require_ghidra!();
 
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -67,6 +72,7 @@ fn test_daemon_ping() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
+        .env("GHIDRA_CLI_DATA_DIR", harness.data_dir())
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
         .arg("daemon")
         .arg("ping")
@@ -81,6 +87,7 @@ fn test_daemon_ping() {
 #[test]
 #[serial]
 fn test_daemon_clear_cache() {
+    require_ghidra!();
 
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -89,6 +96,7 @@ fn test_daemon_clear_cache() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
+        .env("GHIDRA_CLI_DATA_DIR", harness.data_dir())
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
         .arg("daemon")
         .arg("clear-cache")
@@ -103,6 +111,7 @@ fn test_daemon_clear_cache() {
 #[test]
 #[serial]
 fn test_daemon_lifecycle() {
+    require_ghidra!();
 
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -111,6 +120,7 @@ fn test_daemon_lifecycle() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
+        .env("GHIDRA_CLI_DATA_DIR", harness.data_dir())
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
         .arg("daemon")
         .arg("status")
@@ -122,6 +132,7 @@ fn test_daemon_lifecycle() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
+        .env("GHIDRA_CLI_DATA_DIR", harness.data_dir())
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
         .arg("daemon")
         .arg("ping")
@@ -132,6 +143,7 @@ fn test_daemon_lifecycle() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
+        .env("GHIDRA_CLI_DATA_DIR", harness.data_dir())
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
         .arg("daemon")
         .arg("stop")
@@ -139,4 +151,104 @@ fn test_daemon_lifecycle() {
         .arg(TEST_PROJECT)
         .assert()
         .success();
+}
+
+#[test]
+#[serial]
+fn test_daemon_stop() {
+    require_ghidra!();
+
+    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
+
+    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
+        .expect("Failed to start daemon");
+
+    Command::cargo_bin("ghidra")
+        .unwrap()
+        .env("GHIDRA_CLI_DATA_DIR", harness.data_dir())
+        .env("GHIDRA_CLI_SOCKET", harness.socket_path())
+        .arg("daemon")
+        .arg("stop")
+        .arg("--project")
+        .arg(TEST_PROJECT)
+        .assert()
+        .success();
+
+    Command::cargo_bin("ghidra")
+        .unwrap()
+        .env("GHIDRA_CLI_DATA_DIR", harness.data_dir())
+        .env("GHIDRA_CLI_SOCKET", harness.socket_path())
+        .arg("daemon")
+        .arg("status")
+        .arg("--project")
+        .arg(TEST_PROJECT)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No daemon running"));
+
+    drop(harness);
+}
+
+#[test]
+#[serial]
+fn test_daemon_restart() {
+    require_ghidra!();
+
+    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
+
+    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
+        .expect("Failed to start daemon");
+
+    Command::cargo_bin("ghidra")
+        .unwrap()
+        .env("GHIDRA_CLI_DATA_DIR", harness.data_dir())
+        .env("GHIDRA_CLI_SOCKET", harness.socket_path())
+        .arg("daemon")
+        .arg("restart")
+        .arg("--project")
+        .arg(TEST_PROJECT)
+        .arg("--program")
+        .arg(TEST_PROGRAM)
+        .assert()
+        .success();
+
+    Command::cargo_bin("ghidra")
+        .unwrap()
+        .env("GHIDRA_CLI_DATA_DIR", harness.data_dir())
+        .env("GHIDRA_CLI_SOCKET", harness.socket_path())
+        .arg("daemon")
+        .arg("stop")
+        .arg("--project")
+        .arg(TEST_PROJECT)
+        .assert()
+        .success();
+
+    drop(harness);
+}
+
+#[test]
+#[serial]
+fn test_daemon_start_when_running() {
+    require_ghidra!();
+
+    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
+
+    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
+        .expect("Failed to start daemon");
+
+    Command::cargo_bin("ghidra")
+        .unwrap()
+        .env("GHIDRA_CLI_DATA_DIR", harness.data_dir())
+        .env("GHIDRA_CLI_SOCKET", harness.socket_path())
+        .arg("daemon")
+        .arg("start")
+        .arg("--project")
+        .arg(TEST_PROJECT)
+        .arg("--program")
+        .arg(TEST_PROGRAM)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("already running"));
+
+    drop(harness);
 }

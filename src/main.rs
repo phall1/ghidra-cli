@@ -12,15 +12,12 @@ use clap::Parser;
 use cli::{Cli, Commands, DaemonCommands, SetupArgs};
 use config::Config;
 use daemon::process::{get_data_dir, get_running_daemon_info, ensure_not_running};
-use daemon::rpc as daemon_rpc;
 use daemon::{DaemonConfig, run as run_daemon};
 use error::{GhidraError, Result};
 use ghidra::GhidraClient;
 use std::path::PathBuf;
 use tracing::info;
 
-#[cfg(unix)]
-use daemonize::Daemonize;
 
 #[tokio::main]
 async fn main() {
@@ -270,7 +267,6 @@ async fn handle_daemon_start(project: Option<String>, program: Option<String>, p
 
     let daemon_config = DaemonConfig {
         project_path: project_path.clone(),
-        port,
         ghidra_install_dir: config.ghidra_install_dir.map(PathBuf::from),
         log_file,
         program_name,
@@ -286,7 +282,7 @@ async fn handle_daemon_start(project: Option<String>, program: Option<String>, p
 
         #[cfg(unix)]
         {
-            daemonize_unix(daemon_config)?;
+            daemonize_unix(daemon_config, port)?;
         }
 
         #[cfg(windows)]
@@ -309,10 +305,10 @@ async fn handle_daemon_stop(project: Option<String>) -> anyhow::Result<()> {
     let project_path = resolve_project_path(&project, &config)?;
 
     if let Some(daemon_info) = get_running_daemon_info(&data_dir, &project_path)? {
-        println!("Stopping daemon (PID: {}, port: {})...", daemon_info.pid, daemon_info.port);
+        println!("Stopping daemon (PID: {})...", daemon_info.pid);
 
-        // Connect and send shutdown
-        let mut client = daemon_rpc::DaemonClient::connect(daemon_info.port).await?;
+        // Connect via IPC and send shutdown
+        let mut client = ipc::client::DaemonClient::connect().await?;
         client.shutdown().await?;
 
         println!("Daemon stopped successfully");
@@ -344,18 +340,16 @@ async fn handle_daemon_status(project: Option<String>) -> anyhow::Result<()> {
     if let Some(daemon_info) = get_running_daemon_info(&data_dir, &project_path)? {
         println!("Daemon is running:");
         println!("  PID: {}", daemon_info.pid);
-        println!("  Port: {}", daemon_info.port);
         println!("  Project: {}", daemon_info.project_path.display());
         println!("  Started: {}", daemon_info.started_at);
         println!("  Log file: {}", daemon_info.log_file.display());
 
-        // Try to get detailed status from daemon
-        if let Ok(mut client) = daemon_rpc::DaemonClient::connect(daemon_info.port).await {
+        // Try to get detailed status from daemon via IPC
+        if let Ok(mut client) = ipc::client::DaemonClient::connect().await {
             if let Ok(status) = client.status().await {
-                println!("\nDaemon status:");
-                println!("  Queue depth: {}", status.queue_depth);
-                println!("  Completed commands: {}", status.completed_commands);
-                println!("  Uptime: {} seconds", status.uptime_seconds);
+                if let Some(bridge_running) = status.get("bridge_running").and_then(|v| v.as_bool()) {
+                    println!("  Bridge: {}", if bridge_running { "running" } else { "stopped" });
+                }
             }
         }
     } else {
@@ -371,10 +365,10 @@ async fn handle_daemon_ping(project: Option<String>) -> anyhow::Result<()> {
     let data_dir = get_data_dir()?;
     let project_path = resolve_project_path(&project, &config)?;
 
-    if let Some(daemon_info) = get_running_daemon_info(&data_dir, &project_path)? {
-        let mut client = daemon_rpc::DaemonClient::connect(daemon_info.port).await?;
+    if let Some(_daemon_info) = get_running_daemon_info(&data_dir, &project_path)? {
+        let mut client = ipc::client::DaemonClient::connect().await?;
         client.ping().await?;
-        println!("Daemon is responsive (port: {})", daemon_info.port);
+        println!("Daemon is responsive");
     } else {
         println!("No daemon running for project: {}", project_path.display());
     }
@@ -460,13 +454,16 @@ async fn handle_setup(args: SetupArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Daemonize on Unix systems using fork and detach.
+/// Daemonize by spawning a detached process (cross-platform).
+///
+/// This approach spawns a new process with --foreground flag instead of forking,
+/// which avoids issues with Tokio runtime inheritance after fork.
 #[cfg(unix)]
-fn daemonize_unix(daemon_config: DaemonConfig) -> anyhow::Result<()> {
+fn daemonize_unix(daemon_config: DaemonConfig, port: Option<u16>) -> anyhow::Result<()> {
     use std::fs::OpenOptions;
+    use std::process::{Command, Stdio};
 
     let log_file_path = daemon_config.log_file.clone();
-    let project_path = daemon_config.project_path.clone();
 
     // Open log file for stdout/stderr
     let log_file = OpenOptions::new()
@@ -477,27 +474,37 @@ fn daemonize_unix(daemon_config: DaemonConfig) -> anyhow::Result<()> {
     let stdout = log_file.try_clone()?;
     let stderr = log_file;
 
-    // Get PID file path - use hash of project path like lock file
-    let data_dir = get_data_dir()?;
-    let project_hash = format!("{:x}", md5::compute(project_path.to_string_lossy().as_bytes()));
-    let pid_file = data_dir.join(format!("daemon-{}.pid", project_hash));
+    // Get the current executable path
+    let exe_path = std::env::current_exe()?;
 
-    // Configure daemonization
-    let daemonize = Daemonize::new()
-        .pid_file(pid_file)
-        .working_directory("/")
-        .stdout(stdout)
-        .stderr(stderr);
+    // Build the command to spawn ourselves with --foreground flag
+    let mut cmd = Command::new(exe_path);
+    cmd.arg("daemon")
+        .arg("start")
+        .arg("--foreground");
 
-    // Fork and daemonize
-    daemonize.start()
-        .map_err(|e| anyhow::anyhow!("Failed to daemonize: {}", e))?;
+    // Add project path
+    cmd.arg("--project")
+        .arg(daemon_config.project_path.to_string_lossy().to_string());
 
-    // We're now in the daemon process - initialize tokio runtime and run
-    let runtime = tokio::runtime::Runtime::new()?;
-    runtime.block_on(async {
-        run_daemon(daemon_config).await
-    })?;
+    // Add program if specified
+    if let Some(program) = &daemon_config.program_name {
+        cmd.arg("--program").arg(program);
+    }
+
+    // Add port if specified
+    if let Some(p) = port {
+        cmd.arg("--port").arg(p.to_string());
+    }
+
+    // Redirect stdout/stderr to log file, detach stdin
+    cmd.stdin(Stdio::null());
+    cmd.stdout(stdout);
+    cmd.stderr(stderr);
+
+    // Spawn the detached process
+    cmd.spawn()
+        .map_err(|e| anyhow::anyhow!("Failed to spawn daemon process: {}", e))?;
 
     Ok(())
 }

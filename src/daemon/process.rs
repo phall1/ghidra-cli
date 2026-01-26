@@ -16,8 +16,6 @@ use sysinfo::{System, Pid, ProcessRefreshKind};
 pub struct DaemonInfo {
     /// Process ID of the daemon
     pub pid: u32,
-    /// RPC port the daemon is listening on
-    pub port: u16,
     /// Project path being managed
     pub project_path: PathBuf,
     /// Log file path
@@ -28,10 +26,9 @@ pub struct DaemonInfo {
 
 impl DaemonInfo {
     /// Create new daemon info.
-    pub fn new(project_path: &Path, port: u16, log_file: &Path) -> Self {
+    pub fn new(project_path: &Path, log_file: &Path) -> Self {
         Self {
             pid: std::process::id(),
-            port,
             project_path: project_path.to_path_buf(),
             log_file: log_file.to_path_buf(),
             started_at: Utc::now(),
@@ -132,11 +129,7 @@ pub fn get_running_daemon_info(data_dir: &Path, project_path: &Path) -> Result<O
 /// Ensure no daemon is currently running for this project.
 pub fn ensure_not_running(data_dir: &Path, project_path: &Path) -> Result<()> {
     if let Some(info) = get_running_daemon_info(data_dir, project_path)? {
-        bail!(
-            "Daemon is already running (PID: {}, port: {})",
-            info.pid,
-            info.port
-        );
+        bail!("Daemon is already running (PID: {})", info.pid);
     }
     Ok(())
 }
@@ -150,11 +143,9 @@ mod tests {
     fn test_daemon_info_creation() {
         let info = DaemonInfo::new(
             Path::new("/test/project"),
-            17700,
             Path::new("/test/logs/daemon.log"),
         );
 
-        assert_eq!(info.port, 17700);
         assert_eq!(info.project_path, PathBuf::from("/test/project"));
     }
 
@@ -164,7 +155,7 @@ mod tests {
         let data_dir = temp_dir.path();
         let project_path = PathBuf::from("/test/project");
 
-        let info = DaemonInfo::new(&project_path, 17700, Path::new("/test/logs/daemon.log"));
+        let info = DaemonInfo::new(&project_path, Path::new("/test/logs/daemon.log"));
 
         // Write
         write_daemon_info(data_dir, &project_path, &info)?;
@@ -173,7 +164,6 @@ mod tests {
         let read_info = read_daemon_info(data_dir, &project_path)?;
         assert!(read_info.is_some());
         let read_info = read_info.unwrap();
-        assert_eq!(read_info.port, 17700);
         assert_eq!(read_info.pid, info.pid);
 
         // Remove

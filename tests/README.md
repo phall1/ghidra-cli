@@ -78,7 +78,7 @@ cargo test --test project_tests --lib
 
 ### Ghidra Installation
 
-Tests check for Ghidra availability using `skip_if_no_ghidra!()` macro. Tests skip with clear message if `ghidra doctor` fails.
+Tests assume Ghidra is installed. Use `require_ghidra!()` in tests that need a fast, explicit availability check; it fails the test if `ghidra doctor` fails.
 
 ### Test Fixtures
 
@@ -100,7 +100,7 @@ Add to appropriate file (`command_tests.rs`, `project_tests.rs`):
 ```rust
 #[test]
 fn test_my_command() {
-    skip_if_no_ghidra!();
+    require_ghidra!();
 
     Command::cargo_bin("ghidra")
         .unwrap()
@@ -118,7 +118,7 @@ Add to `daemon_tests.rs` or `query_tests.rs`:
 #[test]
 #[serial]
 fn test_my_query() {
-    skip_if_no_ghidra!();
+    require_ghidra!();
 
     let harness = &*HARNESS;  // Shared daemon instance
 

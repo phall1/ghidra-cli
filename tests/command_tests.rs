@@ -3,10 +3,13 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 
+#[macro_use]
 mod common;
 
 #[test]
 fn test_version() {
+    require_ghidra!();
+
     Command::cargo_bin("ghidra")
         .unwrap()
         .arg("version")
@@ -17,6 +20,8 @@ fn test_version() {
 
 #[test]
 fn test_doctor() {
+    require_ghidra!();
+
     Command::cargo_bin("ghidra")
         .unwrap()
         .arg("doctor")
@@ -27,6 +32,8 @@ fn test_doctor() {
 
 #[test]
 fn test_config_list() {
+    require_ghidra!();
+
     Command::cargo_bin("ghidra")
         .unwrap()
         .arg("config")
@@ -38,6 +45,8 @@ fn test_config_list() {
 
 #[test]
 fn test_config_get() {
+    require_ghidra!();
+
     Command::cargo_bin("ghidra")
         .unwrap()
         .arg("config")
@@ -49,6 +58,8 @@ fn test_config_get() {
 
 #[test]
 fn test_config_set() {
+    require_ghidra!();
+
     let temp = tempfile::tempdir().unwrap();
     let config_path = temp.path().join("config.yaml");
 
@@ -65,6 +76,8 @@ fn test_config_set() {
 
 #[test]
 fn test_config_reset() {
+    require_ghidra!();
+
     let temp = tempfile::tempdir().unwrap();
     let config_path = temp.path().join("config.yaml");
 
@@ -75,4 +88,57 @@ fn test_config_reset() {
         .arg("reset")
         .assert()
         .success();
+}
+
+#[test]
+fn test_init() {
+    require_ghidra!();
+
+    let temp = tempfile::tempdir().unwrap();
+    let config_path = temp.path().join("config.yaml");
+
+    Command::cargo_bin("ghidra")
+        .unwrap()
+        .env("GHIDRA_CLI_CONFIG", &config_path)
+        .arg("init")
+        .assert()
+        .success();
+
+    assert!(config_path.exists());
+}
+
+#[test]
+fn test_set_default_program() {
+    require_ghidra!();
+
+    let temp = tempfile::tempdir().unwrap();
+    let config_path = temp.path().join("config.yaml");
+
+    Command::cargo_bin("ghidra")
+        .unwrap()
+        .env("GHIDRA_CLI_CONFIG", &config_path)
+        .arg("set-default")
+        .arg("program")
+        .arg("sample_binary")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Default program set"));
+}
+
+#[test]
+fn test_set_default_project() {
+    require_ghidra!();
+
+    let temp = tempfile::tempdir().unwrap();
+    let config_path = temp.path().join("config.yaml");
+
+    Command::cargo_bin("ghidra")
+        .unwrap()
+        .env("GHIDRA_CLI_CONFIG", &config_path)
+        .arg("set-default")
+        .arg("project")
+        .arg("test-project")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Default project set"));
 }
