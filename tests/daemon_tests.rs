@@ -13,7 +13,6 @@ const TEST_PROGRAM: &str = "sample_binary";
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_daemon_start() {
 
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
@@ -26,6 +25,8 @@ fn test_daemon_start() {
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
         .arg("daemon")
         .arg("status")
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .assert()
         .success();
 
@@ -34,7 +35,6 @@ fn test_daemon_start() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_daemon_status() {
 
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
@@ -47,6 +47,8 @@ fn test_daemon_status() {
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
         .arg("daemon")
         .arg("status")
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .assert()
         .success()
         .stdout(predicate::str::contains("running"));
@@ -56,7 +58,6 @@ fn test_daemon_status() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_daemon_ping() {
 
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
@@ -69,6 +70,8 @@ fn test_daemon_ping() {
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
         .arg("daemon")
         .arg("ping")
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .assert()
         .success();
 
@@ -77,7 +80,6 @@ fn test_daemon_ping() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_daemon_clear_cache() {
 
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
@@ -90,6 +92,8 @@ fn test_daemon_clear_cache() {
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
         .arg("daemon")
         .arg("clear-cache")
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .assert()
         .success();
 
@@ -98,7 +102,6 @@ fn test_daemon_clear_cache() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_daemon_lifecycle() {
 
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
@@ -111,6 +114,8 @@ fn test_daemon_lifecycle() {
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
         .arg("daemon")
         .arg("status")
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .assert()
         .success()
         .stdout(predicate::str::contains("running"));
@@ -120,6 +125,8 @@ fn test_daemon_lifecycle() {
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
         .arg("daemon")
         .arg("ping")
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .assert()
         .success();
 
@@ -128,6 +135,8 @@ fn test_daemon_lifecycle() {
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
         .arg("daemon")
         .arg("stop")
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .assert()
         .success();
 }

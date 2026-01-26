@@ -40,10 +40,16 @@ impl DaemonInfo {
 }
 
 /// Get the data directory for daemon files.
+///
+/// Checks GHIDRA_CLI_DATA_DIR env var first (used for testing), then falls back to default.
 pub fn get_data_dir() -> Result<PathBuf> {
-    let data_dir = dirs::data_local_dir()
-        .context("Failed to get local data directory")?
-        .join("ghidra-cli");
+    let data_dir = if let Ok(path) = std::env::var("GHIDRA_CLI_DATA_DIR") {
+        PathBuf::from(path)
+    } else {
+        dirs::data_local_dir()
+            .context("Failed to get local data directory")?
+            .join("ghidra-cli")
+    };
 
     fs::create_dir_all(&data_dir)
         .context("Failed to create data directory")?;

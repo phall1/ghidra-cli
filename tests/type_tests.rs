@@ -13,7 +13,6 @@ const TEST_PROGRAM: &str = "sample_binary";
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_type_list() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -36,7 +35,6 @@ fn test_type_list() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_type_get_primitive() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -60,7 +58,6 @@ fn test_type_get_primitive() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_type_create() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -83,7 +80,6 @@ fn test_type_create() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_type_apply() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -107,7 +103,6 @@ fn test_type_apply() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_type_get_nonexistent() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 

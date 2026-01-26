@@ -38,7 +38,6 @@ print("Test script executed")
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_script_list() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -61,7 +60,6 @@ fn test_script_list() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_script_run() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -89,7 +87,6 @@ fn test_script_run() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_script_python_inline() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -113,7 +110,6 @@ fn test_script_python_inline() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_script_run_nonexistent() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 

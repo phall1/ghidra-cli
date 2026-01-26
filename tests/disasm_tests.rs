@@ -13,7 +13,6 @@ const TEST_PROGRAM: &str = "sample_binary";
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_disasm_at_main() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -36,7 +35,6 @@ fn test_disasm_at_main() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_disasm_with_instruction_limit() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -62,7 +60,6 @@ fn test_disasm_with_instruction_limit() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_disasm_at_data_section() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -83,7 +80,6 @@ fn test_disasm_at_data_section() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_disasm_invalid_address() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -104,7 +100,6 @@ fn test_disasm_invalid_address() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_disasm_small_count() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 

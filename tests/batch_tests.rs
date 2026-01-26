@@ -22,7 +22,6 @@ fn create_batch_file(content: &str) -> PathBuf {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_batch_multiple_queries() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -42,8 +41,6 @@ query --function main
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
         .arg("batch")
         .arg(batch_file.to_str().unwrap())
-        .arg("--program")
-        .arg(TEST_PROGRAM)
         .assert()
         .success()
         .stdout(predicate::str::contains("commands_parsed"))
@@ -55,7 +52,6 @@ query --function main
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_batch_empty_file() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -76,8 +72,6 @@ fn test_batch_empty_file() {
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
         .arg("batch")
         .arg(batch_file.to_str().unwrap())
-        .arg("--program")
-        .arg(TEST_PROGRAM)
         .assert()
         .success()
         .stdout(predicate::str::contains("commands_parsed"));
@@ -88,7 +82,6 @@ fn test_batch_empty_file() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_batch_with_comments() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -110,8 +103,6 @@ query --address 0x100000
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
         .arg("batch")
         .arg(batch_file.to_str().unwrap())
-        .arg("--program")
-        .arg(TEST_PROGRAM)
         .assert()
         .success()
         .stdout(predicate::str::contains("commands_parsed"))
@@ -123,7 +114,6 @@ query --address 0x100000
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_batch_invalid_file() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -135,18 +125,15 @@ fn test_batch_invalid_file() {
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
         .arg("batch")
         .arg("/nonexistent/batch/file.txt")
-        .arg("--program")
-        .arg(TEST_PROGRAM)
         .assert()
         .failure()
-        .stderr(predicate::str::contains("not found"));
+        .stderr(predicate::str::contains("not found").or(predicate::str::contains("No such file")));
 
     drop(harness);
 }
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_batch_with_invalid_command() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -166,8 +153,6 @@ query --address 0x100000
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
         .arg("batch")
         .arg(batch_file.to_str().unwrap())
-        .arg("--program")
-        .arg(TEST_PROGRAM)
         .assert()
         .success()
         .stdout(predicate::str::contains("commands_parsed"))

@@ -13,7 +13,6 @@ const TEST_PROGRAM: &str = "sample_binary";
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_patch_bytes() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -38,7 +37,6 @@ fn test_patch_bytes() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_patch_nop() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -62,7 +60,6 @@ fn test_patch_nop() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_patch_export() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -89,7 +86,6 @@ fn test_patch_export() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_patch_at_function_boundary() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -113,7 +109,6 @@ fn test_patch_at_function_boundary() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_patch_invalid_address() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 

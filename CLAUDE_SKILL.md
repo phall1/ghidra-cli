@@ -460,4 +460,240 @@ for addr in $FUNCS; do
 done
 ```
 
+## Daemon Mode
+
+The daemon keeps Ghidra loaded in memory for fast, interactive analysis. This is recommended for most workflows.
+
+### Starting the Daemon
+
+```bash
+# Start daemon for a specific program
+ghidra daemon start --program=<binary>
+
+# Check daemon status
+ghidra daemon status
+
+# Stop daemon
+ghidra daemon stop
+
+# Clear daemon cache
+ghidra daemon clear-cache
+```
+
+### Daemon-Mode Commands
+
+When the daemon is running, these commands execute instantly without reloading Ghidra:
+
+## Symbol Operations
+
+```bash
+# List all symbols
+ghidra symbol list
+
+# List symbols with filter
+ghidra symbol list --filter="main"
+
+# Get symbol details
+ghidra symbol get <name>
+
+# Create a symbol at address
+ghidra symbol create <address> <name>
+
+# Delete a symbol
+ghidra symbol delete <name>
+
+# Rename a symbol
+ghidra symbol rename <old_name> <new_name>
+```
+
+## Type Operations
+
+```bash
+# List all data types
+ghidra type list
+
+# Get type definition
+ghidra type get <type_name>
+
+# Create a new struct type
+ghidra type create <type_name>
+
+# Apply a type to an address
+ghidra type apply <address> <type_name>
+```
+
+## Comment Operations
+
+```bash
+# List all comments
+ghidra comment list
+
+# Get comments at address
+ghidra comment get <address>
+
+# Set a comment at address
+ghidra comment set <address> "<text>"
+
+# Set a specific comment type (pre, post, eol, plate)
+ghidra comment set <address> "<text>" --type=pre
+
+# Delete comment at address
+ghidra comment delete <address>
+```
+
+## Graph Operations
+
+```bash
+# Get call graph (with optional limit)
+ghidra graph calls --limit=100
+
+# Get callers of a function (with depth)
+ghidra graph callers <function_name> --depth=2
+
+# Get callees of a function
+ghidra graph callees <function_name> --depth=2
+
+# Export call graph (dot, json, gml)
+ghidra graph export --format=dot
+```
+
+## Find/Search Operations
+
+```bash
+# Find strings matching pattern
+ghidra find string "<pattern>"
+
+# Find byte patterns (hex)
+ghidra find bytes "90 90 90"
+
+# Find functions by pattern
+ghidra find function "<pattern>"
+
+# Find calls to a function
+ghidra find calls <function_name>
+
+# Find crypto constants (AES, DES, etc.)
+ghidra find crypto
+
+# Find interesting functions (suspicious names)
+ghidra find interesting
+```
+
+## Diff Operations
+
+```bash
+# Compare two programs
+ghidra diff programs <program1> <program2>
+```
+
+## Patch Operations
+
+```bash
+# Patch bytes at address
+ghidra patch bytes <address> <hex_bytes>
+
+# NOP instruction at address
+ghidra patch nop <address>
+
+# Export patched binary
+ghidra patch export <output_path>
+```
+
+## Script Execution
+
+```bash
+# Run a Python script file
+ghidra script run <script_path> [args...]
+
+# Execute inline Python code
+ghidra script python "<code>"
+
+# Execute inline Java code
+ghidra script java "<code>"
+
+# List available scripts
+ghidra script list
+```
+
+## Disassembly
+
+```bash
+# Disassemble at address
+ghidra disasm <address>
+
+# Disassemble with instruction count
+ghidra disasm <address> -n 20
+```
+
+## Batch Operations
+
+```bash
+# Run batch commands from file
+ghidra batch <script_file>
+```
+
+Batch file format (one command per line):
+```
+query functions --count
+decompile main
+symbol list
+```
+
+## Statistics
+
+```bash
+# Get program statistics
+ghidra stats
+```
+
+Returns: function count, instruction count, data count, memory usage, etc.
+
+## Daemon-Mode Workflows
+
+### Pattern 1: Interactive Analysis
+
+```bash
+# Start daemon
+ghidra daemon start --program=suspicious.exe
+
+# Run queries (fast, no reload)
+ghidra stats
+ghidra symbol list
+ghidra find crypto
+ghidra decompile main
+
+# Stop when done
+ghidra daemon stop
+```
+
+### Pattern 2: Symbol/Type Annotation
+
+```bash
+# Start daemon
+ghidra daemon start --program=target.exe
+
+# Add symbols
+ghidra symbol create 0x401000 "decrypt_function"
+ghidra symbol create 0x402000 "key_buffer"
+
+# Add comments
+ghidra comment set 0x401000 "Main decryption routine"
+
+# Apply types
+ghidra type apply 0x402000 "byte[32]"
+```
+
+### Pattern 3: Call Graph Analysis
+
+```bash
+# Get full call graph
+ghidra graph calls --limit=1000
+
+# Trace callers to interesting function
+ghidra graph callers "WinExec" --depth=5
+
+# Trace callees from main
+ghidra graph callees "main" --depth=3
+```
+
 This skill gives you powerful, token-efficient access to Ghidra for binary analysis!

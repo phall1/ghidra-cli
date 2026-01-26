@@ -50,15 +50,26 @@ fn socket_dir() -> io::Result<PathBuf> {
 }
 
 /// Get the socket path.
+///
+/// Checks GHIDRA_CLI_SOCKET env var first (used for testing), then falls back to default.
 pub fn socket_path() -> io::Result<PathBuf> {
+    if let Ok(path) = std::env::var("GHIDRA_CLI_SOCKET") {
+        return Ok(PathBuf::from(path));
+    }
     let dir = socket_dir()?;
     Ok(dir.join(SOCKET_NAME))
 }
 
 /// Get the socket name for interprocess.
+///
+/// On Unix, respects GHIDRA_CLI_SOCKET env var for test isolation.
 pub fn socket_name() -> String {
     #[cfg(unix)]
     {
+        // Check env var first (used for testing)
+        if let Ok(path) = std::env::var("GHIDRA_CLI_SOCKET") {
+            return path;
+        }
         socket_path()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| format!("/tmp/ghidra-cli/{}", SOCKET_NAME))

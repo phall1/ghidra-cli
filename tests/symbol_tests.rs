@@ -13,7 +13,6 @@ const TEST_PROGRAM: &str = "sample_binary";
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_symbol_list() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -36,7 +35,6 @@ fn test_symbol_list() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_symbol_create_and_get() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -72,7 +70,6 @@ fn test_symbol_create_and_get() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_symbol_rename() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -108,7 +105,6 @@ fn test_symbol_rename() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_symbol_get_nonexistent() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 

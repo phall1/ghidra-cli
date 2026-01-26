@@ -60,6 +60,11 @@ impl Config {
     }
 
     pub fn config_path() -> Result<PathBuf> {
+        // Check for override via environment variable
+        if let Ok(path) = std::env::var("GHIDRA_CLI_CONFIG") {
+            return Ok(PathBuf::from(path));
+        }
+
         let config_dir = dirs::config_dir()
             .ok_or_else(|| GhidraError::ConfigError("Could not determine config directory".to_string()))?;
 

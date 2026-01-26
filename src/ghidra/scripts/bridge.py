@@ -10,11 +10,47 @@
 import socket
 import json
 import threading
+import sys
+import os
 from ghidra.util.task import ConsoleTaskMonitor
 from ghidra.app.decompiler import DecompInterface
 
 # Default bridge port
 BRIDGE_PORT = 18700
+
+# Global registry for Ghidra objects that imported modules can access
+import builtins
+builtins.currentProgram = currentProgram
+try:
+    builtins.currentAddress = currentAddress
+except:
+    builtins.currentAddress = None
+try:
+    builtins.currentLocation = currentLocation
+except:
+    builtins.currentLocation = None
+try:
+    builtins.state = state
+except:
+    builtins.state = None
+try:
+    builtins.monitor = monitor
+except:
+    builtins.monitor = None
+
+# Helper to import modules with Ghidra globals injected
+def import_ghidra_module(module_name):
+    """Import a module - Ghidra globals are available via builtins."""
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    if script_dir not in sys.path:
+        sys.path.insert(0, script_dir)
+
+    # Force reimport to get fresh module
+    if module_name in sys.modules:
+        del sys.modules[module_name]
+
+    module = __import__(module_name)
+    return module
 
 # --- Command Handlers ---
 
@@ -591,48 +627,33 @@ def handle_type_apply(args):
 
 def handle_comment_list(args):
     """List comments."""
-    import sys
-    import os
-    script_dir = os.path.dirname(os.path.realpath(__file__))
-    sys.path.insert(0, script_dir)
     try:
-        import comments
+        comments = import_ghidra_module("comments")
         return comments.list_comments()
     except Exception as e:
         return {"error": "Failed to list comments: " + str(e)}
 
 def handle_comment_get(args):
     """Get comments at address."""
-    import sys
-    import os
-    script_dir = os.path.dirname(os.path.realpath(__file__))
-    sys.path.insert(0, script_dir)
     try:
-        import comments
+        comments = import_ghidra_module("comments")
         return comments.get_comments(args.get("address", ""))
     except Exception as e:
         return {"error": "Failed to get comments: " + str(e)}
 
 def handle_comment_set(args):
     """Set a comment at address."""
-    import sys
-    import os
-    script_dir = os.path.dirname(os.path.realpath(__file__))
-    sys.path.insert(0, script_dir)
     try:
-        import comments
-        return comments.set_comment(args.get("address", ""), args.get("text", ""), args.get("comment_type"))
+        comments = import_ghidra_module("comments")
+        comment_type = args.get("comment_type", "EOL") or "EOL"  # Default to EOL
+        return comments.set_comment(args.get("address", ""), args.get("text", ""), comment_type)
     except Exception as e:
         return {"error": "Failed to set comment: " + str(e)}
 
 def handle_comment_delete(args):
     """Delete comment at address."""
-    import sys
-    import os
-    script_dir = os.path.dirname(os.path.realpath(__file__))
-    sys.path.insert(0, script_dir)
     try:
-        import comments
+        comments = import_ghidra_module("comments")
         return comments.delete_comment(args.get("address", ""))
     except Exception as e:
         return {"error": "Failed to delete comment: " + str(e)}
@@ -903,6 +924,31 @@ def start_server(port=BRIDGE_PORT):
 
 # --- Entry Point ---
 
+def is_headless_mode():
+    """Check if running in headless mode (via analyzeHeadless or pyghidraRun --headless)."""
+    # Check Ghidra's built-in function (available in GhidraScript context)
+    try:
+        # isRunningHeadless is injected by Ghidra into script namespace
+        if isRunningHeadless():
+            return True
+    except NameError:
+        pass
+
+    # PyGhidra injects getScriptArgs() instead of args variable
+    try:
+        script_args = getScriptArgs()
+        if script_args is not None:
+            return True  # If we can get script args, we're running as a Ghidra script
+    except NameError:
+        pass
+
+    # Fallback: check environment - headless mode typically has no display
+    import os
+    if os.environ.get('DISPLAY') is None and os.environ.get('WAYLAND_DISPLAY') is None:
+        return True
+
+    return False
+
 if __name__ == "__main__" or True:  # Also runs when sourced by Ghidra
     # Determine port from args if provided
     port = BRIDGE_PORT
@@ -911,12 +957,13 @@ if __name__ == "__main__" or True:  # Also runs when sourced by Ghidra
             port = int(args[0])
         except:
             pass
-    
-    # If running in GUI, run in background thread to not freeze UI
-    if 'isRunningHeadless' in dir() and isRunningHeadless():
+
+    # If running headless, block on server (keeps process alive)
+    # Otherwise, run in background thread for GUI mode
+    if is_headless_mode():
         start_server(port)
     else:
-        # GUI mode - run in background thread
+        # GUI mode - run in background thread to not freeze UI
         t = threading.Thread(target=start_server, args=(port,))
         t.daemon = True
         t.start()

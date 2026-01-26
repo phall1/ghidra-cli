@@ -108,6 +108,7 @@ fn requires_daemon(command: &Commands) -> bool {
             | Commands::Patch(_)
             | Commands::Script(_)
             | Commands::Disasm(_)
+            | Commands::Batch(_)
             | Commands::Stats(_)
     )
 }
@@ -215,6 +216,7 @@ async fn execute_via_daemon(
         | Commands::Patch(_)
         | Commands::Script(_)
         | Commands::Disasm(_)
+        | Commands::Batch(_)
         | Commands::Stats(_) => {
             let command_json = serde_json::to_string(command)
                 .map_err(|e| anyhow::anyhow!("Failed to serialize command: {}", e))?;
@@ -230,14 +232,14 @@ async fn execute_via_daemon(
 /// Handle daemon management commands.
 async fn handle_daemon_command(cmd: DaemonCommands) -> anyhow::Result<()> {
     match cmd {
-        DaemonCommands::Start { project, port, foreground } => {
-            handle_daemon_start(project, port, foreground).await
+        DaemonCommands::Start { project, program, port, foreground } => {
+            handle_daemon_start(project, program, port, foreground).await
         }
         DaemonCommands::Stop { project } => {
             handle_daemon_stop(project).await
         }
-        DaemonCommands::Restart { project, port } => {
-            handle_daemon_restart(project, port).await
+        DaemonCommands::Restart { project, program, port } => {
+            handle_daemon_restart(project, program, port).await
         }
         DaemonCommands::Status { project } => {
             handle_daemon_status(project).await
@@ -252,18 +254,13 @@ async fn handle_daemon_command(cmd: DaemonCommands) -> anyhow::Result<()> {
 }
 
 /// Start the daemon.
-async fn handle_daemon_start(project: Option<String>, port: Option<u16>, foreground: bool) -> anyhow::Result<()> {
+async fn handle_daemon_start(project: Option<String>, program: Option<String>, port: Option<u16>, foreground: bool) -> anyhow::Result<()> {
     let config = Config::load()?;
     let data_dir = get_data_dir()?;
+    let project_path = resolve_project_path(&project, &config)?;
 
-    // Resolve project path
-    let project_path = if let Some(proj) = project {
-        PathBuf::from(proj)
-    } else if let Some(ref default_proj) = config.default_project {
-        PathBuf::from(default_proj)
-    } else {
-        anyhow::bail!("No project specified and no default project configured");
-    };
+    // Resolve program name
+    let program_name = program.or(config.default_program.clone());
 
     // Check if daemon is already running
     ensure_not_running(&data_dir, &project_path)?;
@@ -276,7 +273,7 @@ async fn handle_daemon_start(project: Option<String>, port: Option<u16>, foregro
         port,
         ghidra_install_dir: config.ghidra_install_dir.map(PathBuf::from),
         log_file,
-        program_name: config.default_program.clone(),
+        program_name,
     };
 
     if foreground {
@@ -309,14 +306,7 @@ async fn handle_daemon_start(project: Option<String>, port: Option<u16>, foregro
 async fn handle_daemon_stop(project: Option<String>) -> anyhow::Result<()> {
     let config = Config::load()?;
     let data_dir = get_data_dir()?;
-
-    let project_path = if let Some(proj) = project {
-        PathBuf::from(proj)
-    } else if let Some(ref default_proj) = config.default_project {
-        PathBuf::from(default_proj)
-    } else {
-        anyhow::bail!("No project specified and no default project configured");
-    };
+    let project_path = resolve_project_path(&project, &config)?;
 
     if let Some(daemon_info) = get_running_daemon_info(&data_dir, &project_path)? {
         println!("Stopping daemon (PID: {}, port: {})...", daemon_info.pid, daemon_info.port);
@@ -334,7 +324,7 @@ async fn handle_daemon_stop(project: Option<String>) -> anyhow::Result<()> {
 }
 
 /// Restart the daemon.
-async fn handle_daemon_restart(project: Option<String>, port: Option<u16>) -> anyhow::Result<()> {
+async fn handle_daemon_restart(project: Option<String>, program: Option<String>, port: Option<u16>) -> anyhow::Result<()> {
     // Stop first
     handle_daemon_stop(project.clone()).await?;
 
@@ -342,21 +332,14 @@ async fn handle_daemon_restart(project: Option<String>, port: Option<u16>) -> an
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
     // Start again
-    handle_daemon_start(project, port, false).await
+    handle_daemon_start(project, program, port, false).await
 }
 
 /// Get daemon status.
 async fn handle_daemon_status(project: Option<String>) -> anyhow::Result<()> {
     let config = Config::load()?;
     let data_dir = get_data_dir()?;
-
-    let project_path = if let Some(proj) = project {
-        PathBuf::from(proj)
-    } else if let Some(ref default_proj) = config.default_project {
-        PathBuf::from(default_proj)
-    } else {
-        anyhow::bail!("No project specified and no default project configured");
-    };
+    let project_path = resolve_project_path(&project, &config)?;
 
     if let Some(daemon_info) = get_running_daemon_info(&data_dir, &project_path)? {
         println!("Daemon is running:");
@@ -386,14 +369,7 @@ async fn handle_daemon_status(project: Option<String>) -> anyhow::Result<()> {
 async fn handle_daemon_ping(project: Option<String>) -> anyhow::Result<()> {
     let config = Config::load()?;
     let data_dir = get_data_dir()?;
-
-    let project_path = if let Some(proj) = project {
-        PathBuf::from(proj)
-    } else if let Some(ref default_proj) = config.default_project {
-        PathBuf::from(default_proj)
-    } else {
-        anyhow::bail!("No project specified and no default project configured");
-    };
+    let project_path = resolve_project_path(&project, &config)?;
 
     if let Some(daemon_info) = get_running_daemon_info(&data_dir, &project_path)? {
         let mut client = daemon_rpc::DaemonClient::connect(daemon_info.port).await?;
@@ -410,14 +386,7 @@ async fn handle_daemon_ping(project: Option<String>) -> anyhow::Result<()> {
 async fn handle_daemon_clear_cache(project: Option<String>) -> anyhow::Result<()> {
     let config = Config::load()?;
     let data_dir = get_data_dir()?;
-
-    let project_path = if let Some(proj) = project {
-        PathBuf::from(proj)
-    } else if let Some(ref default_proj) = config.default_project {
-        PathBuf::from(default_proj)
-    } else {
-        anyhow::bail!("No project specified and no default project configured");
-    };
+    let project_path = resolve_project_path(&project, &config)?;
 
     if let Some(_daemon_info) = get_running_daemon_info(&data_dir, &project_path)? {
         // TODO: Implement cache clear via IPC
@@ -459,11 +428,17 @@ async fn handle_setup(args: SetupArgs) -> anyhow::Result<()> {
 
     std::fs::create_dir_all(&install_base)?;
 
-    // 3. Install
+    // 3. Install Ghidra
     println!("\nInstalling to: {}", install_base.display());
     let final_path = ghidra::setup::install_ghidra(args.version, install_base).await?;
 
-    // 4. Update Config
+    // 4. Install PyGhidra (required for Python scripting in Ghidra 12+)
+    if let Err(e) = ghidra::setup::install_pyghidra(&final_path) {
+        println!("⚠ PyGhidra setup failed: {}", e);
+        println!("  Python scripting may not work. You can try running setup again.");
+    }
+
+    // 5. Update Config
     let mut config = Config::load()?;
     config.ghidra_install_dir = Some(final_path.clone());
     config.save()?;
@@ -471,7 +446,7 @@ async fn handle_setup(args: SetupArgs) -> anyhow::Result<()> {
     println!("\n✓ Success! Ghidra installed at: {}", final_path.display());
     println!("✓ Configuration updated.");
 
-    // 5. Verify
+    // 6. Verify
     println!("\nVerifying installation...");
     let client = GhidraClient::new(config)?;
     if client.verify_installation().is_ok() {
@@ -868,4 +843,22 @@ fn resolve_project(project: &Option<String>, config: &Config, program: &str) -> 
         .clone()
         .or_else(|| config.get_default_project())
         .unwrap_or_else(|| format!("{}-project", program)))
+}
+
+/// Resolve a project name to its full path on disk.
+/// If the project name is already an absolute path, returns it as-is.
+/// Otherwise, resolves relative to the configured project directory.
+fn resolve_project_path(project: &Option<String>, config: &Config) -> anyhow::Result<PathBuf> {
+    let project_name = project
+        .clone()
+        .or_else(|| config.default_project.clone())
+        .ok_or_else(|| anyhow::anyhow!("No project specified and no default project configured"))?;
+
+    let project_dir = config.get_project_dir()?;
+
+    if PathBuf::from(&project_name).is_absolute() {
+        Ok(PathBuf::from(project_name))
+    } else {
+        Ok(project_dir.join(project_name))
+    }
 }

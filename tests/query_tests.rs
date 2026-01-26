@@ -19,7 +19,6 @@ static HARNESS: Lazy<DaemonTestHarness> = Lazy::new(|| {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_function_list() {
     let harness = &*HARNESS;
 
@@ -45,7 +44,6 @@ fn test_function_list() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_function_list_limit() {
     let harness = &*HARNESS;
 
@@ -66,7 +64,6 @@ fn test_function_list_limit() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_function_list_filter() {
     let harness = &*HARNESS;
 
@@ -88,7 +85,6 @@ fn test_function_list_filter() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_strings_list() {
     let harness = &*HARNESS;
 
@@ -110,7 +106,6 @@ fn test_strings_list() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_memory_map() {
     let harness = &*HARNESS;
 
@@ -130,7 +125,6 @@ fn test_memory_map() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_summary() {
     let harness = &*HARNESS;
 
@@ -149,7 +143,6 @@ fn test_summary() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_decompile_by_name() {
     let harness = &*HARNESS;
 
@@ -169,7 +162,6 @@ fn test_decompile_by_name() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_decompile_by_address() {
     let harness = &*HARNESS;
 
@@ -213,7 +205,6 @@ fn test_decompile_by_address() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_xref_to() {
     let harness = &*HARNESS;
 
@@ -258,7 +249,6 @@ fn test_xref_to() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_xref_from() {
     let harness = &*HARNESS;
 

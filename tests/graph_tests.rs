@@ -13,7 +13,6 @@ const TEST_PROGRAM: &str = "sample_binary";
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_graph_calls() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -37,7 +36,6 @@ fn test_graph_calls() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_graph_callers() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -61,7 +59,6 @@ fn test_graph_callers() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_graph_callees() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -85,7 +82,6 @@ fn test_graph_callees() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_graph_export_dot() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 

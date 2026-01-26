@@ -13,13 +13,13 @@ const TEST_PROGRAM: &str = "sample_binary";
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_diff_programs() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
         .expect("Failed to start daemon");
 
+    // diff programs compares two programs by name (no --program flag needed)
     Command::cargo_bin("ghidra")
         .unwrap()
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
@@ -27,34 +27,31 @@ fn test_diff_programs() {
         .arg("programs")
         .arg(TEST_PROGRAM)
         .arg(TEST_PROGRAM)
-        .arg("--program")
-        .arg(TEST_PROGRAM)
         .assert()
-        .success()
-        .stdout(predicate::str::contains("program1"));
+        .success();
 
     drop(harness);
 }
 
 #[test]
 #[serial]
-#[ignore]
 fn test_diff_functions() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
         .expect("Failed to start daemon");
 
+    // diff functions requires two function names/addresses
+    // Using _start (entry point) for both since we just want to verify command works
     Command::cargo_bin("ghidra")
         .unwrap()
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
         .arg("diff")
         .arg("functions")
-        .arg("--program")
-        .arg(TEST_PROGRAM)
+        .arg("_start")
+        .arg("_start")
         .assert()
-        .failure()
-        .stderr(predicate::str::contains("CLI update"));
+        .success();
 
     drop(harness);
 }

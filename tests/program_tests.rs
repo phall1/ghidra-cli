@@ -13,7 +13,6 @@ const TEST_PROGRAM: &str = "sample_binary";
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_program_info() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -37,7 +36,6 @@ fn test_program_info() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_program_export_json() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -61,7 +59,6 @@ fn test_program_export_json() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_program_close() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -83,7 +80,6 @@ fn test_program_close() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_program_info_no_program() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 

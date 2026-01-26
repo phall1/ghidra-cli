@@ -13,7 +13,6 @@ const TEST_PROGRAM: &str = "sample_binary";
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_stats_normal() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -37,7 +36,6 @@ fn test_stats_normal() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_stats_has_all_fields() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -66,7 +64,6 @@ fn test_stats_has_all_fields() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_stats_json_format() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 

@@ -84,25 +84,47 @@ impl GhidraBridge {
 
         info!("Starting Ghidra bridge...");
 
-        // Find analyzeHeadless script
+        // Find headless script (pyghidraRun or analyzeHeadless)
         let headless_script = self.find_headless_script()?;
+        let is_pyghidra = headless_script.file_name()
+            .map(|n| n.to_string_lossy().contains("pyghidra"))
+            .unwrap_or(false);
 
         // Get bridge script path
         let bridge_script = self.get_bridge_script_path()?;
 
-        // Build command
+        // Build command - pyghidraRun needs different arguments
         let mut cmd = Command::new(&headless_script);
-        cmd.arg(&self.project_dir)
-            .arg(&self.project_name)
-            .arg("-process")
-            .arg(&self.program_name)
-            .arg("-noanalysis")
-            .arg("-scriptPath")
-            .arg(bridge_script.parent().unwrap())
-            .arg("-postScript")
-            .arg("bridge.py")
-            .arg(self.port.to_string())
-            .stdin(Stdio::null())
+
+        if is_pyghidra {
+            // pyghidraRun --headless passes remaining args to AnalyzeHeadless
+            // The install_dir is auto-detected by pyghidraRun from its script location
+            cmd.arg("--headless")
+                .arg(&self.project_dir)
+                .arg(&self.project_name)
+                .arg("-process")
+                .arg(&self.program_name)
+                .arg("-noanalysis")
+                .arg("-scriptPath")
+                .arg(bridge_script.parent().unwrap())
+                .arg("-postScript")
+                .arg("bridge.py")
+                .arg(self.port.to_string());
+        } else {
+            // analyzeHeadless format: analyzeHeadless <project_dir> <project_name> -process ...
+            cmd.arg(&self.project_dir)
+                .arg(&self.project_name)
+                .arg("-process")
+                .arg(&self.program_name)
+                .arg("-noanalysis")
+                .arg("-scriptPath")
+                .arg(bridge_script.parent().unwrap())
+                .arg("-postScript")
+                .arg("bridge.py")
+                .arg(self.port.to_string());
+        }
+
+        cmd.stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -246,7 +268,7 @@ impl GhidraBridge {
         self.running.load(Ordering::SeqCst)
     }
 
-    /// Get the embedded bridge script path, writing it to disk if needed.
+    /// Get the embedded bridge script path, writing all scripts to disk.
     fn get_bridge_script_path(&self) -> Result<PathBuf> {
         let scripts_dir = dirs::config_dir()
             .ok_or_else(|| anyhow::anyhow!("Could not determine config directory"))?
@@ -255,31 +277,60 @@ impl GhidraBridge {
 
         std::fs::create_dir_all(&scripts_dir)?;
 
-        let script_path = scripts_dir.join("bridge.py");
+        // Write all embedded Python scripts
+        // Bridge and its module dependencies
+        let scripts: &[(&str, &str)] = &[
+            ("bridge.py", include_str!("scripts/bridge.py")),
+            ("comments.py", include_str!("scripts/comments.py")),
+            ("symbols.py", include_str!("scripts/symbols.py")),
+            ("types.py", include_str!("scripts/types.py")),
+            ("graph.py", include_str!("scripts/graph.py")),
+            ("find.py", include_str!("scripts/find.py")),
+            ("diff.py", include_str!("scripts/diff.py")),
+            ("patch.py", include_str!("scripts/patch.py")),
+            ("disasm.py", include_str!("scripts/disasm.py")),
+            ("stats.py", include_str!("scripts/stats.py")),
+            ("program.py", include_str!("scripts/program.py")),
+            ("script_runner.py", include_str!("scripts/script_runner.py")),
+            ("batch.py", include_str!("scripts/batch.py")),
+        ];
 
-        // Always write the latest version of the script
-        let script_content = include_str!("scripts/bridge.py");
-        std::fs::write(&script_path, script_content)?;
+        for (name, content) in scripts {
+            std::fs::write(scripts_dir.join(name), content)?;
+        }
 
-        Ok(script_path)
+        Ok(scripts_dir.join("bridge.py"))
     }
 
     /// Find the analyzeHeadless script.
     fn find_headless_script(&self) -> Result<PathBuf> {
+        // First try pyghidraRun for Ghidra 12+ (required for Python support)
+        #[cfg(unix)]
+        let pyghidra_name = "pyghidraRun";
+        #[cfg(windows)]
+        let pyghidra_name = "pyghidraRun.bat";
+
+        let support_dir = self.ghidra_install_dir.join("support");
+        let pyghidra_path = support_dir.join(pyghidra_name);
+
+        if pyghidra_path.exists() {
+            return Ok(pyghidra_path);
+        }
+
+        // Fall back to analyzeHeadless for older versions
         #[cfg(unix)]
         let script_name = "analyzeHeadless";
         #[cfg(windows)]
         let script_name = "analyzeHeadless.bat";
 
-        let support_dir = self.ghidra_install_dir.join("support");
         let script_path = support_dir.join(script_name);
 
         if script_path.exists() {
             Ok(script_path)
         } else {
             anyhow::bail!(
-                "analyzeHeadless not found at: {}",
-                script_path.display()
+                "Neither pyghidraRun nor analyzeHeadless found at: {}",
+                support_dir.display()
             )
         }
     }

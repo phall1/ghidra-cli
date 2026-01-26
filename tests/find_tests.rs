@@ -13,7 +13,6 @@ const TEST_PROGRAM: &str = "sample_binary";
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_find_string() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -37,7 +36,6 @@ fn test_find_string() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_find_bytes() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -61,7 +59,6 @@ fn test_find_bytes() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_find_function() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -85,7 +82,6 @@ fn test_find_function() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_find_function_glob() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -109,7 +105,6 @@ fn test_find_function_glob() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_find_calls() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -132,7 +127,6 @@ fn test_find_calls() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_find_crypto() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -155,7 +149,6 @@ fn test_find_crypto() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_find_interesting() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -178,7 +171,6 @@ fn test_find_interesting() {
 
 #[test]
 #[serial]
-#[ignore] // Requires Ghidra installation
 fn test_find_string_no_matches() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 

@@ -750,6 +750,10 @@ pub enum DaemonCommands {
         #[arg(long)]
         project: Option<String>,
 
+        /// Program name to load
+        #[arg(long)]
+        program: Option<String>,
+
         /// Port to listen on (default: auto-select)
         #[arg(long)]
         port: Option<u16>,
@@ -771,6 +775,10 @@ pub enum DaemonCommands {
         /// Project path
         #[arg(long)]
         project: Option<String>,
+
+        /// Program name to load
+        #[arg(long)]
+        program: Option<String>,
 
         /// Port to listen on (default: auto-select)
         #[arg(long)]

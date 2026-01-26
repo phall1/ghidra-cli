@@ -12,30 +12,39 @@ def list_comments():
     listing = currentProgram.getListing()
     comments = []
 
-    code_unit_iter = listing.getCommentAddressIterator(currentProgram.getMinAddress(), currentProgram.getMaxAddress(), True)
+    # Iterate over all memory blocks to handle multiple address spaces
+    from ghidra.program.model.address import AddressSet
+    memory = currentProgram.getMemory()
 
-    for addr in code_unit_iter:
-        code_unit = listing.getCodeUnitAt(addr)
-        if code_unit is None:
-            continue
+    for block in memory.getBlocks():
+        # Create an AddressSet for this block
+        address_set = AddressSet(block.getStart(), block.getEnd())
 
-        from ghidra.program.model.listing import CodeUnit
+        # Get comment addresses in this block
+        code_unit_iter = listing.getCommentAddressIterator(address_set, True)
 
-        comment_types = [
-            ("EOL", CodeUnit.EOL_COMMENT),
-            ("PRE", CodeUnit.PRE_COMMENT),
-            ("POST", CodeUnit.POST_COMMENT),
-            ("PLATE", CodeUnit.PLATE_COMMENT)
-        ]
+        for addr in code_unit_iter:
+            code_unit = listing.getCodeUnitAt(addr)
+            if code_unit is None:
+                continue
 
-        for comment_name, comment_type in comment_types:
-            text = code_unit.getComment(comment_type)
-            if text:
-                comments.append({
-                    "address": str(addr),
-                    "type": comment_name,
-                    "text": text
-                })
+            from ghidra.program.model.listing import CodeUnit
+
+            comment_types = [
+                ("EOL", CodeUnit.EOL_COMMENT),
+                ("PRE", CodeUnit.PRE_COMMENT),
+                ("POST", CodeUnit.POST_COMMENT),
+                ("PLATE", CodeUnit.PLATE_COMMENT)
+            ]
+
+            for comment_name, comment_type in comment_types:
+                text = code_unit.getComment(comment_type)
+                if text:
+                    comments.append({
+                        "address": str(addr),
+                        "type": comment_name,
+                        "text": text
+                    })
 
     return {"comments": comments, "count": len(comments)}
 

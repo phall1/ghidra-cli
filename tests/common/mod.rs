@@ -29,6 +29,7 @@ pub fn ensure_test_project(project: &str, program: &str) {
 
         eprintln!("=== Setting up test project (import + analyze) ===");
 
+        // Step 1: Import the binary
         let mut cmd = assert_cmd::Command::cargo_bin("ghidra").expect("Failed to find ghidra binary");
         let result = cmd
             .arg("import")
@@ -53,6 +54,29 @@ pub fn ensure_test_project(project: &str, program: &str) {
             eprintln!("Binary imported successfully");
         }
 
+        // Step 2: Analyze the binary (creates code units needed for comments)
+        eprintln!("Running analysis...");
+        let mut analyze_cmd = assert_cmd::Command::cargo_bin("ghidra").expect("Failed to find ghidra binary");
+        let analyze_result = analyze_cmd
+            .arg("analyze")
+            .arg("--project")
+            .arg(project)
+            .arg("--program")
+            .arg(program)
+            .timeout(std::time::Duration::from_secs(600))
+            .output()
+            .expect("Failed to run analyze command");
+
+        if !analyze_result.status.success() {
+            let stderr = String::from_utf8_lossy(&analyze_result.stderr);
+            let stdout = String::from_utf8_lossy(&analyze_result.stdout);
+            eprintln!("Analyze stdout: {}", stdout);
+            eprintln!("Analyze stderr: {}", stderr);
+            eprintln!("Warning: Analyze may have failed, but continuing...");
+        } else {
+            eprintln!("Analysis complete");
+        }
+
         eprintln!("=== Test project setup complete ===");
     });
 }
@@ -61,6 +85,7 @@ pub fn ensure_test_project(project: &str, program: &str) {
 pub struct DaemonTestHarness {
     child: Child,
     socket_path: PathBuf,
+    data_dir: PathBuf,
     project: String,
     // Runtime field prevents panic-during-panic in Drop (cannot create Runtime during panic unwinding)
     // and amortizes Runtime creation overhead across all async operations in this harness.
@@ -71,14 +96,18 @@ impl DaemonTestHarness {
     /// Start daemon for testing. Blocks until daemon is ready or timeout.
     pub fn new(project: &str, program: &str) -> Result<Self> {
         let socket_path = get_unique_socket_path();
+        let data_dir = get_unique_data_dir();
 
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_ghidra"));
         cmd.env("GHIDRA_CLI_SOCKET", &socket_path)
+            .env("GHIDRA_CLI_DATA_DIR", &data_dir)
             .arg("daemon")
             .arg("start")
             .arg("--foreground")
             .arg("--project")
-            .arg(project);
+            .arg(project)
+            .arg("--program")
+            .arg(program);
 
         let child = cmd.spawn().context("Failed to spawn daemon")?;
 
@@ -100,6 +129,7 @@ impl DaemonTestHarness {
         let mut harness = Self {
             child: guard.0.take().unwrap(),
             socket_path,
+            data_dir,
             project: project.to_string(),
             runtime,
         };
@@ -146,6 +176,9 @@ impl DaemonTestHarness {
 
     /// Get async IPC client connected to daemon.
     pub fn client(&self) -> Result<ghidra_cli::ipc::client::DaemonClient> {
+        // Set GHIDRA_CLI_SOCKET for this process so client connects to the right socket
+        // SAFETY: Tests run single-threaded (--test-threads=1), so no data race.
+        unsafe { std::env::set_var("GHIDRA_CLI_SOCKET", &self.socket_path); }
         self.runtime.block_on(async {
             ghidra_cli::ipc::client::DaemonClient::connect().await
         })
@@ -182,6 +215,7 @@ impl Drop for DaemonTestHarness {
 
         let _ = self.child.kill();
         let _ = std::fs::remove_file(&self.socket_path);
+        let _ = std::fs::remove_dir_all(&self.data_dir);
     }
 }
 
@@ -190,6 +224,15 @@ impl Drop for DaemonTestHarness {
 /// UUID guarantees uniqueness across parallel test suites and long-running CI (PID can wrap).
 fn get_unique_socket_path() -> PathBuf {
     std::env::temp_dir().join(format!("ghidra-test-{}.sock", uuid::Uuid::new_v4()))
+}
+
+/// Generate unique data directory for test isolation.
+///
+/// Prevents lock file conflicts between parallel daemon tests.
+fn get_unique_data_dir() -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("ghidra-data-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).expect("Failed to create test data dir");
+    dir
 }
 
 /// Skip test if Ghidra is not available.
