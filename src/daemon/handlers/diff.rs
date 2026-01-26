@@ -16,7 +16,7 @@ pub async fn handle_diff_programs(
 
     if response.status == "success" {
         let data = response.data.unwrap_or(json!({}));
-        serde_json::to_string_pretty(&data)
+        serde_json::to_string(&data)
             .context("Failed to serialize response")
     } else {
         let message = response.message.unwrap_or_else(|| "Failed to diff programs".to_string());
@@ -36,7 +36,7 @@ pub async fn handle_diff_functions(
 
     if response.status == "success" {
         let data = response.data.unwrap_or(json!({}));
-        serde_json::to_string_pretty(&data)
+        serde_json::to_string(&data)
             .context("Failed to serialize response")
     } else {
         let message = response.message.unwrap_or_else(|| "Failed to diff functions".to_string());

@@ -19,7 +19,7 @@ pub async fn handle_patch_bytes(
 
     if response.status == "success" {
         let data = response.data.unwrap_or(json!({}));
-        serde_json::to_string_pretty(&data)
+        serde_json::to_string(&data)
             .context("Failed to serialize response")
     } else {
         let message = response.message.unwrap_or_else(|| "Failed to patch bytes".to_string());
@@ -38,7 +38,7 @@ pub async fn handle_patch_nop(
 
     if response.status == "success" {
         let data = response.data.unwrap_or(json!({}));
-        serde_json::to_string_pretty(&data)
+        serde_json::to_string(&data)
             .context("Failed to serialize response")
     } else {
         let message = response.message.unwrap_or_else(|| "Failed to patch NOP".to_string());
@@ -57,7 +57,7 @@ pub async fn handle_patch_export(
 
     if response.status == "success" {
         let data = response.data.unwrap_or(json!({}));
-        serde_json::to_string_pretty(&data)
+        serde_json::to_string(&data)
             .context("Failed to serialize response")
     } else {
         let message = response.message.unwrap_or_else(|| "Failed to export patched binary".to_string());

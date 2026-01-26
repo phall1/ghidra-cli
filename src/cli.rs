@@ -15,6 +15,14 @@ pub struct Cli {
     /// Suppress non-essential output
     #[arg(short, long, global = true)]
     pub quiet: bool,
+
+    /// Output as JSON
+    #[arg(long, global = true)]
+    pub json: bool,
+
+    /// Output JSON with pretty formatting
+    #[arg(long, global = true)]
+    pub pretty: bool,
 }
 
 #[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]

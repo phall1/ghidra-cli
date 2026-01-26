@@ -91,6 +91,7 @@ impl Formatter for DefaultFormatter {
             OutputFormat::Tsv => {
                 format_csv(data, '\t')
             }
+            OutputFormat::Compact => format_minimal(data),
             OutputFormat::Minimal | OutputFormat::Ids => {
                 format_minimal(data)
             }
@@ -232,7 +233,7 @@ fn format_json_value(value: &JsonValue) -> String {
 
 pub fn auto_detect_format(is_tty: bool) -> OutputFormat {
     if is_tty {
-        OutputFormat::Table
+        OutputFormat::Compact
     } else {
         OutputFormat::JsonCompact
     }

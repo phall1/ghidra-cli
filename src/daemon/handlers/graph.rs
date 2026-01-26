@@ -21,7 +21,7 @@ pub async fn handle_graph_calls(
 
     if response.status == "success" {
         let data = response.data.unwrap_or(json!({}));
-        serde_json::to_string_pretty(&data)
+        serde_json::to_string(&data)
             .context("Failed to serialize response")
     } else {
         let message = response.message.unwrap_or_else(|| "Failed to get call graph".to_string());
@@ -46,7 +46,7 @@ pub async fn handle_graph_callers(
 
     if response.status == "success" {
         let data = response.data.unwrap_or(json!({}));
-        serde_json::to_string_pretty(&data)
+        serde_json::to_string(&data)
             .context("Failed to serialize response")
     } else {
         let message = response.message.unwrap_or_else(|| "Failed to get callers".to_string());
@@ -71,7 +71,7 @@ pub async fn handle_graph_callees(
 
     if response.status == "success" {
         let data = response.data.unwrap_or(json!({}));
-        serde_json::to_string_pretty(&data)
+        serde_json::to_string(&data)
             .context("Failed to serialize response")
     } else {
         let message = response.message.unwrap_or_else(|| "Failed to get callees".to_string());
@@ -90,7 +90,7 @@ pub async fn handle_graph_export(
 
     if response.status == "success" {
         let data = response.data.unwrap_or(json!({}));
-        serde_json::to_string_pretty(&data)
+        serde_json::to_string(&data)
             .context("Failed to serialize response")
     } else {
         let message = response.message.unwrap_or_else(|| "Failed to export graph".to_string());

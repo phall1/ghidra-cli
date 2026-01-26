@@ -40,7 +40,7 @@ pub async fn handle_batch(file_path: &str) -> Result<String> {
         "results": results
     });
 
-    serde_json::to_string_pretty(&response)
+    serde_json::to_string(&response)
         .context("Failed to serialize batch results")
 }
 

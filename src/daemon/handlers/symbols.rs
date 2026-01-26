@@ -21,7 +21,7 @@ pub async fn handle_symbol_list(
 
     if response.status == "success" {
         let data = response.data.unwrap_or(json!({}));
-        serde_json::to_string_pretty(&data)
+        serde_json::to_string(&data)
             .context("Failed to serialize response")
     } else {
         let message = response.message.unwrap_or_else(|| "Failed to list symbols".to_string());
@@ -40,7 +40,7 @@ pub async fn handle_symbol_get(
 
     if response.status == "success" {
         let data = response.data.unwrap_or(json!({}));
-        serde_json::to_string_pretty(&data)
+        serde_json::to_string(&data)
             .context("Failed to serialize response")
     } else {
         let message = response.message.unwrap_or_else(|| "Failed to get symbol".to_string());

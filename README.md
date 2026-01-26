@@ -196,19 +196,25 @@ ghidra daemon restart --project myproject --program otherbinary
 
 ## Output Formats
 
-```bash
-# Human-readable (default)
-ghidra function list
+Default output adapts to context:
+- **Interactive (TTY)**: Compact human-readable format
+- **Piped/scripted**: Compact JSON for machine parsing
 
-# JSON output
+Override with flags:
+```bash
+# Force JSON output (compact, single-line)
 ghidra function list --json
 
-# Pretty JSON
+# Force pretty JSON (indented, multi-line)
 ghidra function list --pretty
 
 # Select specific fields
 ghidra function list --fields "name,address,size"
 ```
+
+### Output Format Design
+
+Format detection occurs at the CLI boundary rather than in daemon handlers. Handlers always return compact JSON for IPC efficiency and caching stability. The CLI applies format transformation (human-readable, pretty JSON) at the output boundary based on TTY detection or explicit flags. This design maintains a stable IPC protocol with a single format decision point, preventing daemon cache invalidation from format variations.
 
 ## Filtering
 

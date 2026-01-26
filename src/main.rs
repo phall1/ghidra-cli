@@ -17,6 +17,8 @@ use error::{GhidraError, Result};
 use ghidra::GhidraClient;
 use std::path::PathBuf;
 use tracing::info;
+use atty;
+use format::{auto_detect_format, DefaultFormatter, Formatter, OutputFormat};
 
 
 #[tokio::main]
@@ -121,27 +123,18 @@ async fn run_with_daemon_check(cli: Cli) -> anyhow::Result<()> {
     }
 
     let config = Config::load()?;
-    let project_path = match &cli.command {
-        Commands::Import(args) => {
-            resolve_project_path(&args.project, &config)?
-        }
-        Commands::Analyze(args) => {
-            resolve_project_path(&args.project, &config)?
-        }
-        Commands::Quick(args) => {
-            resolve_project_path(&args.project, &config)?
-        }
-        _ => {
-            resolve_project_path(&None, &config)?
-        }
-    };
 
-    ensure_daemon_running(&project_path).await?;
+    // Extract project and program from command arguments
+    let (project_opt, program_opt) = extract_project_program(&cli.command);
+    let project_path = resolve_project_path(&project_opt, &config)?;
+    let program_name = program_opt.or(config.default_program.clone());
+
+    ensure_daemon_running(&project_path, program_name.as_deref()).await?;
 
     match ipc::client::DaemonClient::connect().await {
         Ok(mut client) => {
             info!("Connected to daemon via IPC");
-            let output = execute_via_daemon(&mut client, &cli.command).await?;
+            let output = execute_via_daemon(&mut client, &cli.command, cli.json, cli.pretty).await?;
             if !output.is_empty() {
                 println!("{}", output);
             }
@@ -193,6 +186,8 @@ async fn ensure_daemon_running(project_path: &PathBuf) -> anyhow::Result<()> {
 async fn execute_via_daemon(
     client: &mut ipc::client::DaemonClient,
     command: &Commands,
+    json_flag: bool,
+    pretty_flag: bool,
 ) -> anyhow::Result<String> {
     let result = match command {
         Commands::Import(args) => {
@@ -339,8 +334,23 @@ async fn execute_via_daemon(
         _ => anyhow::bail!("Command not supported via daemon"),
     };
 
-    // Format the JSON output nicely
-    serde_json::to_string_pretty(&result).map_err(Into::into)
+    // Determine output format based on flags and TTY detection
+    let format = if pretty_flag {
+        OutputFormat::Json
+    } else if json_flag {
+        OutputFormat::JsonCompact
+    } else {
+        auto_detect_format(atty::is(atty::Stream::Stdout))
+    };
+
+    // Detect if result is already an array before wrapping
+    let values = match result {
+        serde_json::Value::Array(arr) => arr,
+        single => vec![single],
+    };
+
+    let formatter = DefaultFormatter;
+    formatter.format(&values, format).map_err(Into::into)
 }
 
 /// Handle daemon management commands.

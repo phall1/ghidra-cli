@@ -11,7 +11,7 @@ pub async fn handle_stats(bridge: &mut GhidraBridge) -> Result<String> {
 
     if response.status == "success" {
         let data = response.data.unwrap_or(serde_json::json!({}));
-        serde_json::to_string_pretty(&data)
+        serde_json::to_string(&data)
             .context("Failed to serialize response")
     } else {
         let message = response.message.unwrap_or_else(|| "Failed to get program statistics".to_string());

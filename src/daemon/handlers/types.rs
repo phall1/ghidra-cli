@@ -12,7 +12,7 @@ pub async fn handle_type_list(bridge: &mut GhidraBridge) -> Result<String> {
 
     if response.status == "success" {
         let data = response.data.unwrap_or(json!({}));
-        serde_json::to_string_pretty(&data)
+        serde_json::to_string(&data)
             .context("Failed to serialize response")
     } else {
         let message = response.message.unwrap_or_else(|| "Failed to list types".to_string());
@@ -31,7 +31,7 @@ pub async fn handle_type_get(
 
     if response.status == "success" {
         let data = response.data.unwrap_or(json!({}));
-        serde_json::to_string_pretty(&data)
+        serde_json::to_string(&data)
             .context("Failed to serialize response")
     } else {
         let message = response.message.unwrap_or_else(|| "Failed to get type".to_string());

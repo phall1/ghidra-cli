@@ -12,7 +12,7 @@ pub async fn handle_comment_list(bridge: &mut GhidraBridge) -> Result<String> {
 
     if response.status == "success" {
         let data = response.data.unwrap_or(json!({}));
-        serde_json::to_string_pretty(&data)
+        serde_json::to_string(&data)
             .context("Failed to serialize response")
     } else {
         let message = response.message.unwrap_or_else(|| "Failed to list comments".to_string());
@@ -31,7 +31,7 @@ pub async fn handle_comment_get(
 
     if response.status == "success" {
         let data = response.data.unwrap_or(json!({}));
-        serde_json::to_string_pretty(&data)
+        serde_json::to_string(&data)
             .context("Failed to serialize response")
     } else {
         let message = response.message.unwrap_or_else(|| "Failed to get comment".to_string());
