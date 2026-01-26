@@ -112,6 +112,18 @@ pub enum Command {
     /// Get cross-references from an address
     XRefsFrom { address: String },
 
+    // === Project Management ===
+    /// Import a binary into a project
+    Import {
+        binary_path: String,
+        project: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        program: Option<String>,
+    },
+
+    /// Analyze a program in a project
+    Analyze { project: String, program: String },
+
     // === Session Management ===
     /// Health check
     Ping,

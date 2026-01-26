@@ -4,15 +4,37 @@ A high-performance Rust CLI for automating Ghidra reverse engineering tasks, des
 
 ## Features
 
-- **Fast daemon mode** - Keeps Ghidra loaded in memory for sub-second response times
+- **Daemon-only architecture** - All operations route through a persistent daemon for consistency
+- **Auto-start daemon** - Import/analyze commands automatically start the daemon
+- **Fast queries** - Sub-second response times with Ghidra kept in memory
 - **Comprehensive analysis** - Functions, symbols, types, strings, cross-references
 - **Binary patching** - Modify bytes, NOP instructions, export patches
 - **Call graphs** - Generate caller/callee graphs, export to DOT format
 - **Search capabilities** - Find strings, bytes, functions, crypto patterns
 - **Script execution** - Run Python/Java scripts, inline or from files
 - **Batch operations** - Execute multiple commands from a file
-- **Flexible output** - JSON, table, or count formats with field selection
+- **Flexible output** - Human-readable, JSON, or pretty JSON formats
 - **Filtering** - Powerful expression-based filtering (e.g., `size > 100`)
+
+## Architecture
+
+```
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│   CLI Command   │────▶│  Daemon (IPC)    │────▶│  GhidraBridge   │
+│  ghidra ...     │     │  Unix socket     │     │  TCP to Ghidra  │
+└─────────────────┘     └──────────────────┘     └─────────────────┘
+                                                          │
+                                                          ▼
+                                                 ┌─────────────────┐
+                                                 │   bridge.py     │
+                                                 │  (Ghidra Script)│
+                                                 └─────────────────┘
+```
+
+All commands go through the daemon, which maintains a persistent connection to Ghidra via the bridge script. This provides:
+- **Consistent state** - Single Ghidra process for all operations
+- **Fast queries** - No JVM startup overhead per command
+- **Auto-start** - Daemon starts automatically when needed
 
 ## Installation
 
@@ -43,14 +65,14 @@ ghidra config set ghidra_path /path/to/ghidra
 # Check installation
 ghidra doctor
 
-# Import and analyze a binary
+# Import and analyze a binary (daemon auto-starts)
+ghidra quick ./binary
+
+# Or step by step:
 ghidra import ./binary --project myproject --program mybinary
 ghidra analyze --project myproject --program mybinary
 
-# Start the daemon for fast repeated queries
-ghidra daemon start --project myproject --program mybinary
-
-# List functions
+# Query functions (uses running daemon)
 ghidra function list
 
 # Decompile a function
@@ -73,8 +95,9 @@ ghidra graph calls main --depth 3
 ghidra project create <name>           # Create project
 ghidra project list                    # List projects
 ghidra project delete <name>           # Delete project
-ghidra import <binary> --project <p>   # Import binary
+ghidra import <binary> --project <p>   # Import binary (auto-starts daemon)
 ghidra analyze --project <p>           # Run analysis
+ghidra quick <binary>                  # Import + analyze in one step
 ```
 
 ### Function Analysis
@@ -149,36 +172,39 @@ ghidra stats                           # Program statistics
 ghidra summary                         # Program summary
 ```
 
-## Daemon Mode
+## Daemon Management
 
-The daemon keeps Ghidra loaded in memory for fast queries:
+The daemon keeps Ghidra loaded in memory. It starts automatically when needed, but you can also control it manually:
 
 ```bash
 # Start daemon with a program loaded
 ghidra daemon start --project myproject --program mybinary
 
-# All subsequent commands use the daemon automatically
-ghidra function list    # Fast!
-ghidra decompile main   # Fast!
-
 # Check daemon status
 ghidra daemon status
 
+# All commands use the daemon automatically
+ghidra function list    # Fast!
+ghidra decompile main   # Fast!
+
 # Stop daemon
 ghidra daemon stop
+
+# Restart with different program
+ghidra daemon restart --project myproject --program otherbinary
 ```
 
 ## Output Formats
 
 ```bash
-# JSON output (default)
-ghidra function list --format json
+# Human-readable (default)
+ghidra function list
 
-# Table format
-ghidra function list --format table
+# JSON output
+ghidra function list --json
 
-# Count only
-ghidra function list --format count
+# Pretty JSON
+ghidra function list --pretty
 
 # Select specific fields
 ghidra function list --fields "name,address,size"
@@ -196,15 +222,15 @@ ghidra strings list --filter "length > 20"
 
 ## AI Agent Integration
 
-Ghidra CLI is designed to work seamlessly with AI coding assistants like Claude Code. The structured JSON output and comprehensive command set make it ideal for automated reverse engineering workflows.
+Ghidra CLI is designed to work seamlessly with AI coding assistants like Claude Code. The structured output and comprehensive command set make it ideal for automated reverse engineering workflows.
 
 Example workflow with an AI agent:
-1. `ghidra import suspicious.exe --project analysis --program suspicious`
-2. `ghidra analyze --project analysis --program suspicious`
-3. `ghidra daemon start --project analysis --program suspicious`
-4. `ghidra find interesting` - AI analyzes suspicious patterns
-5. `ghidra decompile <func>` - AI examines specific functions
-6. `ghidra x-ref to <addr>` - AI traces data flow
+1. `ghidra quick suspicious.exe` - Import, analyze, start daemon
+2. `ghidra find interesting` - AI analyzes suspicious patterns
+3. `ghidra decompile <func>` - AI examines specific functions
+4. `ghidra x-ref to <addr>` - AI traces data flow
+5. `ghidra patch nop <addr>` - AI patches anti-debug code
+6. `ghidra patch export` - Export patched binary
 
 ## Contributing
 

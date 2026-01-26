@@ -800,8 +800,86 @@ def handle_stats(args):
     except Exception as e:
         return {"error": "Failed to get stats: " + str(e)}
 
+# --- Import/Analyze Handlers ---
+
+def handle_import(args):
+    """Import a binary into the current project."""
+    from ghidra.app.util.importer import AutoImporter
+    from ghidra.util.task import ConsoleTaskMonitor
+    from java.io import File
+
+    binary_path = args.get("binary_path")
+    if not binary_path:
+        return {"error": "No binary_path provided"}
+
+    program_name = args.get("program")
+    if not program_name:
+        binary_file = File(binary_path)
+        program_name = binary_file.getName()
+
+    project = state.getProject()
+    if project is None:
+        return {"error": "No project open"}
+
+    try:
+        binary_file = File(binary_path)
+        if not binary_file.exists():
+            return {"error": "Binary file not found: " + binary_path}
+
+        monitor = ConsoleTaskMonitor()
+        project_data = project.getProjectData()
+
+        imported = AutoImporter.importByUsingBestGuess(
+            binary_file,
+            None,
+            project_data.getRootFolder(),
+            program_name,
+            monitor
+        )
+
+        if imported is None:
+            return {"error": "Failed to import binary"}
+
+        return {"status": "success", "program": program_name}
+
+    except Exception as e:
+        return {"error": "Import failed: " + str(e)}
+
+def handle_analyze(args):
+    """Trigger auto-analysis on the current program."""
+    from ghidra.app.cmd.analysis import AutoAnalysisManager
+    from ghidra.util.task import ConsoleTaskMonitor
+
+    program_name = args.get("program")
+    if not program_name:
+        return {"error": "No program name provided"}
+
+    if currentProgram is None:
+        return {"error": "No program currently loaded"}
+
+    if currentProgram.getName() != program_name:
+        return {"error": "Program mismatch: expected " + program_name + " but current is " + currentProgram.getName()}
+
+    try:
+        monitor = ConsoleTaskMonitor()
+        auto_mgr = AutoAnalysisManager.getAnalysisManager(currentProgram)
+
+        if auto_mgr is None:
+            return {"error": "Could not get AutoAnalysisManager"}
+
+        auto_mgr.reAnalyzeAll(None)
+        auto_mgr.startAnalysis(monitor)
+
+        return {"status": "success", "program": program_name}
+
+    except Exception as e:
+        return {"error": "Analysis failed: " + str(e)}
+
 COMMANDS = {
     "ping": handle_ping,
+    # Import/Analyze commands
+    "import": handle_import,
+    "analyze": handle_analyze,
     "program_info": handle_program_info,
     "program_close": handle_program_close,
     "program_delete": handle_program_delete,

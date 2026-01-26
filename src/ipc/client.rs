@@ -152,6 +152,34 @@ impl DaemonClient {
     pub async fn execute_cli_json(&mut self, command_json: String) -> Result<serde_json::Value> {
         self.send_command(Command::ExecuteCli { command_json }).await
     }
+
+    /// Import a binary into a project.
+    pub async fn import_binary(
+        &mut self,
+        binary_path: &str,
+        project: &str,
+        program: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        self.send_command(Command::Import {
+            binary_path: binary_path.to_string(),
+            project: project.to_string(),
+            program: program.map(|s| s.to_string()),
+        })
+        .await
+    }
+
+    /// Analyze a program in a project.
+    pub async fn analyze_program(
+        &mut self,
+        project: &str,
+        program: &str,
+    ) -> Result<serde_json::Value> {
+        self.send_command(Command::Analyze {
+            project: project.to_string(),
+            program: program.to_string(),
+        })
+        .await
+    }
 }
 
 /// Check if daemon is running (without establishing a full connection).

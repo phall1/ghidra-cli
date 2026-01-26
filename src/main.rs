@@ -51,14 +51,14 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Commands::Init => handle_init(),
         Commands::Doctor => handle_doctor(),
         Commands::Version => handle_version(),
-        Commands::Import(args) => handle_import(args),
-        Commands::Analyze(args) => handle_analyze(args),
-        Commands::Quick(args) => handle_quick(args),
         Commands::Config(cmd) => handle_config_command(cmd),
         Commands::SetDefault(args) => handle_set_default(args),
         Commands::Project(args) => handle_project_command(args.command),
         // Commands requiring daemon are handled by run_with_daemon_check
-        Commands::Query(_)
+        Commands::Import(_)
+        | Commands::Analyze(_)
+        | Commands::Quick(_)
+        | Commands::Query(_)
         | Commands::Summary(_)
         | Commands::Function(_)
         | Commands::Strings(_)
@@ -88,7 +88,10 @@ async fn run_async(cli: Cli) -> anyhow::Result<()> {
 fn requires_daemon(command: &Commands) -> bool {
     matches!(
         command,
-        Commands::Query(_)
+        Commands::Import(_)
+            | Commands::Analyze(_)
+            | Commands::Quick(_)
+            | Commands::Query(_)
             | Commands::Decompile(_)
             | Commands::Function(_)
             | Commands::Strings(_)
@@ -117,25 +120,73 @@ async fn run_with_daemon_check(cli: Cli) -> anyhow::Result<()> {
         return run(cli);
     }
 
-    // Query-type commands REQUIRE the daemon
+    let config = Config::load()?;
+    let project_path = match &cli.command {
+        Commands::Import(args) => {
+            resolve_project_path(&args.project, &config)?
+        }
+        Commands::Analyze(args) => {
+            resolve_project_path(&args.project, &config)?
+        }
+        Commands::Quick(args) => {
+            resolve_project_path(&args.project, &config)?
+        }
+        _ => {
+            resolve_project_path(&None, &config)?
+        }
+    };
+
+    ensure_daemon_running(&project_path).await?;
+
     match ipc::client::DaemonClient::connect().await {
         Ok(mut client) => {
             info!("Connected to daemon via IPC");
             let output = execute_via_daemon(&mut client, &cli.command).await?;
-            println!("{}", output);
+            if !output.is_empty() {
+                println!("{}", output);
+            }
             Ok(())
         }
-        Err(_) => {
-            eprintln!("Error: This command requires the daemon to be running.");
+        Err(e) => {
+            eprintln!("Error: Failed to connect to daemon: {}", e);
             eprintln!();
-            eprintln!("Start the daemon with:");
-            eprintln!("  ghidra daemon start --project <project-name>");
-            eprintln!();
-            eprintln!("Or run a quick analysis first:");
-            eprintln!("  ghidra quick <binary>");
+            eprintln!("The daemon may still be starting. Try again in a moment.");
             std::process::exit(1);
         }
     }
+}
+
+/// Ensure daemon is running for the given project path.
+async fn ensure_daemon_running(project_path: &PathBuf) -> anyhow::Result<()> {
+    let data_dir = get_data_dir()?;
+
+    if get_running_daemon_info(&data_dir, project_path)?.is_some() {
+        return Ok(());
+    }
+
+    let config = Config::load()?;
+    let log_file = data_dir.join("daemon.log");
+
+    let daemon_config = DaemonConfig {
+        project_path: project_path.clone(),
+        ghidra_install_dir: config.ghidra_install_dir.map(PathBuf::from),
+        log_file,
+        program_name: config.default_program.clone(),
+    };
+
+    #[cfg(unix)]
+    {
+        daemonize_unix(daemon_config, None)?;
+    }
+
+    #[cfg(windows)]
+    {
+        daemonize_windows(daemon_config, None)?;
+    }
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    Ok(())
 }
 
 /// Execute a command via the daemon IPC connection.
@@ -144,6 +195,72 @@ async fn execute_via_daemon(
     command: &Commands,
 ) -> anyhow::Result<String> {
     let result = match command {
+        Commands::Import(args) => {
+            let binary_path = PathBuf::from(&args.binary);
+            if !binary_path.exists() {
+                anyhow::bail!("Binary not found: {}", args.binary);
+            }
+
+            let result = client.import_binary(
+                &args.binary,
+                &args.project.as_ref().unwrap_or(&"quick-analysis".to_string()),
+                args.program.as_deref(),
+            ).await?;
+
+            if let Some(program_name) = result.as_str() {
+                println!("Successfully imported as: {}", program_name);
+            } else if let Some(program_name) = result.get("program").and_then(|p| p.as_str()) {
+                println!("Successfully imported as: {}", program_name);
+            }
+
+            return Ok(String::new());
+        }
+        Commands::Analyze(args) => {
+            let config = Config::load()?;
+            let program = resolve_program(&args.program, &config)?;
+            let project = resolve_project(&args.project, &config, &program)?;
+
+            println!("Analyzing {}...", program);
+
+            client.analyze_program(&project, &program).await?;
+
+            println!("Analysis complete!");
+
+            return Ok(String::new());
+        }
+        Commands::Quick(args) => {
+            let project = args.project.clone().unwrap_or_else(|| "quick-analysis".to_string());
+            let binary_path = PathBuf::from(&args.binary);
+
+            println!("Quick analysis of {}...\n", args.binary);
+
+            println!("[1/3] Importing binary...");
+            let result = client.import_binary(&args.binary, &project, None).await?;
+
+            let program_name = if let Some(name) = result.as_str() {
+                name.to_string()
+            } else if let Some(name) = result.get("program").and_then(|p| p.as_str()) {
+                name.to_string()
+            } else {
+                binary_path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("program")
+                    .to_string()
+            };
+
+            println!("[2/3] Running analysis...");
+            client.analyze_program(&project, &program_name).await?;
+
+            println!("[3/3] Done!\n");
+            println!("Analysis complete. To query the binary, start the daemon:");
+            println!("  ghidra daemon start --project {} --program {}", project, program_name);
+            println!("\nThen run queries like:");
+            println!("  ghidra function list");
+            println!("  ghidra decompile main");
+            println!("  ghidra summary");
+
+            return Ok(String::new());
+        }
         Commands::Query(args) => {
             match args.data_type.as_str() {
                 "functions" => client.list_functions(args.limit, args.filter.clone()).await?,
@@ -658,70 +775,6 @@ fn handle_version() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn handle_import(args: cli::ImportArgs) -> anyhow::Result<()> {
-    let config = Config::load()?;
-    let client = GhidraClient::new(config.clone())?;
-
-    let project = resolve_project(&args.project, &config, &args.program.as_ref().unwrap_or(&"unknown".to_string()))?;
-
-    let binary_path = PathBuf::from(&args.binary);
-    if !binary_path.exists() {
-        anyhow::bail!(format!("Binary not found: {}", args.binary));
-    }
-
-    println!("Importing {} into project {}...", args.binary, project);
-
-    let program_name = client.import_binary(&project, &binary_path, args.program.as_deref())?;
-
-    println!("Successfully imported as: {}", program_name);
-
-    Ok(())
-}
-
-fn handle_analyze(args: cli::AnalyzeArgs) -> anyhow::Result<()> {
-    let config = Config::load()?;
-    let client = GhidraClient::new(config.clone())?;
-
-    let program = resolve_program(&args.program, &config)?;
-    let project = resolve_project(&args.project, &config, &program)?;
-
-    println!("Analyzing {}...", program);
-
-    client.analyze_program(&project, &program)?;
-
-    println!("Analysis complete!");
-
-    Ok(())
-}
-
-fn handle_quick(args: cli::QuickArgs) -> anyhow::Result<()> {
-    let config = Config::load()?;
-    let client = GhidraClient::new(config.clone())?;
-
-    let project = args.project.unwrap_or_else(|| "quick-analysis".to_string());
-    let binary_path = PathBuf::from(&args.binary);
-
-    println!("Quick analysis of {}...\n", args.binary);
-
-    // Import
-    println!("[1/3] Importing binary...");
-    let program_name = client.import_binary(&project, &binary_path, None)?;
-
-    // Analyze
-    println!("[2/3] Running analysis...");
-    client.analyze_program(&project, &program_name)?;
-
-    // Done
-    println!("[3/3] Done!\n");
-    println!("Analysis complete. To query the binary, start the daemon:");
-    println!("  ghidra daemon start --project {} --program {}", project, program_name);
-    println!("\nThen run queries like:");
-    println!("  ghidra function list");
-    println!("  ghidra decompile main");
-    println!("  ghidra summary");
-
-    Ok(())
-}
 
 fn handle_config_command(cmd: cli::ConfigCommands) -> anyhow::Result<()> {
     use cli::ConfigCommands;

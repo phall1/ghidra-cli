@@ -97,6 +97,21 @@ async fn handle_command_inner(
             }))).await
         }
 
+        Command::Import { binary_path, project, program } => {
+            execute_bridge_command(bridge, "import", Some(json!({
+                "binary_path": binary_path,
+                "project": project,
+                "program": program,
+            }))).await
+        }
+
+        Command::Analyze { project, program } => {
+            execute_bridge_command(bridge, "analyze", Some(json!({
+                "project": project,
+                "program": program,
+            }))).await
+        }
+
         Command::ExecuteCli { command_json } => {
             // Deserialize and execute CLI command through the queue handlers
             let cli_command: crate::cli::Commands = serde_json::from_str(&command_json)
