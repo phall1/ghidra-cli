@@ -123,13 +123,9 @@ async fn run_with_daemon_check(cli: Cli) -> anyhow::Result<()> {
     }
 
     let config = Config::load()?;
+    let project_path = config.get_project_dir()?;
 
-    // Extract project and program from command arguments
-    let (project_opt, program_opt) = extract_project_program(&cli.command);
-    let project_path = resolve_project_path(&project_opt, &config)?;
-    let program_name = program_opt.or(config.default_program.clone());
-
-    ensure_daemon_running(&project_path, program_name.as_deref()).await?;
+    ensure_daemon_running(&project_path).await?;
 
     match ipc::client::DaemonClient::connect().await {
         Ok(mut client) => {
