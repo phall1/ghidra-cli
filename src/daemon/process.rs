@@ -3,13 +3,13 @@
 //! Handles PID files, lock files, and daemon process information.
 
 use std::fs;
-use std::path::{Path, PathBuf};
 use std::io::Write;
+use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sysinfo::{System, Pid, ProcessRefreshKind};
+use sysinfo::{Pid, ProcessRefreshKind, System};
 
 /// Daemon information stored in the lock file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,26 +48,26 @@ pub fn get_data_dir() -> Result<PathBuf> {
             .join("ghidra-cli")
     };
 
-    fs::create_dir_all(&data_dir)
-        .context("Failed to create data directory")?;
+    fs::create_dir_all(&data_dir).context("Failed to create data directory")?;
 
     Ok(data_dir)
 }
 
 /// Get the lock file path for a project.
 fn get_lock_file_path(data_dir: &Path, project_path: &Path) -> PathBuf {
-    let project_hash = format!("{:x}", md5::compute(project_path.to_string_lossy().as_bytes()));
+    let project_hash = format!(
+        "{:x}",
+        md5::compute(project_path.to_string_lossy().as_bytes())
+    );
     data_dir.join(format!("daemon-{}.lock", project_hash))
 }
 
 /// Write daemon info to a lock file.
 pub fn write_daemon_info(data_dir: &Path, project_path: &Path, info: &DaemonInfo) -> Result<()> {
     let lock_file = get_lock_file_path(data_dir, project_path);
-    let json = serde_json::to_string_pretty(info)
-        .context("Failed to serialize daemon info")?;
+    let json = serde_json::to_string_pretty(info).context("Failed to serialize daemon info")?;
 
-    let mut file = fs::File::create(&lock_file)
-        .context("Failed to create lock file")?;
+    let mut file = fs::File::create(&lock_file).context("Failed to create lock file")?;
 
     file.write_all(json.as_bytes())
         .context("Failed to write lock file")?;
@@ -83,11 +83,9 @@ pub fn read_daemon_info(data_dir: &Path, project_path: &Path) -> Result<Option<D
         return Ok(None);
     }
 
-    let contents = fs::read_to_string(&lock_file)
-        .context("Failed to read lock file")?;
+    let contents = fs::read_to_string(&lock_file).context("Failed to read lock file")?;
 
-    let info: DaemonInfo = serde_json::from_str(&contents)
-        .context("Failed to parse lock file")?;
+    let info: DaemonInfo = serde_json::from_str(&contents).context("Failed to parse lock file")?;
 
     Ok(Some(info))
 }
@@ -97,8 +95,7 @@ pub fn remove_lock_file(data_dir: &Path, project_path: &Path) -> Result<()> {
     let lock_file = get_lock_file_path(data_dir, project_path);
 
     if lock_file.exists() {
-        fs::remove_file(&lock_file)
-            .context("Failed to remove lock file")?;
+        fs::remove_file(&lock_file).context("Failed to remove lock file")?;
     }
 
     Ok(())

@@ -25,5 +25,7 @@ See @AGENTS.md for agent-specific instructions.
 
 | What | When |
 |------|------|
+| `CONTRIBUTING.md` | Setting up development environment, understanding PR process, test requirements |
+| `CHANGELOG.md` | Reviewing version history and release notes |
 | `src/daemon/README.md` | Understanding daemon architecture and IPC protocol |
 | `tests/README.md` | Understanding test structure and conventions |

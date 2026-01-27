@@ -16,8 +16,8 @@ const TEST_PROGRAM: &str = "sample_binary";
 fn test_symbol_list() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     Command::cargo_bin("ghidra")
         .unwrap()
@@ -38,8 +38,8 @@ fn test_symbol_list() {
 fn test_symbol_create_and_get() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     Command::cargo_bin("ghidra")
         .unwrap()
@@ -73,8 +73,8 @@ fn test_symbol_create_and_get() {
 fn test_symbol_rename() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     Command::cargo_bin("ghidra")
         .unwrap()
@@ -108,8 +108,8 @@ fn test_symbol_rename() {
 fn test_symbol_get_nonexistent() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     Command::cargo_bin("ghidra")
         .unwrap()

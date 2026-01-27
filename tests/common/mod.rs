@@ -9,7 +9,9 @@ pub mod helpers;
 pub mod schemas;
 
 // Re-export commonly used items
-pub use helpers::{ghidra, get_function_address, normalize_json, normalize_output, GhidraCommand, GhidraResult};
+pub use helpers::{
+    get_function_address, ghidra, normalize_json, normalize_output, GhidraCommand, GhidraResult,
+};
 pub use schemas::Validate;
 
 use anyhow::{Context, Result};
@@ -135,8 +137,7 @@ impl DaemonTestHarness {
         }
         let mut guard = ChildGuard(Some(child));
 
-        let runtime = tokio::runtime::Runtime::new()
-            .context("Failed to create tokio runtime")?;
+        let runtime = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
 
         let mut harness = Self {
             child: guard.0.take().unwrap(),
@@ -163,7 +164,10 @@ impl DaemonTestHarness {
 
         for attempt in 0..max_attempts {
             if start.elapsed() > timeout {
-                anyhow::bail!("Daemon failed to start within {}s timeout", timeout.as_secs());
+                anyhow::bail!(
+                    "Daemon failed to start within {}s timeout",
+                    timeout.as_secs()
+                );
             }
 
             std::thread::sleep(delay);
@@ -171,7 +175,7 @@ impl DaemonTestHarness {
             if let Ok(mut client) = self.client() {
                 match self.runtime.block_on(client.ping()) {
                     Ok(true) => return Ok(()),
-                    Ok(false) => {},
+                    Ok(false) => {}
                     Err(e) => {
                         if attempt == max_attempts - 1 {
                             anyhow::bail!("Connection error during ping: {}", e);
@@ -190,13 +194,14 @@ impl DaemonTestHarness {
     pub fn client(&self) -> Result<ghidra_cli::ipc::client::DaemonClient> {
         // Set GHIDRA_CLI_SOCKET for this process so client connects to the right socket
         // SAFETY: Tests run single-threaded (--test-threads=1), so no data race.
-        unsafe { std::env::set_var("GHIDRA_CLI_SOCKET", &self.socket_path); }
+        unsafe {
+            std::env::set_var("GHIDRA_CLI_SOCKET", &self.socket_path);
+        }
         // When GHIDRA_CLI_SOCKET is set, the project path is ignored
         // but we still need to pass one for the function signature
         let project_path = std::path::Path::new(&self.project);
-        self.runtime.block_on(async {
-            ghidra_cli::ipc::client::DaemonClient::connect(project_path).await
-        })
+        self.runtime
+            .block_on(async { ghidra_cli::ipc::client::DaemonClient::connect(project_path).await })
     }
 
     /// Get socket path for this daemon instance.

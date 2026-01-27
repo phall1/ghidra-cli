@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 
-use serde_json::Value as JsonValue;
 use crate::error::{GhidraError, Result};
 use crate::filter::Filter;
-use crate::format::{OutputFormat, Formatter, DefaultFormatter};
+use crate::format::{DefaultFormatter, Formatter, OutputFormat};
+use serde_json::Value as JsonValue;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DataType {
@@ -42,7 +42,10 @@ impl DataType {
             "callgraph" | "call-graph" => Ok(Self::CallGraph),
             "data" => Ok(Self::Data),
             "references" | "refs" => Ok(Self::References),
-            _ => Err(GhidraError::InvalidDataType(format!("Unknown data type: {}", s))),
+            _ => Err(GhidraError::InvalidDataType(format!(
+                "Unknown data type: {}",
+                s
+            ))),
         }
     }
 }
@@ -148,7 +151,11 @@ impl Query {
         Ok(result)
     }
 
-    fn select_fields(&self, data: &[JsonValue], selector: &FieldSelector) -> Result<Vec<JsonValue>> {
+    fn select_fields(
+        &self,
+        data: &[JsonValue],
+        selector: &FieldSelector,
+    ) -> Result<Vec<JsonValue>> {
         let mut result = Vec::new();
 
         for item in data {
@@ -189,9 +196,10 @@ impl Query {
                 let b_val = self.get_field_for_sort(b, &sort_key.field);
 
                 let cmp = match (&a_val, &b_val) {
-                    (Some(JsonValue::Number(a)), Some(JsonValue::Number(b))) => {
-                        a.as_f64().partial_cmp(&b.as_f64()).unwrap_or(std::cmp::Ordering::Equal)
-                    }
+                    (Some(JsonValue::Number(a)), Some(JsonValue::Number(b))) => a
+                        .as_f64()
+                        .partial_cmp(&b.as_f64())
+                        .unwrap_or(std::cmp::Ordering::Equal),
                     (Some(JsonValue::String(a)), Some(JsonValue::String(b))) => a.cmp(b),
                     _ => std::cmp::Ordering::Equal,
                 };
@@ -225,11 +233,7 @@ impl Query {
         let offset = self.offset.unwrap_or(0);
         let limit = self.limit.unwrap_or(usize::MAX);
 
-        data.iter()
-            .skip(offset)
-            .take(limit)
-            .cloned()
-            .collect()
+        data.iter().skip(offset).take(limit).cloned().collect()
     }
 }
 
@@ -264,10 +268,7 @@ impl FieldSelector {
             Ok(Self::exclude(fields))
         } else {
             // Include fields
-            let fields: Vec<String> = input
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .collect();
+            let fields: Vec<String> = input.split(',').map(|s| s.trim().to_string()).collect();
             Ok(Self::include(fields))
         }
     }
@@ -306,7 +307,10 @@ mod tests {
 
     #[test]
     fn test_data_type_parsing() {
-        assert_eq!(DataType::from_str("functions").unwrap(), DataType::Functions);
+        assert_eq!(
+            DataType::from_str("functions").unwrap(),
+            DataType::Functions
+        );
         assert_eq!(DataType::from_str("fn").unwrap(), DataType::Functions);
         assert_eq!(DataType::from_str("strings").unwrap(), DataType::Strings);
     }

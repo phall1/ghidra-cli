@@ -5,9 +5,9 @@ pub mod data;
 pub mod scripts;
 pub mod setup;
 
-use std::path::{Path, PathBuf};
 use crate::config::Config;
 use crate::error::{GhidraError, Result};
+use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 pub struct GhidraClient {
@@ -87,8 +87,9 @@ impl GhidraClient {
     }
 
     fn get_scripts_dir(&self) -> Result<PathBuf> {
-        let config_dir = dirs::config_dir()
-            .ok_or_else(|| GhidraError::ConfigError("Could not determine config directory".to_string()))?;
+        let config_dir = dirs::config_dir().ok_or_else(|| {
+            GhidraError::ConfigError("Could not determine config directory".to_string())
+        })?;
 
         let scripts_dir = config_dir.join("ghidra-cli").join("scripts");
 

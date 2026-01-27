@@ -11,11 +11,9 @@ use serial_test::serial;
 #[macro_use]
 mod common;
 use common::{
-    ensure_test_project,
-    ghidra,
-    get_function_address,
-    DaemonTestHarness,
+    ensure_test_project, get_function_address, ghidra,
     schemas::{DisasmResult, Instruction, Validate},
+    DaemonTestHarness,
 };
 
 const TEST_PROJECT: &str = "disasm-test";
@@ -31,8 +29,8 @@ const TEST_PROGRAM: &str = "sample_binary";
 fn test_disasm_at_main() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     // Get main's address dynamically instead of hardcoding
     let main_addr = get_function_address(&harness, TEST_PROJECT, TEST_PROGRAM, "main");
@@ -50,7 +48,10 @@ fn test_disasm_at_main() {
 
     // Try to parse as DisasmResult
     if let Some(disasm) = result.try_json::<DisasmResult>() {
-        assert!(!disasm.results.is_empty(), "Should have at least one instruction");
+        assert!(
+            !disasm.results.is_empty(),
+            "Should have at least one instruction"
+        );
 
         // Validate instruction structure
         for instr in &disasm.results {
@@ -58,7 +59,10 @@ fn test_disasm_at_main() {
         }
     } else if let Some(instructions) = result.try_json::<Vec<Instruction>>() {
         // Some outputs might be a direct array
-        assert!(!instructions.is_empty(), "Should have at least one instruction");
+        assert!(
+            !instructions.is_empty(),
+            "Should have at least one instruction"
+        );
 
         for instr in &instructions {
             instr.assert_valid();
@@ -72,8 +76,8 @@ fn test_disasm_at_main() {
 fn test_disasm_with_instruction_limit() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     let main_addr = get_function_address(&harness, TEST_PROJECT, TEST_PROGRAM, "main");
     let limit = 5;
@@ -120,8 +124,8 @@ fn test_disasm_with_instruction_limit() {
 fn test_disasm_small_count() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     let main_addr = get_function_address(&harness, TEST_PROJECT, TEST_PROGRAM, "main");
 
@@ -158,8 +162,8 @@ fn test_disasm_small_count() {
 fn test_disasm_instruction_fields() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     let main_addr = get_function_address(&harness, TEST_PROJECT, TEST_PROGRAM, "main");
 
@@ -197,7 +201,10 @@ fn test_disasm_instruction_fields() {
         let mnemonic_upper = first.mnemonic.to_uppercase();
 
         // This is a soft check - just log if unexpected
-        if !common_first_instr.iter().any(|&m| mnemonic_upper.starts_with(m)) {
+        if !common_first_instr
+            .iter()
+            .any(|&m| mnemonic_upper.starts_with(m))
+        {
             eprintln!(
                 "Note: First instruction is '{}' - unusual but not necessarily wrong",
                 first.mnemonic
@@ -216,12 +223,12 @@ fn test_disasm_instruction_fields() {
 fn test_disasm_invalid_address() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     let result = ghidra(&harness)
         .arg("disasm")
-        .arg("0xFFFFFFFFFFFFFFFF")  // Unmapped address
+        .arg("0xFFFFFFFFFFFFFFFF") // Unmapped address
         .arg("--program")
         .arg(TEST_PROGRAM)
         .run();
@@ -250,8 +257,8 @@ fn test_disasm_invalid_address() {
 fn test_disasm_missing_program() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     let result = ghidra(&harness)
         .arg("disasm")
@@ -269,8 +276,8 @@ fn test_disasm_missing_program() {
 fn test_disasm_zero_instructions() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     let main_addr = get_function_address(&harness, TEST_PROJECT, TEST_PROGRAM, "main");
 
@@ -305,8 +312,8 @@ fn test_disasm_zero_instructions() {
 fn test_disasm_output_format_snapshot() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     let main_addr = get_function_address(&harness, TEST_PROJECT, TEST_PROGRAM, "main");
 
@@ -314,7 +321,7 @@ fn test_disasm_output_format_snapshot() {
         .arg("disasm")
         .arg(&main_addr)
         .arg("--instructions")
-        .arg("3")  // Small count for stable snapshot
+        .arg("3") // Small count for stable snapshot
         .arg("--program")
         .arg(TEST_PROGRAM)
         .arg("--format")

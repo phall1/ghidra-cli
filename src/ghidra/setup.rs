@@ -1,10 +1,10 @@
-use std::fs::File;
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use futures_util::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::Deserialize;
+use std::fs::File;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 
 /// GitHub release asset information
 #[derive(Deserialize, Debug)]
@@ -32,7 +32,7 @@ pub fn check_java_requirement() -> Result<()> {
 
     // Java outputs version info to stderr
     let version_output = String::from_utf8_lossy(&output.stderr);
-    
+
     // Look for version pattern like "17.0.x" or "21.0.x" in the output
     // Java version string format is usually: 'java version "17.0.1"' or 'openjdk version "17.0.1"'
     if version_output.is_empty() {
@@ -118,21 +118,24 @@ pub async fn download_file(url: &str, path: &Path) -> Result<()> {
     let client = reqwest::Client::builder()
         .user_agent("ghidra-cli")
         .build()?;
-    
+
     let res = client
         .get(url)
         .send()
         .await?
         .error_for_status()
         .context("Download request failed")?;
-    
+
     let total_size = res.content_length().unwrap_or(0);
 
     let pb = ProgressBar::new(total_size);
     pb.set_style(ProgressStyle::default_bar()
         .template("{msg}\n{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})")?
         .progress_chars("#>-"));
-    pb.set_message(format!("Downloading {}", path.file_name().unwrap_or_default().to_string_lossy()));
+    pb.set_message(format!(
+        "Downloading {}",
+        path.file_name().unwrap_or_default().to_string_lossy()
+    ));
 
     let mut file = File::create(path)?;
     let mut stream = res.bytes_stream();
@@ -151,15 +154,19 @@ pub async fn download_file(url: &str, path: &Path) -> Result<()> {
 /// Returns the path to the extracted Ghidra directory.
 pub fn extract_zip(zip_path: &Path, target_dir: &Path) -> Result<PathBuf> {
     println!("Extracting...");
-    
+
     let file = File::open(zip_path)?;
     let mut archive = zip::ZipArchive::new(file)?;
 
     let total_files = archive.len();
     let pb = ProgressBar::new(total_files as u64);
-    pb.set_style(ProgressStyle::default_bar()
-        .template("{msg}\n{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len}")?
-        .progress_chars("#>-"));
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template(
+                "{msg}\n{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len}",
+            )?
+            .progress_chars("#>-"),
+    );
     pb.set_message("Extracting files");
 
     // Track the root directory from the archive
@@ -174,7 +181,8 @@ pub fn extract_zip(zip_path: &Path, target_dir: &Path) -> Result<PathBuf> {
 
         // Capture the root directory (first path component)
         if root_dir.is_none() {
-            if let Some(first_component) = file.enclosed_name().and_then(|p| p.components().next()) {
+            if let Some(first_component) = file.enclosed_name().and_then(|p| p.components().next())
+            {
                 root_dir = Some(target_dir.join(first_component.as_os_str()));
             }
         }
@@ -264,7 +272,10 @@ pub fn install_pyghidra(ghidra_install_dir: &Path) -> Result<()> {
         })
         .ok_or_else(|| anyhow!("PyGhidra wheel not found in {}", dist_dir.display()))?;
 
-    println!("  Found PyGhidra wheel: {}", wheel_path.file_name().unwrap_or_default().to_string_lossy());
+    println!(
+        "  Found PyGhidra wheel: {}",
+        wheel_path.file_name().unwrap_or_default().to_string_lossy()
+    );
 
     // Determine venv location (matches pyghidra_launcher.py logic)
     // Format: ~/.config/ghidra/ghidra_<version>_<release>/venv

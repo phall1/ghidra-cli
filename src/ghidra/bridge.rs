@@ -86,7 +86,8 @@ impl GhidraBridge {
 
         // Find headless script (pyghidraRun or analyzeHeadless)
         let headless_script = self.find_headless_script()?;
-        let is_pyghidra = headless_script.file_name()
+        let is_pyghidra = headless_script
+            .file_name()
             .map(|n| n.to_string_lossy().contains("pyghidra"))
             .unwrap_or(false);
 
@@ -173,12 +174,8 @@ impl GhidraBridge {
         // Connect to the bridge
         let stream = TcpStream::connect(format!("127.0.0.1:{}", self.port))
             .context("Failed to connect to bridge")?;
-        stream
-            .set_read_timeout(Some(Duration::from_secs(300)))
-            .ok();
-        stream
-            .set_write_timeout(Some(Duration::from_secs(30)))
-            .ok();
+        stream.set_read_timeout(Some(Duration::from_secs(300))).ok();
+        stream.set_write_timeout(Some(Duration::from_secs(30))).ok();
 
         self.child = Some(child);
         self.stream = Some(stream);
@@ -198,9 +195,10 @@ impl GhidraBridge {
             anyhow::bail!("Bridge not running");
         }
 
-        let stream = self.stream.as_mut().ok_or_else(|| {
-            anyhow::anyhow!("No connection to bridge")
-        })?;
+        let stream = self
+            .stream
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("No connection to bridge"))?;
 
         let request = BridgeRequest {
             command: command.to_string(),
@@ -346,11 +344,17 @@ impl Drop for GhidraBridge {
 
 /// Convenience wrapper for wait_timeout on Child
 trait ChildExt {
-    fn wait_timeout(&mut self, timeout: Duration) -> std::io::Result<Option<std::process::ExitStatus>>;
+    fn wait_timeout(
+        &mut self,
+        timeout: Duration,
+    ) -> std::io::Result<Option<std::process::ExitStatus>>;
 }
 
 impl ChildExt for Child {
-    fn wait_timeout(&mut self, timeout: Duration) -> std::io::Result<Option<std::process::ExitStatus>> {
+    fn wait_timeout(
+        &mut self,
+        timeout: Duration,
+    ) -> std::io::Result<Option<std::process::ExitStatus>> {
         use std::thread;
         use std::time::Instant;
 

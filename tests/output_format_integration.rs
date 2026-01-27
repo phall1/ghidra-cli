@@ -28,7 +28,10 @@ fn test_format_detection_tty() {
     let output = cmd.output().unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("--json"), "Help should show --json flag");
-    assert!(stdout.contains("--pretty"), "Help should show --pretty flag");
+    assert!(
+        stdout.contains("--pretty"),
+        "Help should show --pretty flag"
+    );
 }
 
 #[test]

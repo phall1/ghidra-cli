@@ -25,11 +25,13 @@ pub struct DaemonState {
 impl DaemonState {
     /// Load daemon state for a project.
     pub fn load(project_path: &Path, ghidra_install_dir: Option<&Path>) -> Result<Self> {
-        info!("Loading daemon state for project: {}", project_path.display());
+        info!(
+            "Loading daemon state for project: {}",
+            project_path.display()
+        );
 
         // Load config
-        let mut config = Config::load()
-            .context("Failed to load config")?;
+        let mut config = Config::load().context("Failed to load config")?;
 
         // Override ghidra install dir if provided
         if let Some(dir) = ghidra_install_dir {
@@ -37,11 +39,11 @@ impl DaemonState {
         }
 
         // Create Ghidra client
-        let client = GhidraClient::new(config)
-            .context("Failed to create Ghidra client")?;
+        let client = GhidraClient::new(config).context("Failed to create Ghidra client")?;
 
         // Verify the client installation is valid
-        client.verify_installation()
+        client
+            .verify_installation()
             .context("Invalid Ghidra installation")?;
 
         info!("Daemon state loaded successfully");

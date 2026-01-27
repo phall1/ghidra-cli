@@ -262,4 +262,4 @@ Contributions are welcome! Please feel free to submit issues and pull requests.
 
 ## License
 
-MIT License - See [LICENSE](LICENSE) for details.
+GPL-3.0 License - See [LICENSE](LICENSE) for details.

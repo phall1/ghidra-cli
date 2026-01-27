@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use tokio::sync::{Mutex, Semaphore, oneshot};
+use tokio::sync::{oneshot, Mutex, Semaphore};
 use tracing::{info, warn};
 
 use crate::cli::Commands;
@@ -76,7 +76,8 @@ impl CommandQueue {
         self.process_queue().await;
 
         // Wait for response
-        response_rx.await
+        response_rx
+            .await
             .context("Failed to receive command response")?
     }
 
@@ -160,31 +161,29 @@ async fn execute_command(
     use serde_json::json;
 
     let (bridge_cmd, args) = match command {
-        Commands::Query(query_args) => {
-            match query_args.data_type.as_str() {
-                "functions" => (
-                    "list_functions",
-                    Some(json!({
-                        "limit": query_args.limit,
-                        "filter": query_args.filter,
-                    }))
-                ),
-                "strings" => (
-                    "list_strings",
-                    Some(json!({
-                        "limit": query_args.limit,
-                    }))
-                ),
-                "imports" => ("list_imports", None),
-                "exports" => ("list_exports", None),
-                _ => anyhow::bail!("Unknown query type: {}", query_args.data_type),
-            }
+        Commands::Query(query_args) => match query_args.data_type.as_str() {
+            "functions" => (
+                "list_functions",
+                Some(json!({
+                    "limit": query_args.limit,
+                    "filter": query_args.filter,
+                })),
+            ),
+            "strings" => (
+                "list_strings",
+                Some(json!({
+                    "limit": query_args.limit,
+                })),
+            ),
+            "imports" => ("list_imports", None),
+            "exports" => ("list_exports", None),
+            _ => anyhow::bail!("Unknown query type: {}", query_args.data_type),
         },
         Commands::Decompile(decompile_args) => (
             "decompile",
             Some(json!({
                 "address": decompile_args.target,
-            }))
+            })),
         ),
         Commands::Memory(mem_cmd) => {
             use crate::cli::MemoryCommands;
@@ -192,7 +191,7 @@ async fn execute_command(
                 MemoryCommands::Map(_) => ("memory_map", None),
                 _ => anyhow::bail!("Memory command not yet supported in daemon"),
             }
-        },
+        }
         Commands::XRef(xref_cmd) => {
             use crate::cli::XRefCommands;
             match xref_cmd {
@@ -200,21 +199,22 @@ async fn execute_command(
                     "xrefs_to",
                     Some(json!({
                         "address": args.address,
-                    }))
+                    })),
                 ),
                 XRefCommands::From(args) => (
                     "xrefs_from",
                     Some(json!({
                         "address": args.address,
-                    }))
+                    })),
                 ),
                 XRefCommands::List(_) => anyhow::bail!("XRef List not yet supported"),
             }
-        },
+        }
         Commands::Program(prog_cmd) => {
             use crate::cli::ProgramCommands;
             let mut bridge_guard = bridge.lock().await;
-            let bridge_ref = bridge_guard.as_mut()
+            let bridge_ref = bridge_guard
+                .as_mut()
                 .ok_or_else(|| anyhow::anyhow!("Bridge not initialized"))?;
 
             if !bridge_ref.is_running() {
@@ -222,22 +222,34 @@ async fn execute_command(
             }
 
             return match prog_cmd {
-                ProgramCommands::Close(_) => handlers::program::handle_program_close(bridge_ref).await,
+                ProgramCommands::Close(_) => {
+                    handlers::program::handle_program_close(bridge_ref).await
+                }
                 ProgramCommands::Delete(args) => {
-                    let program = args.program.as_ref()
+                    let program = args
+                        .program
+                        .as_ref()
                         .ok_or_else(|| anyhow::anyhow!("Program name required"))?;
                     handlers::program::handle_program_delete(bridge_ref, program).await
-                },
-                ProgramCommands::Info(_) => handlers::program::handle_program_info(bridge_ref).await,
+                }
+                ProgramCommands::Info(_) => {
+                    handlers::program::handle_program_info(bridge_ref).await
+                }
                 ProgramCommands::Export(args) => {
-                    handlers::program::handle_program_export(bridge_ref, &args.format, args.output.as_deref()).await
-                },
+                    handlers::program::handle_program_export(
+                        bridge_ref,
+                        &args.format,
+                        args.output.as_deref(),
+                    )
+                    .await
+                }
             };
-        },
+        }
         Commands::Symbol(sym_cmd) => {
             use crate::cli::SymbolCommands;
             let mut bridge_guard = bridge.lock().await;
-            let bridge_ref = bridge_guard.as_mut()
+            let bridge_ref = bridge_guard
+                .as_mut()
                 .ok_or_else(|| anyhow::anyhow!("Bridge not initialized"))?;
 
             if !bridge_ref.is_running() {
@@ -247,25 +259,32 @@ async fn execute_command(
             return match sym_cmd {
                 SymbolCommands::List(opts) => {
                     handlers::symbols::handle_symbol_list(bridge_ref, opts.filter.as_deref()).await
-                },
+                }
                 SymbolCommands::Get(args) => {
                     handlers::symbols::handle_symbol_get(bridge_ref, &args.name).await
-                },
+                }
                 SymbolCommands::Create(args) => {
-                    handlers::symbols::handle_symbol_create(bridge_ref, &args.address, &args.name).await
-                },
+                    handlers::symbols::handle_symbol_create(bridge_ref, &args.address, &args.name)
+                        .await
+                }
                 SymbolCommands::Delete(args) => {
                     handlers::symbols::handle_symbol_delete(bridge_ref, &args.name).await
-                },
+                }
                 SymbolCommands::Rename(args) => {
-                    handlers::symbols::handle_symbol_rename(bridge_ref, &args.old_name, &args.new_name).await
-                },
+                    handlers::symbols::handle_symbol_rename(
+                        bridge_ref,
+                        &args.old_name,
+                        &args.new_name,
+                    )
+                    .await
+                }
             };
-        },
+        }
         Commands::Type(type_cmd) => {
             use crate::cli::TypeCommands;
             let mut bridge_guard = bridge.lock().await;
-            let bridge_ref = bridge_guard.as_mut()
+            let bridge_ref = bridge_guard
+                .as_mut()
                 .ok_or_else(|| anyhow::anyhow!("Bridge not initialized"))?;
 
             if !bridge_ref.is_running() {
@@ -273,24 +292,24 @@ async fn execute_command(
             }
 
             return match type_cmd {
-                TypeCommands::List(_) => {
-                    handlers::types::handle_type_list(bridge_ref).await
-                },
+                TypeCommands::List(_) => handlers::types::handle_type_list(bridge_ref).await,
                 TypeCommands::Get(args) => {
                     handlers::types::handle_type_get(bridge_ref, &args.name).await
-                },
+                }
                 TypeCommands::Create(args) => {
                     handlers::types::handle_type_create(bridge_ref, &args.definition).await
-                },
+                }
                 TypeCommands::Apply(args) => {
-                    handlers::types::handle_type_apply(bridge_ref, &args.address, &args.type_name).await
-                },
+                    handlers::types::handle_type_apply(bridge_ref, &args.address, &args.type_name)
+                        .await
+                }
             };
-        },
+        }
         Commands::Comment(comment_cmd) => {
             use crate::cli::CommentCommands;
             let mut bridge_guard = bridge.lock().await;
-            let bridge_ref = bridge_guard.as_mut()
+            let bridge_ref = bridge_guard
+                .as_mut()
                 .ok_or_else(|| anyhow::anyhow!("Bridge not initialized"))?;
 
             if !bridge_ref.is_running() {
@@ -298,18 +317,31 @@ async fn execute_command(
             }
 
             return match comment_cmd {
-                CommentCommands::List(_) => handlers::comments::handle_comment_list(bridge_ref).await,
-                CommentCommands::Get(args) => handlers::comments::handle_comment_get(bridge_ref, &args.address).await,
+                CommentCommands::List(_) => {
+                    handlers::comments::handle_comment_list(bridge_ref).await
+                }
+                CommentCommands::Get(args) => {
+                    handlers::comments::handle_comment_get(bridge_ref, &args.address).await
+                }
                 CommentCommands::Set(args) => {
-                    handlers::comments::handle_comment_set(bridge_ref, &args.address, &args.text, args.comment_type.as_deref()).await
-                },
-                CommentCommands::Delete(args) => handlers::comments::handle_comment_delete(bridge_ref, &args.address).await,
+                    handlers::comments::handle_comment_set(
+                        bridge_ref,
+                        &args.address,
+                        &args.text,
+                        args.comment_type.as_deref(),
+                    )
+                    .await
+                }
+                CommentCommands::Delete(args) => {
+                    handlers::comments::handle_comment_delete(bridge_ref, &args.address).await
+                }
             };
-        },
+        }
         Commands::Graph(graph_cmd) => {
             use crate::cli::GraphCommands;
             let mut bridge_guard = bridge.lock().await;
-            let bridge_ref = bridge_guard.as_mut()
+            let bridge_ref = bridge_guard
+                .as_mut()
                 .ok_or_else(|| anyhow::anyhow!("Bridge not initialized"))?;
 
             if !bridge_ref.is_running() {
@@ -319,22 +351,25 @@ async fn execute_command(
             return match graph_cmd {
                 GraphCommands::Calls(opts) => {
                     handlers::graph::handle_graph_calls(bridge_ref, opts.limit).await
-                },
+                }
                 GraphCommands::Callers(args) => {
-                    handlers::graph::handle_graph_callers(bridge_ref, &args.function, args.depth).await
-                },
+                    handlers::graph::handle_graph_callers(bridge_ref, &args.function, args.depth)
+                        .await
+                }
                 GraphCommands::Callees(args) => {
-                    handlers::graph::handle_graph_callees(bridge_ref, &args.function, args.depth).await
-                },
+                    handlers::graph::handle_graph_callees(bridge_ref, &args.function, args.depth)
+                        .await
+                }
                 GraphCommands::Export(args) => {
                     handlers::graph::handle_graph_export(bridge_ref, &args.format).await
-                },
+                }
             };
-        },
+        }
         Commands::Find(find_cmd) => {
             use crate::cli::FindCommands;
             let mut bridge_guard = bridge.lock().await;
-            let bridge_ref = bridge_guard.as_mut()
+            let bridge_ref = bridge_guard
+                .as_mut()
                 .ok_or_else(|| anyhow::anyhow!("Bridge not initialized"))?;
 
             if !bridge_ref.is_running() {
@@ -342,18 +377,29 @@ async fn execute_command(
             }
 
             return match find_cmd {
-                FindCommands::String(args) => handlers::find::handle_find_string(bridge_ref, &args.pattern).await,
-                FindCommands::Bytes(args) => handlers::find::handle_find_bytes(bridge_ref, &args.hex).await,
-                FindCommands::Function(args) => handlers::find::handle_find_function(bridge_ref, &args.pattern).await,
-                FindCommands::Calls(args) => handlers::find::handle_find_calls(bridge_ref, &args.function).await,
+                FindCommands::String(args) => {
+                    handlers::find::handle_find_string(bridge_ref, &args.pattern).await
+                }
+                FindCommands::Bytes(args) => {
+                    handlers::find::handle_find_bytes(bridge_ref, &args.hex).await
+                }
+                FindCommands::Function(args) => {
+                    handlers::find::handle_find_function(bridge_ref, &args.pattern).await
+                }
+                FindCommands::Calls(args) => {
+                    handlers::find::handle_find_calls(bridge_ref, &args.function).await
+                }
                 FindCommands::Crypto(_) => handlers::find::handle_find_crypto(bridge_ref).await,
-                FindCommands::Interesting(_) => handlers::find::handle_find_interesting(bridge_ref).await,
+                FindCommands::Interesting(_) => {
+                    handlers::find::handle_find_interesting(bridge_ref).await
+                }
             };
-        },
+        }
         Commands::Diff(diff_cmd) => {
             use crate::cli::DiffCommands;
             let mut bridge_guard = bridge.lock().await;
-            let bridge_ref = bridge_guard.as_mut()
+            let bridge_ref = bridge_guard
+                .as_mut()
                 .ok_or_else(|| anyhow::anyhow!("Bridge not initialized"))?;
 
             if !bridge_ref.is_running() {
@@ -362,17 +408,20 @@ async fn execute_command(
 
             return match diff_cmd {
                 DiffCommands::Programs(args) => {
-                    handlers::diff::handle_diff_programs(bridge_ref, &args.program1, &args.program2).await
-                },
+                    handlers::diff::handle_diff_programs(bridge_ref, &args.program1, &args.program2)
+                        .await
+                }
                 DiffCommands::Functions(args) => {
-                    handlers::diff::handle_diff_functions(bridge_ref, &args.func1, &args.func2).await
-                },
+                    handlers::diff::handle_diff_functions(bridge_ref, &args.func1, &args.func2)
+                        .await
+                }
             };
-        },
+        }
         Commands::Patch(patch_cmd) => {
             use crate::cli::PatchCommands;
             let mut bridge_guard = bridge.lock().await;
-            let bridge_ref = bridge_guard.as_mut()
+            let bridge_ref = bridge_guard
+                .as_mut()
                 .ok_or_else(|| anyhow::anyhow!("Bridge not initialized"))?;
 
             if !bridge_ref.is_running() {
@@ -380,15 +429,22 @@ async fn execute_command(
             }
 
             return match patch_cmd {
-                PatchCommands::Bytes(args) => handlers::patch::handle_patch_bytes(bridge_ref, &args.address, &args.hex).await,
-                PatchCommands::Nop(args) => handlers::patch::handle_patch_nop(bridge_ref, &args.address).await,
-                PatchCommands::Export(args) => handlers::patch::handle_patch_export(bridge_ref, &args.output).await,
+                PatchCommands::Bytes(args) => {
+                    handlers::patch::handle_patch_bytes(bridge_ref, &args.address, &args.hex).await
+                }
+                PatchCommands::Nop(args) => {
+                    handlers::patch::handle_patch_nop(bridge_ref, &args.address).await
+                }
+                PatchCommands::Export(args) => {
+                    handlers::patch::handle_patch_export(bridge_ref, &args.output).await
+                }
             };
-        },
+        }
         Commands::Script(script_cmd) => {
             use crate::cli::ScriptCommands;
             let mut bridge_guard = bridge.lock().await;
-            let bridge_ref = bridge_guard.as_mut()
+            let bridge_ref = bridge_guard
+                .as_mut()
                 .ok_or_else(|| anyhow::anyhow!("Bridge not initialized"))?;
 
             if !bridge_ref.is_running() {
@@ -396,29 +452,43 @@ async fn execute_command(
             }
 
             return match script_cmd {
-                ScriptCommands::Run(args) => handlers::script::handle_script_run(bridge_ref, &args.script_path, &args.args).await,
-                ScriptCommands::Python(args) => handlers::script::handle_script_python(bridge_ref, &args.code).await,
-                ScriptCommands::Java(args) => handlers::script::handle_script_java(bridge_ref, &args.code).await,
+                ScriptCommands::Run(args) => {
+                    handlers::script::handle_script_run(bridge_ref, &args.script_path, &args.args)
+                        .await
+                }
+                ScriptCommands::Python(args) => {
+                    handlers::script::handle_script_python(bridge_ref, &args.code).await
+                }
+                ScriptCommands::Java(args) => {
+                    handlers::script::handle_script_java(bridge_ref, &args.code).await
+                }
                 ScriptCommands::List => handlers::script::handle_script_list(bridge_ref).await,
             };
-        },
+        }
         Commands::Disasm(args) => {
             let mut bridge_guard = bridge.lock().await;
-            let bridge_ref = bridge_guard.as_mut()
+            let bridge_ref = bridge_guard
+                .as_mut()
                 .ok_or_else(|| anyhow::anyhow!("Bridge not initialized"))?;
 
             if !bridge_ref.is_running() {
                 anyhow::bail!("Bridge is not running");
             }
 
-            return handlers::disasm::handle_disasm(bridge_ref, &args.address, args.num_instructions).await;
-        },
+            return handlers::disasm::handle_disasm(
+                bridge_ref,
+                &args.address,
+                args.num_instructions,
+            )
+            .await;
+        }
         Commands::Batch(args) => {
             return handlers::batch::handle_batch(&args.script_file).await;
-        },
+        }
         Commands::Stats(_) => {
             let mut bridge_guard = bridge.lock().await;
-            let bridge_ref = bridge_guard.as_mut()
+            let bridge_ref = bridge_guard
+                .as_mut()
                 .ok_or_else(|| anyhow::anyhow!("Bridge not initialized"))?;
 
             if !bridge_ref.is_running() {
@@ -426,29 +496,32 @@ async fn execute_command(
             }
 
             return handlers::stats::handle_stats(bridge_ref).await;
-        },
+        }
         Commands::Summary(_) => ("program_info", None),
         _ => anyhow::bail!("Command not yet supported in daemon: {:?}", command),
     };
 
     let mut bridge_guard = bridge.lock().await;
 
-    let bridge_ref = bridge_guard.as_mut()
+    let bridge_ref = bridge_guard
+        .as_mut()
         .ok_or_else(|| anyhow::anyhow!("Bridge not initialized"))?;
 
     if !bridge_ref.is_running() {
         anyhow::bail!("Bridge is not running");
     }
 
-    let response = bridge_ref.send_command::<serde_json::Value>(bridge_cmd, args)
+    let response = bridge_ref
+        .send_command::<serde_json::Value>(bridge_cmd, args)
         .context("Bridge command failed")?;
 
     if response.status == "success" {
         let data = response.data.unwrap_or(json!({}));
-        serde_json::to_string_pretty(&data)
-            .context("Failed to serialize response")
+        serde_json::to_string_pretty(&data).context("Failed to serialize response")
     } else {
-        let message = response.message.unwrap_or_else(|| "Unknown error".to_string());
+        let message = response
+            .message
+            .unwrap_or_else(|| "Unknown error".to_string());
         anyhow::bail!("{}", message)
     }
 }

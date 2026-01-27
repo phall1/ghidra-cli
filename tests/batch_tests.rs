@@ -25,8 +25,8 @@ fn create_batch_file(content: &str) -> PathBuf {
 fn test_batch_multiple_queries() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     let batch_content = r#"
 # Test batch file
@@ -55,8 +55,8 @@ query --function main
 fn test_batch_empty_file() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     let batch_content = r#"
 # Only comments
@@ -85,8 +85,8 @@ fn test_batch_empty_file() {
 fn test_batch_with_comments() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     let batch_content = r#"
 # Query main function
@@ -117,8 +117,8 @@ query --address 0x100000
 fn test_batch_invalid_file() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     Command::cargo_bin("ghidra")
         .unwrap()
@@ -137,8 +137,8 @@ fn test_batch_invalid_file() {
 fn test_batch_with_invalid_command() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     let batch_content = r#"
 query --function main

@@ -1,7 +1,7 @@
+use super::{CompareOp, ExistenceCheck, Filter, FilterExpr, LogicalOp, StringOp, Value};
+use crate::error::{GhidraError, Result};
 use pest::Parser;
 use pest_derive::Parser;
-use crate::error::{GhidraError, Result};
-use super::{Filter, FilterExpr, CompareOp, StringOp, LogicalOp, ExistenceCheck, Value};
 
 #[derive(Parser)]
 #[grammar = "filter.pest"]
@@ -40,7 +40,12 @@ fn parse_logical_expr(pair: pest::iterators::Pair<Rule>) -> Result<FilterExpr> {
                 let op = match op_str {
                     "AND" | "&&" => LogicalOp::And,
                     "OR" | "||" => LogicalOp::Or,
-                    _ => return Err(GhidraError::FilterParseError(format!("Unknown operator: {}", op_str))),
+                    _ => {
+                        return Err(GhidraError::FilterParseError(format!(
+                            "Unknown operator: {}",
+                            op_str
+                        )))
+                    }
                 };
                 ops.push(op);
             }
@@ -49,7 +54,9 @@ fn parse_logical_expr(pair: pest::iterators::Pair<Rule>) -> Result<FilterExpr> {
     }
 
     if terms.is_empty() {
-        return Err(GhidraError::FilterParseError("No terms in logical expression".to_string()));
+        return Err(GhidraError::FilterParseError(
+            "No terms in logical expression".to_string(),
+        ));
     }
 
     if terms.len() == 1 {
@@ -85,7 +92,9 @@ fn parse_logical_term(pair: pest::iterators::Pair<Rule>) -> Result<FilterExpr> {
             _ => {}
         }
     }
-    Err(GhidraError::FilterParseError("Invalid logical term".to_string()))
+    Err(GhidraError::FilterParseError(
+        "Invalid logical term".to_string(),
+    ))
 }
 
 fn parse_logical_not(pair: pest::iterators::Pair<Rule>) -> Result<FilterExpr> {
@@ -95,7 +104,9 @@ fn parse_logical_not(pair: pest::iterators::Pair<Rule>) -> Result<FilterExpr> {
             return Ok(FilterExpr::Not(Box::new(term)));
         }
     }
-    Err(GhidraError::FilterParseError("Invalid NOT expression".to_string()))
+    Err(GhidraError::FilterParseError(
+        "Invalid NOT expression".to_string(),
+    ))
 }
 
 fn parse_comparison(pair: pest::iterators::Pair<Rule>) -> Result<FilterExpr> {
@@ -120,7 +131,12 @@ fn parse_comparison(pair: pest::iterators::Pair<Rule>) -> Result<FilterExpr> {
                     ">=" => CompareOp::GreaterEqual,
                     "<" => CompareOp::Less,
                     "<=" => CompareOp::LessEqual,
-                    _ => return Err(GhidraError::FilterParseError(format!("Unknown compare op: {}", op_str))),
+                    _ => {
+                        return Err(GhidraError::FilterParseError(format!(
+                            "Unknown compare op: {}",
+                            op_str
+                        )))
+                    }
                 });
             }
             Rule::string_op => {
@@ -130,7 +146,12 @@ fn parse_comparison(pair: pest::iterators::Pair<Rule>) -> Result<FilterExpr> {
                     "^" => StringOp::StartsWith,
                     "$" => StringOp::EndsWith,
                     "=~" => StringOp::Regex,
-                    _ => return Err(GhidraError::FilterParseError(format!("Unknown string op: {}", op_str))),
+                    _ => {
+                        return Err(GhidraError::FilterParseError(format!(
+                            "Unknown string op: {}",
+                            op_str
+                        )))
+                    }
                 });
             }
             Rule::value => {
@@ -145,7 +166,12 @@ fn parse_comparison(pair: pest::iterators::Pair<Rule>) -> Result<FilterExpr> {
                     "EXISTS" => ExistenceCheck::Exists,
                     "EMPTY" => ExistenceCheck::Empty,
                     "NULL" => ExistenceCheck::Null,
-                    _ => return Err(GhidraError::FilterParseError(format!("Unknown existence check: {}", check_str))),
+                    _ => {
+                        return Err(GhidraError::FilterParseError(format!(
+                            "Unknown existence check: {}",
+                            check_str
+                        )))
+                    }
                 });
             }
             Rule::in_check => {
@@ -179,10 +205,15 @@ fn parse_comparison(pair: pest::iterators::Pair<Rule>) -> Result<FilterExpr> {
     }
 
     if let Some(str_op) = string_op {
-        let val = value.ok_or_else(|| GhidraError::FilterParseError("Missing value".to_string()))?;
+        let val =
+            value.ok_or_else(|| GhidraError::FilterParseError("Missing value".to_string()))?;
         let val_str = match val {
             Value::String(s) => s,
-            _ => return Err(GhidraError::FilterParseError("String operation requires string value".to_string())),
+            _ => {
+                return Err(GhidraError::FilterParseError(
+                    "String operation requires string value".to_string(),
+                ))
+            }
         };
         return Ok(FilterExpr::StringOp {
             field,
@@ -192,7 +223,8 @@ fn parse_comparison(pair: pest::iterators::Pair<Rule>) -> Result<FilterExpr> {
     }
 
     if let Some(cmp_op) = op {
-        let val = value.ok_or_else(|| GhidraError::FilterParseError("Missing value".to_string()))?;
+        let val =
+            value.ok_or_else(|| GhidraError::FilterParseError("Missing value".to_string()))?;
         return Ok(FilterExpr::Compare {
             field,
             op: cmp_op,
@@ -200,7 +232,9 @@ fn parse_comparison(pair: pest::iterators::Pair<Rule>) -> Result<FilterExpr> {
         });
     }
 
-    Err(GhidraError::FilterParseError("Invalid comparison".to_string()))
+    Err(GhidraError::FilterParseError(
+        "Invalid comparison".to_string(),
+    ))
 }
 
 fn parse_value(pair: pest::iterators::Pair<Rule>) -> Result<Value> {
@@ -209,19 +243,22 @@ fn parse_value(pair: pest::iterators::Pair<Rule>) -> Result<Value> {
             Rule::number => {
                 let num_str = inner.as_str();
                 if num_str.contains('.') {
-                    let num = num_str.parse::<f64>()
-                        .map_err(|_| GhidraError::FilterParseError(format!("Invalid number: {}", num_str)))?;
+                    let num = num_str.parse::<f64>().map_err(|_| {
+                        GhidraError::FilterParseError(format!("Invalid number: {}", num_str))
+                    })?;
                     return Ok(Value::Number(num));
                 } else {
-                    let num = num_str.parse::<i64>()
-                        .map_err(|_| GhidraError::FilterParseError(format!("Invalid integer: {}", num_str)))?;
+                    let num = num_str.parse::<i64>().map_err(|_| {
+                        GhidraError::FilterParseError(format!("Invalid integer: {}", num_str))
+                    })?;
                     return Ok(Value::Integer(num));
                 }
             }
             Rule::hex_number => {
                 let hex_str = inner.as_str().trim_start_matches("0x");
-                let num = u64::from_str_radix(hex_str, 16)
-                    .map_err(|_| GhidraError::FilterParseError(format!("Invalid hex number: {}", inner.as_str())))?;
+                let num = u64::from_str_radix(hex_str, 16).map_err(|_| {
+                    GhidraError::FilterParseError(format!("Invalid hex number: {}", inner.as_str()))
+                })?;
                 return Ok(Value::Hex(num));
             }
             Rule::boolean => {

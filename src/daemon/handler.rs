@@ -28,13 +28,14 @@ async fn handle_command_inner(
     command: Command,
 ) -> anyhow::Result<serde_json::Value> {
     match command {
-        Command::Ping => {
-            Ok(json!({"status": "ok"}))
-        }
+        Command::Ping => Ok(json!({"status": "ok"})),
 
         Command::Status => {
             let bridge_guard = bridge.lock().await;
-            let bridge_running = bridge_guard.as_ref().map(|b| b.is_running()).unwrap_or(false);
+            let bridge_running = bridge_guard
+                .as_ref()
+                .map(|b| b.is_running())
+                .unwrap_or(false);
             Ok(json!({
                 "bridge_running": bridge_running,
             }))
@@ -51,65 +52,96 @@ async fn handle_command_inner(
         }
 
         Command::ListFunctions { limit, filter } => {
-            execute_bridge_command(bridge, "list_functions", Some(json!({
-                "limit": limit,
-                "filter": filter,
-            }))).await
+            execute_bridge_command(
+                bridge,
+                "list_functions",
+                Some(json!({
+                    "limit": limit,
+                    "filter": filter,
+                })),
+            )
+            .await
         }
 
         Command::Decompile { address } => {
-            execute_bridge_command(bridge, "decompile", Some(json!({
-                "address": address,
-            }))).await
+            execute_bridge_command(
+                bridge,
+                "decompile",
+                Some(json!({
+                    "address": address,
+                })),
+            )
+            .await
         }
 
         Command::ListStrings { limit } => {
-            execute_bridge_command(bridge, "list_strings", Some(json!({
-                "limit": limit,
-            }))).await
+            execute_bridge_command(
+                bridge,
+                "list_strings",
+                Some(json!({
+                    "limit": limit,
+                })),
+            )
+            .await
         }
 
-        Command::ListImports => {
-            execute_bridge_command(bridge, "list_imports", None).await
-        }
+        Command::ListImports => execute_bridge_command(bridge, "list_imports", None).await,
 
-        Command::ListExports => {
-            execute_bridge_command(bridge, "list_exports", None).await
-        }
+        Command::ListExports => execute_bridge_command(bridge, "list_exports", None).await,
 
-        Command::MemoryMap => {
-            execute_bridge_command(bridge, "memory_map", None).await
-        }
+        Command::MemoryMap => execute_bridge_command(bridge, "memory_map", None).await,
 
-        Command::ProgramInfo => {
-            execute_bridge_command(bridge, "program_info", None).await
-        }
+        Command::ProgramInfo => execute_bridge_command(bridge, "program_info", None).await,
 
         Command::XRefsTo { address } => {
-            execute_bridge_command(bridge, "xrefs_to", Some(json!({
-                "address": address,
-            }))).await
+            execute_bridge_command(
+                bridge,
+                "xrefs_to",
+                Some(json!({
+                    "address": address,
+                })),
+            )
+            .await
         }
 
         Command::XRefsFrom { address } => {
-            execute_bridge_command(bridge, "xrefs_from", Some(json!({
-                "address": address,
-            }))).await
+            execute_bridge_command(
+                bridge,
+                "xrefs_from",
+                Some(json!({
+                    "address": address,
+                })),
+            )
+            .await
         }
 
-        Command::Import { binary_path, project, program } => {
-            execute_bridge_command(bridge, "import", Some(json!({
-                "binary_path": binary_path,
-                "project": project,
-                "program": program,
-            }))).await
+        Command::Import {
+            binary_path,
+            project,
+            program,
+        } => {
+            execute_bridge_command(
+                bridge,
+                "import",
+                Some(json!({
+                    "binary_path": binary_path,
+                    "project": project,
+                    "program": program,
+                })),
+            )
+            .await
         }
 
         Command::Analyze { project, program } => {
-            execute_bridge_command(bridge, "analyze", Some(json!({
-                "project": project,
-                "program": program,
-            }))).await
+            execute_bridge_command(
+                bridge,
+                "analyze",
+                Some(json!({
+                    "project": project,
+                    "program": program,
+                })),
+            )
+            .await
         }
 
         Command::ExecuteCli { command_json } => {
@@ -121,8 +153,7 @@ async fn handle_command_inner(
             let result = crate::daemon::queue::execute_command_direct(bridge, &cli_command).await?;
 
             // Parse the result as JSON (handlers return JSON strings)
-            Ok(serde_json::from_str(&result)
-                .unwrap_or_else(|_| json!({"output": result})))
+            Ok(serde_json::from_str(&result).unwrap_or_else(|_| json!({"output": result})))
         }
     }
 }
@@ -134,22 +165,25 @@ async fn execute_bridge_command(
     args: Option<serde_json::Value>,
 ) -> anyhow::Result<serde_json::Value> {
     let mut bridge_guard = bridge.lock().await;
-    
-    let bridge = bridge_guard.as_mut()
+
+    let bridge = bridge_guard
+        .as_mut()
         .ok_or_else(|| anyhow::anyhow!("Bridge not initialized"))?;
-    
+
     if !bridge.is_running() {
         anyhow::bail!("Bridge is not running");
     }
 
     debug!("Executing bridge command: {}", command);
-    
+
     let response = bridge.send_command::<serde_json::Value>(command, args)?;
-    
+
     if response.status == "success" {
         Ok(response.data.unwrap_or(json!({})))
     } else {
-        let message = response.message.unwrap_or_else(|| "Unknown error".to_string());
+        let message = response
+            .message
+            .unwrap_or_else(|| "Unknown error".to_string());
         anyhow::bail!("{}", message)
     }
 }

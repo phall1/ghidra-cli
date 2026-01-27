@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
-pub mod parser;
 pub mod evaluator;
+pub mod parser;
 
-use serde::{Deserialize, Serialize};
 use crate::error::Result;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum FilterExpr {
@@ -45,10 +45,10 @@ pub enum CompareOp {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StringOp {
-    Contains,      // ~
-    StartsWith,    // ^
-    EndsWith,      // $
-    Regex,         // =~
+    Contains,   // ~
+    StartsWith, // ^
+    EndsWith,   // $
+    Regex,      // =~
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

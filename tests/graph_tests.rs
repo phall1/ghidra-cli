@@ -16,8 +16,8 @@ const TEST_PROGRAM: &str = "sample_binary";
 fn test_graph_calls() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     Command::cargo_bin("ghidra")
         .unwrap()
@@ -39,8 +39,8 @@ fn test_graph_calls() {
 fn test_graph_callers() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     Command::cargo_bin("ghidra")
         .unwrap()
@@ -62,8 +62,8 @@ fn test_graph_callers() {
 fn test_graph_callees() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     Command::cargo_bin("ghidra")
         .unwrap()
@@ -85,8 +85,8 @@ fn test_graph_callees() {
 fn test_graph_export_dot() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     Command::cargo_bin("ghidra")
         .unwrap()

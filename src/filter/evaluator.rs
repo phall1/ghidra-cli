@@ -1,28 +1,16 @@
+use super::{CompareOp, ExistenceCheck, FilterExpr, LogicalOp, StringOp, Value};
+use crate::error::{GhidraError, Result};
 use regex::Regex;
 use serde_json::Value as JsonValue;
-use crate::error::{GhidraError, Result};
-use super::{FilterExpr, CompareOp, StringOp, LogicalOp, ExistenceCheck, Value};
 
 pub fn evaluate(expr: &FilterExpr, data: &JsonValue) -> Result<bool> {
     match expr {
-        FilterExpr::Compare { field, op, value } => {
-            evaluate_compare(field, *op, value, data)
-        }
-        FilterExpr::StringOp { field, op, value } => {
-            evaluate_string_op(field, *op, value, data)
-        }
-        FilterExpr::Logical { op, exprs } => {
-            evaluate_logical(*op, exprs, data)
-        }
-        FilterExpr::Not(inner) => {
-            Ok(!evaluate(inner, data)?)
-        }
-        FilterExpr::Exists { field, check } => {
-            evaluate_exists(field, *check, data)
-        }
-        FilterExpr::In { field, values } => {
-            evaluate_in(field, values, data)
-        }
+        FilterExpr::Compare { field, op, value } => evaluate_compare(field, *op, value, data),
+        FilterExpr::StringOp { field, op, value } => evaluate_string_op(field, *op, value, data),
+        FilterExpr::Logical { op, exprs } => evaluate_logical(*op, exprs, data),
+        FilterExpr::Not(inner) => Ok(!evaluate(inner, data)?),
+        FilterExpr::Exists { field, check } => evaluate_exists(field, *check, data),
+        FilterExpr::In { field, values } => evaluate_in(field, values, data),
     }
 }
 
@@ -63,8 +51,9 @@ fn evaluate_compare(field: &str, op: CompareOp, value: &Value, data: &JsonValue)
     match (field_value, value) {
         (JsonValue::Number(n), val) => {
             let field_num = n.as_f64().unwrap();
-            let compare_num = val.as_f64()
-                .ok_or_else(|| GhidraError::InvalidFilter(format!("Cannot compare number with {:?}", val)))?;
+            let compare_num = val.as_f64().ok_or_else(|| {
+                GhidraError::InvalidFilter(format!("Cannot compare number with {:?}", val))
+            })?;
 
             Ok(match op {
                 CompareOp::Equal => (field_num - compare_num).abs() < f64::EPSILON,
@@ -75,20 +64,24 @@ fn evaluate_compare(field: &str, op: CompareOp, value: &Value, data: &JsonValue)
                 CompareOp::LessEqual => field_num <= compare_num,
             })
         }
-        (JsonValue::String(s), Value::String(val)) => {
-            Ok(match op {
-                CompareOp::Equal => s == val,
-                CompareOp::NotEqual => s != val,
-                _ => return Err(GhidraError::InvalidFilter("Cannot use numeric comparison on strings".to_string())),
-            })
-        }
-        (JsonValue::Bool(b), Value::Boolean(val)) => {
-            Ok(match op {
-                CompareOp::Equal => *b == *val,
-                CompareOp::NotEqual => *b != *val,
-                _ => return Err(GhidraError::InvalidFilter("Cannot use numeric comparison on booleans".to_string())),
-            })
-        }
+        (JsonValue::String(s), Value::String(val)) => Ok(match op {
+            CompareOp::Equal => s == val,
+            CompareOp::NotEqual => s != val,
+            _ => {
+                return Err(GhidraError::InvalidFilter(
+                    "Cannot use numeric comparison on strings".to_string(),
+                ))
+            }
+        }),
+        (JsonValue::Bool(b), Value::Boolean(val)) => Ok(match op {
+            CompareOp::Equal => *b == *val,
+            CompareOp::NotEqual => *b != *val,
+            _ => {
+                return Err(GhidraError::InvalidFilter(
+                    "Cannot use numeric comparison on booleans".to_string(),
+                ))
+            }
+        }),
         _ => Ok(false),
     }
 }
@@ -147,16 +140,14 @@ fn evaluate_exists(field: &str, check: ExistenceCheck, data: &JsonValue) -> Resu
 
     Ok(match check {
         ExistenceCheck::Exists => field_value.is_some(),
-        ExistenceCheck::Empty => {
-            match field_value {
-                None => true,
-                Some(JsonValue::Null) => true,
-                Some(JsonValue::String(s)) => s.is_empty(),
-                Some(JsonValue::Array(a)) => a.is_empty(),
-                Some(JsonValue::Object(o)) => o.is_empty(),
-                _ => false,
-            }
-        }
+        ExistenceCheck::Empty => match field_value {
+            None => true,
+            Some(JsonValue::Null) => true,
+            Some(JsonValue::String(s)) => s.is_empty(),
+            Some(JsonValue::Array(a)) => a.is_empty(),
+            Some(JsonValue::Object(o)) => o.is_empty(),
+            _ => false,
+        },
         ExistenceCheck::Null => {
             matches!(field_value, None | Some(JsonValue::Null))
         }

@@ -46,10 +46,7 @@ impl IpcServer {
     }
 
     /// Handle a single client connection.
-    async fn handle_client(
-        &self,
-        stream: transport::platform::Stream,
-    ) -> anyhow::Result<bool> {
+    async fn handle_client(&self, stream: transport::platform::Stream) -> anyhow::Result<bool> {
         let (reader, mut writer) = tokio::io::split(stream);
         let mut reader = BufReader::new(reader);
 
@@ -98,11 +95,7 @@ impl IpcServer {
             }
 
             // Handle command
-            let response = handler::handle_command(
-                &self.bridge,
-                request.id,
-                request.command,
-            ).await;
+            let response = handler::handle_command(&self.bridge, request.id, request.command).await;
 
             // Send response
             let json = serde_json::to_vec(&response)?;
@@ -118,10 +111,14 @@ pub async fn run_ipc_server(
     project_path: &Path,
 ) -> anyhow::Result<()> {
     // Create the IPC listener for this project
-    let listener = transport::create_listener_for_project(project_path).await
+    let listener = transport::create_listener_for_project(project_path)
+        .await
         .map_err(|e| anyhow::anyhow!("Failed to create IPC listener: {}", e))?;
 
-    info!("IPC server listening on {}", transport::socket_name_for_project(project_path));
+    info!(
+        "IPC server listening on {}",
+        transport::socket_name_for_project(project_path)
+    );
 
     let server = Arc::new(IpcServer::new(bridge, shutdown_tx.clone()));
     let mut shutdown_rx = shutdown_tx.subscribe();

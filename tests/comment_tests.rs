@@ -16,8 +16,8 @@ const TEST_PROGRAM: &str = "sample_binary";
 fn test_comment_set_and_get() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     // Set a comment at the entry point (0x118910 in Ghidra's address space)
     // Note: ELF entry is 0x18910, but Ghidra loads with base 0x100000
@@ -54,15 +54,15 @@ fn test_comment_set_and_get() {
 fn test_comment_list() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     Command::cargo_bin("ghidra")
         .unwrap()
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
         .arg("comment")
         .arg("set")
-        .arg("0x00118920")  // Within executable range (Ghidra address space)
+        .arg("0x00118920") // Within executable range (Ghidra address space)
         .arg("another comment")
         .arg("--program")
         .arg(TEST_PROGRAM)
@@ -88,15 +88,15 @@ fn test_comment_list() {
 fn test_comment_delete() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     Command::cargo_bin("ghidra")
         .unwrap()
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
         .arg("comment")
         .arg("set")
-        .arg("0x00118930")  // Within executable range (Ghidra address space)
+        .arg("0x00118930") // Within executable range (Ghidra address space)
         .arg("to be deleted")
         .arg("--program")
         .arg(TEST_PROGRAM)
@@ -108,7 +108,7 @@ fn test_comment_delete() {
         .env("GHIDRA_CLI_SOCKET", harness.socket_path())
         .arg("comment")
         .arg("delete")
-        .arg("0x00118930")  // Within executable range (Ghidra address space)
+        .arg("0x00118930") // Within executable range (Ghidra address space)
         .arg("--program")
         .arg(TEST_PROGRAM)
         .assert()

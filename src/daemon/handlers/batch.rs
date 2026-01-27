@@ -1,9 +1,9 @@
 //! Batch operation handler.
 
 use anyhow::{Context, Result};
+use serde_json::json;
 use std::fs;
 use std::path::Path;
-use serde_json::json;
 
 pub async fn handle_batch(file_path: &str) -> Result<String> {
     let path = Path::new(file_path);
@@ -40,8 +40,7 @@ pub async fn handle_batch(file_path: &str) -> Result<String> {
         "results": results
     });
 
-    serde_json::to_string(&response)
-        .context("Failed to serialize batch results")
+    serde_json::to_string(&response).context("Failed to serialize batch results")
 }
 
 #[cfg(test)]

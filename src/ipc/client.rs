@@ -20,15 +20,17 @@ pub struct DaemonClient {
 impl DaemonClient {
     /// Connect to the running daemon for a specific project.
     pub async fn connect(project_path: &Path) -> Result<Self> {
-        let stream = transport::connect_for_project(project_path).await.map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound
-                || e.kind() == std::io::ErrorKind::ConnectionRefused
-            {
-                anyhow::anyhow!("Daemon not running for project: {}", project_path.display())
-            } else {
-                anyhow::anyhow!("Failed to connect to daemon: {}", e)
-            }
-        })?;
+        let stream = transport::connect_for_project(project_path)
+            .await
+            .map_err(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound
+                    || e.kind() == std::io::ErrorKind::ConnectionRefused
+                {
+                    anyhow::anyhow!("Daemon not running for project: {}", project_path.display())
+                } else {
+                    anyhow::anyhow!("Failed to connect to daemon: {}", e)
+                }
+            })?;
 
         let (reader, writer) = tokio::io::split(stream);
 
@@ -59,17 +61,15 @@ impl DaemonClient {
             serde_json::from_slice(&response_data).context("Failed to parse daemon response")?;
 
         if response.id != id {
-            anyhow::bail!(
-                "Response ID mismatch: expected {}, got {}",
-                id,
-                response.id
-            );
+            anyhow::bail!("Response ID mismatch: expected {}, got {}", id, response.id);
         }
 
         if response.success {
             Ok(response.result.unwrap_or(serde_json::json!({})))
         } else {
-            let error = response.error.unwrap_or_else(|| "Unknown error".to_string());
+            let error = response
+                .error
+                .unwrap_or_else(|| "Unknown error".to_string());
             anyhow::bail!("{}", error)
         }
     }
@@ -152,7 +152,8 @@ impl DaemonClient {
 
     /// Execute a CLI command through the daemon (takes pre-serialized JSON).
     pub async fn execute_cli_json(&mut self, command_json: String) -> Result<serde_json::Value> {
-        self.send_command(Command::ExecuteCli { command_json }).await
+        self.send_command(Command::ExecuteCli { command_json })
+            .await
     }
 
     /// Import a binary into a project.

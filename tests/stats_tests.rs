@@ -16,8 +16,8 @@ const TEST_PROGRAM: &str = "sample_binary";
 fn test_stats_normal() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     Command::cargo_bin("ghidra")
         .unwrap()
@@ -39,8 +39,8 @@ fn test_stats_normal() {
 fn test_stats_has_all_fields() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     Command::cargo_bin("ghidra")
         .unwrap()
@@ -67,8 +67,8 @@ fn test_stats_has_all_fields() {
 fn test_stats_json_format() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     let output = Command::cargo_bin("ghidra")
         .unwrap()
@@ -83,8 +83,10 @@ fn test_stats_json_format() {
         .clone();
 
     let output_str = String::from_utf8_lossy(&output);
-    assert!(serde_json::from_str::<serde_json::Value>(&output_str).is_ok(),
-            "Output should be valid JSON");
+    assert!(
+        serde_json::from_str::<serde_json::Value>(&output_str).is_ok(),
+        "Output should be valid JSON"
+    );
 
     drop(harness);
 }

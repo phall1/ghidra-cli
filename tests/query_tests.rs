@@ -12,11 +12,9 @@ use serial_test::serial;
 #[macro_use]
 mod common;
 use common::{
-    ensure_test_project,
-    ghidra,
-    get_function_address,
-    DaemonTestHarness,
+    ensure_test_project, get_function_address, ghidra,
     schemas::{Function, MemoryBlock, StringData, Validate},
+    DaemonTestHarness,
 };
 
 const TEST_PROJECT: &str = "query-test";
@@ -157,7 +155,10 @@ fn test_function_list_filter() {
     }
 
     // Should return at least one result
-    assert!(!functions.is_empty(), "Filter 'main' should match at least one function");
+    assert!(
+        !functions.is_empty(),
+        "Filter 'main' should match at least one function"
+    );
 }
 
 // ============================================================================
@@ -212,18 +213,24 @@ fn test_memory_map_schema_validation() {
 
     // Try to parse as MemoryBlock array
     if let Some(blocks) = result.try_json::<Vec<MemoryBlock>>() {
-        assert!(!blocks.is_empty(), "Memory map should have at least one block");
+        assert!(
+            !blocks.is_empty(),
+            "Memory map should have at least one block"
+        );
 
         for block in &blocks {
             block.assert_valid();
         }
 
         // Should have a .text segment (code)
-        let has_text = blocks.iter().any(|b|
+        let has_text = blocks.iter().any(|b| {
             b.name.contains("text") || b.name.contains("code") || b.name.contains(".text")
+        });
+        assert!(
+            has_text,
+            "Should have a text/code segment. Found: {:?}",
+            blocks.iter().map(|b| &b.name).collect::<Vec<_>>()
         );
-        assert!(has_text, "Should have a text/code segment. Found: {:?}",
-            blocks.iter().map(|b| &b.name).collect::<Vec<_>>());
     }
 }
 
@@ -269,9 +276,9 @@ fn test_decompile_by_name() {
     // Decompiled output should contain C-like code
     assert!(
         result.stdout.contains("void")
-        || result.stdout.contains("int")
-        || result.stdout.contains("{")
-        || result.stdout.contains("return"),
+            || result.stdout.contains("int")
+            || result.stdout.contains("{")
+            || result.stdout.contains("return"),
         "Decompiled output should contain C-like code.\nGot: {}",
         result.stdout
     );
@@ -295,7 +302,10 @@ fn test_decompile_by_address() {
     result.assert_success();
 
     // Should produce some output (decompiled code)
-    assert!(!result.stdout.trim().is_empty(), "Decompile should produce output");
+    assert!(
+        !result.stdout.trim().is_empty(),
+        "Decompile should produce output"
+    );
 }
 
 /// Test decompiling nonexistent function fails gracefully.
@@ -316,8 +326,8 @@ fn test_decompile_nonexistent_function() {
         // If it "succeeds", should indicate no function found
         assert!(
             result.stdout.to_lowercase().contains("not found")
-            || result.stdout.to_lowercase().contains("error")
-            || result.stdout.trim().is_empty(),
+                || result.stdout.to_lowercase().contains("error")
+                || result.stdout.trim().is_empty(),
             "Should indicate function not found"
         );
     }
@@ -383,7 +393,7 @@ fn test_function_list_snapshot() {
         .arg("--format")
         .arg("json")
         .arg("--limit")
-        .arg("3")  // Small limit for stable snapshot
+        .arg("3") // Small limit for stable snapshot
         .run();
 
     if result.exit_code == 0 {

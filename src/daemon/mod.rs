@@ -12,7 +12,7 @@ use anyhow::{Context, Result};
 use tokio::sync::{broadcast, Mutex};
 use tracing::{error, info, warn};
 
-use crate::daemon::process::{write_daemon_info, remove_lock_file, DaemonInfo, get_data_dir};
+use crate::daemon::process::{get_data_dir, remove_lock_file, write_daemon_info, DaemonInfo};
 use crate::ghidra::bridge::GhidraBridge;
 
 pub mod cache;
@@ -41,8 +41,7 @@ pub async fn run(config: DaemonConfig) -> Result<()> {
     info!("Project: {}", config.project_path.display());
 
     // Get data directory
-    let data_dir = get_data_dir()
-        .context("Failed to get data directory")?;
+    let data_dir = get_data_dir().context("Failed to get data directory")?;
 
     // Create shutdown channel
     let (shutdown_tx, _shutdown_rx) = broadcast::channel::<()>(1);
@@ -51,24 +50,30 @@ pub async fn run(config: DaemonConfig) -> Result<()> {
     let bridge: Arc<Mutex<Option<GhidraBridge>>> = Arc::new(Mutex::new(None));
 
     // If we have Ghidra install dir and program name, start the bridge
-    if let (Some(ghidra_dir), Some(program_name)) = (&config.ghidra_install_dir, &config.program_name) {
+    if let (Some(ghidra_dir), Some(program_name)) =
+        (&config.ghidra_install_dir, &config.program_name)
+    {
         info!("Starting Ghidra bridge for program: {}", program_name);
-        
-        let project_name = config.project_path
+
+        let project_name = config
+            .project_path
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("project")
             .to_string();
-        
+
         let mut new_bridge = GhidraBridge::new(
             ghidra_dir.clone(),
             config.project_path.clone(),
             project_name,
             program_name.clone(),
         );
-        
+
         if let Err(e) = new_bridge.start() {
-            warn!("Failed to start Ghidra bridge: {}. Will operate without persistent connection.", e);
+            warn!(
+                "Failed to start Ghidra bridge: {}. Will operate without persistent connection.",
+                e
+            );
         } else {
             info!("Ghidra bridge started successfully");
             let mut bridge_guard = bridge.lock().await;
@@ -88,7 +93,9 @@ pub async fn run(config: DaemonConfig) -> Result<()> {
     let ipc_shutdown_tx = shutdown_tx.clone();
     let ipc_project_path = config.project_path.clone();
     let ipc_handle = tokio::spawn(async move {
-        if let Err(e) = ipc_server::run_ipc_server(ipc_bridge, ipc_shutdown_tx, &ipc_project_path).await {
+        if let Err(e) =
+            ipc_server::run_ipc_server(ipc_bridge, ipc_shutdown_tx, &ipc_project_path).await
+        {
             error!("IPC server error: {}", e);
         }
     });
@@ -123,8 +130,7 @@ pub async fn run(config: DaemonConfig) -> Result<()> {
     }
 
     // Remove lock file
-    remove_lock_file(&data_dir, &config.project_path)
-        .context("Failed to remove lock file")?;
+    remove_lock_file(&data_dir, &config.project_path).context("Failed to remove lock file")?;
 
     info!("Daemon stopped");
     Ok(())
@@ -149,10 +155,10 @@ async fn wait_for_shutdown(shutdown_tx: broadcast::Sender<()>) -> ShutdownReason
     {
         use tokio::signal::unix::{signal, SignalKind};
 
-        let mut sigint = signal(SignalKind::interrupt())
-            .expect("Failed to register SIGINT handler");
-        let mut sigterm = signal(SignalKind::terminate())
-            .expect("Failed to register SIGTERM handler");
+        let mut sigint =
+            signal(SignalKind::interrupt()).expect("Failed to register SIGINT handler");
+        let mut sigterm =
+            signal(SignalKind::terminate()).expect("Failed to register SIGTERM handler");
 
         tokio::select! {
             _ = sigint.recv() => {

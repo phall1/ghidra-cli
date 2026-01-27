@@ -1,5 +1,5 @@
-/// Built-in Ghidra scripts for data extraction
-/// These are Python scripts that will be written to disk and executed by Ghidra headless
+//! Built-in Ghidra scripts for data extraction
+//! These are Python scripts that will be written to disk and executed by Ghidra headless
 
 pub fn get_list_functions_script() -> &'static str {
     r#"
@@ -143,7 +143,6 @@ else:
     print("---GHIDRA_CLI_END---")
 "#
 }
-
 
 pub fn get_list_strings_script() -> &'static str {
     r#"
@@ -362,7 +361,11 @@ print("---GHIDRA_CLI_END---")
 }
 
 /// Save a script to disk
-pub fn save_script(name: &str, content: &str, scripts_dir: &std::path::Path) -> crate::error::Result<std::path::PathBuf> {
+pub fn save_script(
+    name: &str,
+    content: &str,
+    scripts_dir: &std::path::Path,
+) -> crate::error::Result<std::path::PathBuf> {
     // All scripts are Python now with PyGhidra support
     let script_path = scripts_dir.join(format!("{}.py", name));
     std::fs::write(&script_path, content)?;

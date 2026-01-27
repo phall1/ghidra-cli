@@ -11,11 +11,7 @@ use serial_test::serial;
 #[macro_use]
 mod common;
 use common::{
-    ensure_test_project,
-    ghidra,
-    get_function_address,
-    DaemonTestHarness,
-    schemas::PatchResult,
+    ensure_test_project, get_function_address, ghidra, schemas::PatchResult, DaemonTestHarness,
 };
 
 const TEST_PROJECT: &str = "patch-test";
@@ -32,8 +28,8 @@ const TEST_PROGRAM: &str = "sample_binary";
 fn test_patch_bytes_success() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     // Dynamically get a valid code address
     let main_addr = get_function_address(&harness, TEST_PROJECT, TEST_PROGRAM, "main");
@@ -42,7 +38,7 @@ fn test_patch_bytes_success() {
         .arg("patch")
         .arg("bytes")
         .arg(&main_addr)
-        .arg("90909090")  // 4 NOP bytes
+        .arg("90909090") // 4 NOP bytes
         .arg("--program")
         .arg(TEST_PROGRAM)
         .arg("--format")
@@ -55,8 +51,8 @@ fn test_patch_bytes_success() {
     if let Some(patch_result) = result.try_json::<PatchResult>() {
         assert!(
             patch_result.status.to_lowercase().contains("success")
-            || patch_result.status.to_lowercase().contains("patched")
-            || patch_result.status.to_lowercase().contains("ok"),
+                || patch_result.status.to_lowercase().contains("patched")
+                || patch_result.status.to_lowercase().contains("ok"),
             "Expected success status, got: {}",
             patch_result.status
         );
@@ -72,8 +68,8 @@ fn test_patch_bytes_success() {
 fn test_patch_nop_success() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     let main_addr = get_function_address(&harness, TEST_PROJECT, TEST_PROGRAM, "main");
 
@@ -104,8 +100,8 @@ fn test_patch_nop_success() {
 fn test_patch_export() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     // Use a unique output path to avoid conflicts
     let output_path = format!("/tmp/ghidra-test-export-{}.bin", uuid::Uuid::new_v4());
@@ -142,8 +138,8 @@ fn test_patch_export() {
 fn test_patch_at_function_boundary() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     // Get any function's entry point
     let func_addr = get_function_address(&harness, TEST_PROJECT, TEST_PROGRAM, "main");
@@ -168,14 +164,14 @@ fn test_patch_at_function_boundary() {
 fn test_patch_invalid_address_fails() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     // Use an address that's definitely outside the program's memory
     let result = ghidra(&harness)
         .arg("patch")
         .arg("bytes")
-        .arg("0xffffffffffffffff")  // Very high address, unlikely to be mapped
+        .arg("0xffffffffffffffff") // Very high address, unlikely to be mapped
         .arg("90")
         .arg("--program")
         .arg(TEST_PROGRAM)
@@ -187,9 +183,9 @@ fn test_patch_invalid_address_fails() {
     // Should provide a meaningful error message
     assert!(
         result.stderr.to_lowercase().contains("error")
-        || result.stderr.to_lowercase().contains("invalid")
-        || result.stderr.to_lowercase().contains("address")
-        || result.stdout.to_lowercase().contains("error"),
+            || result.stderr.to_lowercase().contains("invalid")
+            || result.stderr.to_lowercase().contains("address")
+            || result.stdout.to_lowercase().contains("error"),
         "Expected error message about invalid address.\nstderr: {}\nstdout: {}",
         result.stderr,
         result.stdout
@@ -202,8 +198,8 @@ fn test_patch_invalid_address_fails() {
 fn test_patch_invalid_hex_fails() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     let main_addr = get_function_address(&harness, TEST_PROJECT, TEST_PROGRAM, "main");
 
@@ -211,7 +207,7 @@ fn test_patch_invalid_hex_fails() {
         .arg("patch")
         .arg("bytes")
         .arg(&main_addr)
-        .arg("ZZZZ")  // Invalid hex
+        .arg("ZZZZ") // Invalid hex
         .arg("--program")
         .arg(TEST_PROGRAM)
         .run();
@@ -226,8 +222,8 @@ fn test_patch_invalid_hex_fails() {
 fn test_patch_odd_hex_length() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     let main_addr = get_function_address(&harness, TEST_PROJECT, TEST_PROGRAM, "main");
 
@@ -235,7 +231,7 @@ fn test_patch_odd_hex_length() {
         .arg("patch")
         .arg("bytes")
         .arg(&main_addr)
-        .arg("909")  // Odd length - not valid byte sequence
+        .arg("909") // Odd length - not valid byte sequence
         .arg("--program")
         .arg(TEST_PROGRAM)
         .run();
@@ -255,8 +251,8 @@ fn test_patch_odd_hex_length() {
 fn test_patch_missing_program_arg() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     let result = ghidra(&harness)
         .arg("patch")
@@ -283,8 +279,8 @@ fn test_patch_missing_program_arg() {
 fn test_patch_output_format_snapshot() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+    let harness =
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     let main_addr = get_function_address(&harness, TEST_PROJECT, TEST_PROGRAM, "main");
 

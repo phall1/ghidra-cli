@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 
-use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
-use std::fs;
 use crate::error::{GhidraError, Result};
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -65,8 +65,9 @@ impl Config {
             return Ok(PathBuf::from(path));
         }
 
-        let config_dir = dirs::config_dir()
-            .ok_or_else(|| GhidraError::ConfigError("Could not determine config directory".to_string()))?;
+        let config_dir = dirs::config_dir().ok_or_else(|| {
+            GhidraError::ConfigError("Could not determine config directory".to_string())
+        })?;
 
         Ok(config_dir.join("ghidra-cli").join("config.yaml"))
     }
@@ -105,8 +106,9 @@ impl Config {
         }
 
         // Default to ~/git
-        let home = dirs::home_dir()
-            .ok_or_else(|| GhidraError::ConfigError("Could not determine home directory".to_string()))?;
+        let home = dirs::home_dir().ok_or_else(|| {
+            GhidraError::ConfigError("Could not determine home directory".to_string())
+        })?;
 
         Ok(home.join("git"))
     }
@@ -114,9 +116,8 @@ impl Config {
     #[cfg(target_os = "windows")]
     pub fn detect_ghidra_windows() -> Option<PathBuf> {
         // Helper function to check if a path is a valid Ghidra installation
-        let is_valid_ghidra = |path: &PathBuf| -> bool {
-            path.join("support").join("analyzeHeadless.bat").exists()
-        };
+        let is_valid_ghidra =
+            |path: &PathBuf| -> bool { path.join("support").join("analyzeHeadless.bat").exists() };
 
         // Check common installation paths
         let mut common_paths = vec![

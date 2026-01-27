@@ -36,7 +36,10 @@ pub use platform::*;
 /// Compute MD5 hash of project path for socket naming.
 /// Uses same hashing approach as lock files for consistency.
 fn project_hash(project_path: &Path) -> String {
-    format!("{:x}", md5::compute(project_path.to_string_lossy().as_bytes()))
+    format!(
+        "{:x}",
+        md5::compute(project_path.to_string_lossy().as_bytes())
+    )
 }
 
 /// Get the socket directory path.
@@ -136,7 +139,9 @@ pub fn remove_socket_for_project(project_path: &Path) -> io::Result<()> {
 pub fn socket_exists_for_project(project_path: &Path) -> bool {
     #[cfg(unix)]
     {
-        socket_path_for_project(project_path).map(|p| p.exists()).unwrap_or(false)
+        socket_path_for_project(project_path)
+            .map(|p| p.exists())
+            .unwrap_or(false)
     }
 
     #[cfg(windows)]

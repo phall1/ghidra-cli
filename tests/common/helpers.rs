@@ -175,7 +175,10 @@ impl GhidraCommand {
 
     /// Set project and program arguments.
     pub fn with_project(self, project: &str, program: &str) -> Self {
-        self.arg("--project").arg(project).arg("--program").arg(program)
+        self.arg("--project")
+            .arg(project)
+            .arg("--program")
+            .arg(program)
     }
 
     /// Request JSON output format.
@@ -227,7 +230,12 @@ pub fn ghidra(harness: &DaemonTestHarness) -> GhidraCommand {
 /// Get the address of a function by name from the test binary.
 ///
 /// Dynamically resolves addresses instead of using hardcoded magic values.
-pub fn get_function_address(harness: &DaemonTestHarness, project: &str, program: &str, name: &str) -> String {
+pub fn get_function_address(
+    harness: &DaemonTestHarness,
+    project: &str,
+    program: &str,
+    name: &str,
+) -> String {
     let result = ghidra(harness)
         .arg("function")
         .arg("list")
