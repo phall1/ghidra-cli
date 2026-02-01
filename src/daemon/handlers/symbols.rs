@@ -22,9 +22,9 @@ pub async fn handle_symbol_list(bridge: &mut GhidraBridge, filter: Option<&str>)
     }
 }
 
-pub async fn handle_symbol_get(bridge: &mut GhidraBridge, address: &str) -> Result<String> {
+pub async fn handle_symbol_get(bridge: &mut GhidraBridge, name: &str) -> Result<String> {
     let response = bridge
-        .send_command::<serde_json::Value>("symbol_get", Some(json!({"address": address})))
+        .send_command::<serde_json::Value>("symbol_get", Some(json!({"name": name})))
         .context("Failed to get symbol")?;
 
     if response.status == "success" {

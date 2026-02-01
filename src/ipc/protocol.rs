@@ -124,6 +124,12 @@ pub enum Command {
     /// Analyze a program in a project
     Analyze { project: String, program: String },
 
+    /// List all programs in the project
+    ListPrograms,
+
+    /// Open/switch to a program in the project
+    OpenProgram { program: String },
+
     // === Session Management ===
     /// Health check
     Ping,

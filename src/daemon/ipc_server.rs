@@ -13,19 +13,19 @@ use std::time::Instant;
 
 use interprocess::local_socket::traits::tokio::Listener as ListenerTrait;
 use tokio::io::BufReader;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::broadcast;
 use tracing::{debug, error, info};
 
-use crate::ghidra::bridge::GhidraBridge;
 use crate::ipc::protocol::{Command, Request, Response};
 use crate::ipc::transport;
 
 use super::handler;
+use super::DaemonState;
 
 /// IPC server state
 pub struct IpcServer {
-    /// The Ghidra bridge instance
-    bridge: Arc<Mutex<Option<GhidraBridge>>>,
+    /// Shared daemon state (bridge + config)
+    daemon_state: Arc<DaemonState>,
     /// Shutdown signal sender
     shutdown_tx: broadcast::Sender<()>,
     /// Server start time
@@ -35,11 +35,11 @@ pub struct IpcServer {
 impl IpcServer {
     /// Create a new IPC server.
     pub fn new(
-        bridge: Arc<Mutex<Option<GhidraBridge>>>,
+        daemon_state: Arc<DaemonState>,
         shutdown_tx: broadcast::Sender<()>,
     ) -> Self {
         Self {
-            bridge,
+            daemon_state,
             shutdown_tx,
             started_at: Instant::now(),
         }
@@ -95,7 +95,7 @@ impl IpcServer {
             }
 
             // Handle command
-            let response = handler::handle_command(&self.bridge, request.id, request.command).await;
+            let response = handler::handle_command(&self.daemon_state, request.id, request.command).await;
 
             // Send response
             let json = serde_json::to_vec(&response)?;
@@ -106,7 +106,7 @@ impl IpcServer {
 
 /// Run the IPC server for a specific project.
 pub async fn run_ipc_server(
-    bridge: Arc<Mutex<Option<GhidraBridge>>>,
+    daemon_state: Arc<DaemonState>,
     shutdown_tx: broadcast::Sender<()>,
     project_path: &Path,
 ) -> anyhow::Result<()> {
@@ -120,7 +120,7 @@ pub async fn run_ipc_server(
         transport::socket_name_for_project(project_path)
     );
 
-    let server = Arc::new(IpcServer::new(bridge, shutdown_tx.clone()));
+    let server = Arc::new(IpcServer::new(daemon_state, shutdown_tx.clone()));
     let mut shutdown_rx = shutdown_tx.subscribe();
 
     loop {

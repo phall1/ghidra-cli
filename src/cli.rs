@@ -203,6 +203,10 @@ pub enum ProjectCommands {
 
 #[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
 pub enum ProgramCommands {
+    /// List all programs in the project
+    List(ProgramTargetArgs),
+    /// Open/switch to a program
+    Open(ProgramTargetArgs),
     /// Close a program
     Close(ProgramTargetArgs),
     /// Delete a program
@@ -705,6 +709,9 @@ pub struct ImportArgs {
     pub program: Option<String>,
     #[arg(long)]
     pub project: Option<String>,
+    /// Return immediately, let daemon continue import in background
+    #[arg(long, default_value = "false")]
+    pub detach: bool,
 }
 
 #[derive(Args, Clone, Serialize, Deserialize, Debug)]
@@ -713,6 +720,9 @@ pub struct AnalyzeArgs {
     pub program: Option<String>,
     #[arg(long)]
     pub project: Option<String>,
+    /// Return immediately, let daemon continue analysis in background
+    #[arg(long, default_value = "false")]
+    pub detach: bool,
 }
 
 /// Common query options used across commands

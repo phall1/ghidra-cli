@@ -171,6 +171,19 @@ impl DaemonClient {
         .await
     }
 
+    /// List all programs in the project.
+    pub async fn list_programs(&mut self) -> Result<serde_json::Value> {
+        self.send_command(Command::ListPrograms).await
+    }
+
+    /// Open/switch to a program in the project.
+    pub async fn open_program(&mut self, program: &str) -> Result<serde_json::Value> {
+        self.send_command(Command::OpenProgram {
+            program: program.to_string(),
+        })
+        .await
+    }
+
     /// Analyze a program in a project.
     pub async fn analyze_program(
         &mut self,

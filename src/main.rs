@@ -110,7 +110,107 @@ fn requires_daemon(command: &Commands) -> bool {
             | Commands::Disasm(_)
             | Commands::Batch(_)
             | Commands::Stats(_)
+            | Commands::Program(_)
     )
+}
+
+/// Extract the project name from a command's args (if present).
+fn extract_project_from_command(command: &Commands) -> Option<String> {
+    match command {
+        Commands::Import(args) => args.project.clone(),
+        Commands::Analyze(args) => args.project.clone(),
+        Commands::Quick(args) => args.project.clone(),
+        Commands::Query(args) => args.project.clone(),
+        Commands::Summary(args) => args.options.project.clone(),
+        Commands::Decompile(args) => args.options.project.clone(),
+        Commands::Function(cmd) => match cmd {
+            cli::FunctionCommands::List(opts) => opts.project.clone(),
+            cli::FunctionCommands::Decompile(args) => args.options.project.clone(),
+            cli::FunctionCommands::Get(args) => args.options.project.clone(),
+            cli::FunctionCommands::Disasm(args) => args.options.project.clone(),
+            cli::FunctionCommands::Calls(args) => args.options.project.clone(),
+            cli::FunctionCommands::XRefs(args) => args.options.project.clone(),
+            cli::FunctionCommands::Rename(args) => args.project.clone(),
+            cli::FunctionCommands::Create(args) => args.project.clone(),
+            cli::FunctionCommands::Delete(args) => args.options.project.clone(),
+        },
+        Commands::Strings(cmd) => match cmd {
+            cli::StringsCommands::List(opts) => opts.project.clone(),
+            cli::StringsCommands::Refs(args) => args.options.project.clone(),
+        },
+        Commands::Memory(cmd) => match cmd {
+            cli::MemoryCommands::Map(opts) => opts.project.clone(),
+            cli::MemoryCommands::Read(args) => args.options.project.clone(),
+            cli::MemoryCommands::Write(args) => args.project.clone(),
+            cli::MemoryCommands::Search(args) => args.options.project.clone(),
+        },
+        Commands::Dump(cmd) => match cmd {
+            cli::DumpCommands::Imports(opts) => opts.project.clone(),
+            cli::DumpCommands::Exports(opts) => opts.project.clone(),
+            cli::DumpCommands::Functions(opts) => opts.project.clone(),
+            cli::DumpCommands::Strings(opts) => opts.project.clone(),
+        },
+        Commands::XRef(cmd) => match cmd {
+            cli::XRefCommands::To(args) => args.options.project.clone(),
+            cli::XRefCommands::From(args) => args.options.project.clone(),
+            cli::XRefCommands::List(args) => args.options.project.clone(),
+        },
+        Commands::Stats(args) => args.options.project.clone(),
+        Commands::Disasm(args) => args.options.project.clone(),
+        Commands::Find(cmd) => match cmd {
+            cli::FindCommands::String(args) => args.options.project.clone(),
+            cli::FindCommands::Bytes(args) => args.options.project.clone(),
+            cli::FindCommands::Function(args) => args.options.project.clone(),
+            cli::FindCommands::Calls(args) => args.options.project.clone(),
+            cli::FindCommands::Crypto(opts) => opts.project.clone(),
+            cli::FindCommands::Interesting(opts) => opts.project.clone(),
+        },
+        Commands::Graph(cmd) => match cmd {
+            cli::GraphCommands::Calls(opts) => opts.project.clone(),
+            cli::GraphCommands::Callers(args) => args.options.project.clone(),
+            cli::GraphCommands::Callees(args) => args.options.project.clone(),
+            cli::GraphCommands::Export(args) => args.options.project.clone(),
+        },
+        Commands::Comment(cmd) => match cmd {
+            cli::CommentCommands::List(opts) => opts.project.clone(),
+            cli::CommentCommands::Get(args) => args.options.project.clone(),
+            cli::CommentCommands::Set(args) => args.project.clone(),
+            cli::CommentCommands::Delete(args) => args.options.project.clone(),
+        },
+        Commands::Symbol(cmd) => match cmd {
+            cli::SymbolCommands::List(opts) => opts.project.clone(),
+            cli::SymbolCommands::Get(args) => args.options.project.clone(),
+            cli::SymbolCommands::Create(args) => args.project.clone(),
+            cli::SymbolCommands::Delete(args) => args.options.project.clone(),
+            cli::SymbolCommands::Rename(args) => args.project.clone(),
+        },
+        Commands::Type(cmd) => match cmd {
+            cli::TypeCommands::List(opts) => opts.project.clone(),
+            cli::TypeCommands::Get(args) => args.options.project.clone(),
+            cli::TypeCommands::Create(args) => args.project.clone(),
+            cli::TypeCommands::Apply(args) => args.project.clone(),
+        },
+        Commands::Patch(cmd) => match cmd {
+            cli::PatchCommands::Bytes(args) => args.project.clone(),
+            cli::PatchCommands::Nop(args) => args.project.clone(),
+            cli::PatchCommands::Export(args) => args.project.clone(),
+        },
+        Commands::Script(cmd) => match cmd {
+            cli::ScriptCommands::Run(args) => args.project.clone(),
+            cli::ScriptCommands::Python(args) => args.project.clone(),
+            cli::ScriptCommands::Java(args) => args.project.clone(),
+            cli::ScriptCommands::List => None,
+        },
+        Commands::Program(cmd) => match cmd {
+            cli::ProgramCommands::List(args) => args.project.clone(),
+            cli::ProgramCommands::Open(args) => args.project.clone(),
+            cli::ProgramCommands::Close(args) => args.project.clone(),
+            cli::ProgramCommands::Delete(args) => args.project.clone(),
+            cli::ProgramCommands::Info(args) => args.project.clone(),
+            cli::ProgramCommands::Export(args) => args.project.clone(),
+        },
+        _ => None,
+    }
 }
 
 /// Run commands with daemon check - route through daemon if required.
@@ -121,35 +221,37 @@ async fn run_with_daemon_check(cli: Cli) -> anyhow::Result<()> {
     }
 
     let config = Config::load()?;
-    let project_path = config.get_project_dir()?;
+
+    // Extract project from command args, fall back to config default
+    let project_from_cmd = extract_project_from_command(&cli.command);
+    let project_path = resolve_project_path(&project_from_cmd, &config)?;
 
     ensure_daemon_running(&project_path).await?;
 
-    match ipc::client::DaemonClient::connect(&project_path).await {
-        Ok(mut client) => {
-            info!("Connected to daemon via IPC");
-            let output =
-                execute_via_daemon(&mut client, &cli.command, cli.json, cli.pretty).await?;
-            if !output.is_empty() {
-                println!("{}", output);
-            }
-            Ok(())
-        }
-        Err(e) => {
-            eprintln!("Error: Failed to connect to daemon: {}", e);
-            eprintln!();
-            eprintln!("The daemon may still be starting. Try again in a moment.");
-            std::process::exit(1);
-        }
+    let mut client = ipc::client::DaemonClient::connect(&project_path).await?;
+    info!("Connected to daemon via IPC");
+    let output =
+        execute_via_daemon(&mut client, &cli.command, cli.json, cli.pretty).await?;
+    if !output.is_empty() {
+        println!("{}", output);
     }
+    Ok(())
 }
 
 /// Ensure daemon is running for the given project path.
+/// Starts the daemon if not running, and waits until it's accepting connections.
 async fn ensure_daemon_running(project_path: &Path) -> anyhow::Result<()> {
     let data_dir = get_data_dir()?;
 
+    // Check if daemon is already running
     if get_running_daemon_info(&data_dir, project_path)?.is_some() {
-        return Ok(());
+        // Verify it's actually responding
+        if let Ok(mut client) = ipc::client::DaemonClient::connect(project_path).await {
+            if client.ping().await.is_ok() {
+                return Ok(());
+            }
+        }
+        // Lock file exists but daemon not responding - clean up and restart
     }
 
     let config = Config::load()?;
@@ -157,10 +259,11 @@ async fn ensure_daemon_running(project_path: &Path) -> anyhow::Result<()> {
 
     let daemon_config = DaemonConfig {
         project_path: project_path.to_path_buf(),
-        ghidra_install_dir: config.ghidra_install_dir,
+        ghidra_install_dir: config.ghidra_install_dir.clone().or_else(|| config.get_ghidra_install_dir().ok()),
         log_file,
-        program_name: config.default_program.clone(),
     };
+
+    eprintln!("Starting daemon...");
 
     #[cfg(unix)]
     {
@@ -172,9 +275,24 @@ async fn ensure_daemon_running(project_path: &Path) -> anyhow::Result<()> {
         daemonize_windows(daemon_config, None)?;
     }
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    // Wait for daemon to be ready by polling for connection
+    let max_attempts = 30; // 30 * 200ms = 6 seconds max
+    for attempt in 0..max_attempts {
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
 
-    Ok(())
+        if let Ok(mut client) = ipc::client::DaemonClient::connect(project_path).await {
+            if client.ping().await.is_ok() {
+                eprintln!("Daemon ready.");
+                return Ok(());
+            }
+        }
+
+        if attempt > 0 && attempt % 10 == 0 {
+            eprintln!("Still waiting for daemon to start...");
+        }
+    }
+
+    anyhow::bail!("Daemon failed to start within timeout. Check logs at: {}", data_dir.join("daemon.log").display())
 }
 
 /// Execute a command via the daemon IPC connection.
@@ -323,6 +441,25 @@ async fn execute_via_daemon(
                 XRefCommands::List(_) => anyhow::bail!("XRef list not yet supported via daemon"),
             }
         }
+        Commands::Program(cmd) => {
+            use cli::ProgramCommands;
+            match cmd {
+                ProgramCommands::List(_) => {
+                    client.list_programs().await?
+                }
+                ProgramCommands::Open(args) => {
+                    let program = args.program.as_ref()
+                        .ok_or_else(|| anyhow::anyhow!("Program name required. Use --program <name>"))?;
+                    client.open_program(program).await?
+                }
+                // Other program commands go through ExecuteCli
+                _ => {
+                    let command_json = serde_json::to_string(command)
+                        .map_err(|e| anyhow::anyhow!("Failed to serialize command: {}", e))?;
+                    client.execute_cli_json(command_json).await?
+                }
+            }
+        }
         // New commands - forward through ExecuteCli
         Commands::Symbol(_)
         | Commands::Type(_)
@@ -385,16 +522,13 @@ async fn handle_daemon_command(cmd: DaemonCommands) -> anyhow::Result<()> {
 /// Start the daemon.
 async fn handle_daemon_start(
     project: Option<String>,
-    program: Option<String>,
+    _program: Option<String>,
     port: Option<u16>,
     foreground: bool,
 ) -> anyhow::Result<()> {
     let config = Config::load()?;
     let data_dir = get_data_dir()?;
     let project_path = resolve_project_path(&project, &config)?;
-
-    // Resolve program name
-    let program_name = program.or(config.default_program.clone());
 
     // Check if daemon is already running
     ensure_not_running(&data_dir, &project_path)?;
@@ -404,14 +538,12 @@ async fn handle_daemon_start(
 
     let daemon_config = DaemonConfig {
         project_path: project_path.clone(),
-        ghidra_install_dir: config.ghidra_install_dir,
+        ghidra_install_dir: config.ghidra_install_dir.clone().or_else(|| config.get_ghidra_install_dir().ok()),
         log_file,
-        program_name,
     };
 
     if foreground {
         // Run in foreground
-        println!("Starting daemon in foreground mode...");
         run_daemon(daemon_config).await?;
     } else {
         // Run in background - platform-specific daemonization
@@ -610,6 +742,11 @@ fn daemonize_unix(daemon_config: DaemonConfig, port: Option<u16>) -> anyhow::Res
 
     let log_file_path = daemon_config.log_file.clone();
 
+    // Ensure log directory exists
+    if let Some(parent) = log_file_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
     // Open log file for stdout/stderr
     let log_file = OpenOptions::new()
         .create(true)
@@ -629,11 +766,6 @@ fn daemonize_unix(daemon_config: DaemonConfig, port: Option<u16>) -> anyhow::Res
     // Add project path
     cmd.arg("--project")
         .arg(daemon_config.project_path.to_string_lossy().to_string());
-
-    // Add program if specified
-    if let Some(program) = &daemon_config.program_name {
-        cmd.arg("--program").arg(program);
-    }
 
     // Add port if specified
     if let Some(p) = port {
@@ -674,7 +806,6 @@ fn daemonize_windows(daemon_config: DaemonConfig, port: Option<u16>) -> anyhow::
     }
 
     // Windows-specific: CREATE_NO_WINDOW flag
-    #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;

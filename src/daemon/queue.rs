@@ -222,6 +222,16 @@ async fn execute_command(
             }
 
             return match prog_cmd {
+                ProgramCommands::List(_) => {
+                    handlers::program::handle_program_list(bridge_ref).await
+                }
+                ProgramCommands::Open(args) => {
+                    let program = args
+                        .program
+                        .as_ref()
+                        .ok_or_else(|| anyhow::anyhow!("Program name required"))?;
+                    handlers::program::handle_program_open(bridge_ref, program).await
+                }
                 ProgramCommands::Close(_) => {
                     handlers::program::handle_program_close(bridge_ref).await
                 }

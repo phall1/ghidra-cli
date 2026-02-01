@@ -58,8 +58,8 @@ def get_symbol(address_or_name):
         except Exception as e:
             return {"error": "Failed to get symbol: " + str(e)}
     else:
-        symbols = symbol_table.getSymbols(address_or_name)
-        if not symbols or len(symbols) == 0:
+        symbols = list(symbol_table.getSymbols(address_or_name))
+        if not symbols:
             return {"error": "Symbol not found: " + address_or_name}
 
         result_symbols = []
@@ -98,9 +98,9 @@ def delete_symbol(name):
 
     try:
         symbol_table = currentProgram.getSymbolTable()
-        symbols = symbol_table.getSymbols(name)
+        symbols = list(symbol_table.getSymbols(name))
 
-        if not symbols or len(symbols) == 0:
+        if not symbols:
             return {"error": "Symbol not found: " + name}
 
         for symbol in symbols:
@@ -117,13 +117,14 @@ def rename_symbol(old_name, new_name):
 
     try:
         symbol_table = currentProgram.getSymbolTable()
-        symbols = symbol_table.getSymbols(old_name)
+        symbols = list(symbol_table.getSymbols(old_name))
 
-        if not symbols or len(symbols) == 0:
+        if not symbols:
             return {"error": "Symbol not found: " + old_name}
 
+        from ghidra.program.model.symbol import SourceType
         for symbol in symbols:
-            symbol.setName(new_name, symbol.getSource())
+            symbol.setName(new_name, SourceType.USER_DEFINED)
 
         return {"status": "renamed", "old_name": old_name, "new_name": new_name}
     except Exception as e:

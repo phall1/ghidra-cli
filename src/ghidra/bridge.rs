@@ -36,6 +36,18 @@ struct BridgeRequest {
     args: Option<serde_json::Value>,
 }
 
+/// How to start the bridge - import a new binary or open an existing program.
+pub enum BridgeStartMode {
+    /// Import a binary file into the project, then start bridge
+    Import {
+        binary_path: String,
+    },
+    /// Open an existing program in the project
+    Process {
+        program_name: String,
+    },
+}
+
 /// Manages a persistent Ghidra bridge process.
 pub struct GhidraBridge {
     /// Child process handle
@@ -46,8 +58,6 @@ pub struct GhidraBridge {
     port: u16,
     /// Project name
     project_name: String,
-    /// Program name
-    program_name: String,
     /// Path to Ghidra installation
     ghidra_install_dir: PathBuf,
     /// Project directory
@@ -62,22 +72,20 @@ impl GhidraBridge {
         ghidra_install_dir: PathBuf,
         project_dir: PathBuf,
         project_name: String,
-        program_name: String,
     ) -> Self {
         Self {
             child: None,
             stream: None,
             port: DEFAULT_BRIDGE_PORT,
             project_name,
-            program_name,
             ghidra_install_dir,
             project_dir,
             running: Arc::new(AtomicBool::new(false)),
         }
     }
 
-    /// Start the bridge.
-    pub fn start(&mut self) -> Result<()> {
+    /// Start the bridge with the given mode.
+    pub fn start(&mut self, mode: BridgeStartMode) -> Result<()> {
         if self.running.load(Ordering::SeqCst) {
             return Ok(());
         }
@@ -97,33 +105,34 @@ impl GhidraBridge {
         // Build command - pyghidraRun needs different arguments
         let mut cmd = Command::new(&headless_script);
 
+        // Build the base args (project dir + project name)
         if is_pyghidra {
-            // pyghidraRun --headless passes remaining args to AnalyzeHeadless
-            // The install_dir is auto-detected by pyghidraRun from its script location
             cmd.arg("--headless")
                 .arg(&self.project_dir)
-                .arg(&self.project_name)
-                .arg("-process")
-                .arg(&self.program_name)
-                .arg("-noanalysis")
-                .arg("-scriptPath")
-                .arg(bridge_script.parent().unwrap())
-                .arg("-postScript")
-                .arg("bridge.py")
-                .arg(self.port.to_string());
+                .arg(&self.project_name);
         } else {
-            // analyzeHeadless format: analyzeHeadless <project_dir> <project_name> -process ...
             cmd.arg(&self.project_dir)
-                .arg(&self.project_name)
-                .arg("-process")
-                .arg(&self.program_name)
-                .arg("-noanalysis")
-                .arg("-scriptPath")
-                .arg(bridge_script.parent().unwrap())
-                .arg("-postScript")
-                .arg("bridge.py")
-                .arg(self.port.to_string());
+                .arg(&self.project_name);
         }
+
+        // Add mode-specific args
+        match &mode {
+            BridgeStartMode::Import { binary_path } => {
+                cmd.arg("-import").arg(binary_path);
+            }
+            BridgeStartMode::Process { program_name } => {
+                cmd.arg("-process")
+                    .arg(program_name)
+                    .arg("-noanalysis");
+            }
+        }
+
+        // Add bridge script args
+        cmd.arg("-scriptPath")
+            .arg(bridge_script.parent().unwrap())
+            .arg("-postScript")
+            .arg("bridge.py")
+            .arg(self.port.to_string());
 
         cmd.stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -137,9 +146,15 @@ impl GhidraBridge {
         let reader = BufReader::new(stdout);
 
         let mut ready = false;
+        let mut last_error = String::new();
         for line in reader.lines() {
             let line = line?;
             debug!("Ghidra: {}", line);
+
+            // Capture Ghidra errors for better error messages
+            if line.contains("ERROR") {
+                last_error = line.clone();
+            }
 
             // Look for ready signal
             if line.contains("---GHIDRA_CLI_START---") {
@@ -158,12 +173,17 @@ impl GhidraBridge {
 
         if !ready {
             // Check if process died
+            let detail = if !last_error.is_empty() {
+                format!(": {}", last_error)
+            } else {
+                String::new()
+            };
             match child.try_wait() {
                 Ok(Some(status)) => {
-                    anyhow::bail!("Ghidra process exited with status: {}", status);
+                    anyhow::bail!("Ghidra process exited with status: {}{}", status, detail);
                 }
                 Ok(None) => {
-                    anyhow::bail!("Ghidra bridge did not send ready signal");
+                    anyhow::bail!("Ghidra bridge did not send ready signal{}", detail);
                 }
                 Err(e) => {
                     anyhow::bail!("Error checking process status: {}", e);

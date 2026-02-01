@@ -52,6 +52,30 @@ def import_ghidra_module(module_name):
     module = __import__(module_name)
     return module
 
+# --- Helpers ---
+
+def resolve_address(addr_str):
+    """Resolve an address string or function name to an Address object.
+
+    Returns (address, error_string). On success error_string is None.
+    Tries parsing as address first, then looks up by function name.
+    """
+    if currentProgram is None:
+        return None, "No program loaded"
+
+    # Try as address first
+    addr = currentProgram.getAddressFactory().getAddress(addr_str)
+    if addr is not None:
+        return addr, None
+
+    # Try as function name
+    function_manager = currentProgram.getFunctionManager()
+    for func in function_manager.getFunctions(True):
+        if func.getName() == addr_str:
+            return func.getEntryPoint(), None
+
+    return None, "Cannot resolve address or function name: " + addr_str
+
 # --- Command Handlers ---
 
 def handle_ping(args):
@@ -118,18 +142,18 @@ def handle_list_functions(args):
     return {"functions": functions, "count": len(functions)}
 
 def handle_decompile(args):
-    """Decompile a function at the given address."""
+    """Decompile a function at the given address or by name."""
     if currentProgram is None:
         return {"error": "No program loaded"}
-    
+
     addr_str = args.get("address")
     if not addr_str:
         return {"error": "No address provided"}
-    
-    addr = currentProgram.getAddressFactory().getAddress(addr_str)
-    if addr is None:
-        return {"error": "Invalid address: " + addr_str}
-    
+
+    addr, err = resolve_address(addr_str)
+    if err:
+        return {"error": err}
+
     function_manager = currentProgram.getFunctionManager()
     func = function_manager.getFunctionContaining(addr)
     
@@ -256,17 +280,17 @@ def handle_memory_map(args):
     return {"blocks": blocks, "count": len(blocks)}
 
 def handle_xrefs_to(args):
-    """Get cross-references to an address."""
+    """Get cross-references to an address or function."""
     if currentProgram is None:
         return {"error": "No program loaded"}
-    
+
     addr_str = args.get("address")
     if not addr_str:
         return {"error": "No address provided"}
-    
-    addr = currentProgram.getAddressFactory().getAddress(addr_str)
-    if addr is None:
-        return {"error": "Invalid address: " + addr_str}
+
+    addr, err = resolve_address(addr_str)
+    if err:
+        return {"error": err}
     
     xrefs = []
     refs = currentProgram.getReferenceManager().getReferencesTo(addr)
@@ -289,7 +313,7 @@ def handle_xrefs_to(args):
     return {"xrefs": xrefs, "count": len(xrefs)}
 
 def handle_xrefs_from(args):
-    """Get cross-references from an address."""
+    """Get cross-references from an address or function."""
     if currentProgram is None:
         return {"error": "No program loaded"}
 
@@ -297,9 +321,9 @@ def handle_xrefs_from(args):
     if not addr_str:
         return {"error": "No address provided"}
 
-    addr = currentProgram.getAddressFactory().getAddress(addr_str)
-    if addr is None:
-        return {"error": "Invalid address: " + addr_str}
+    addr, err = resolve_address(addr_str)
+    if err:
+        return {"error": err}
 
     xrefs = []
     refs = currentProgram.getReferenceManager().getReferencesFrom(addr)
@@ -344,11 +368,13 @@ def handle_program_delete(args):
     project_data = project.getProjectData()
 
     try:
-        program_file = project_data.getFile(program_name)
+        # Ghidra paths must start with /
+        path = program_name if program_name.startswith("/") else "/" + program_name
+        program_file = project_data.getFile(path)
         if program_file is None:
             return {"error": "Program not found: " + program_name}
 
-        project_data.deleteFile(program_name)
+        program_file.delete()
         return {"status": "deleted", "program": program_name}
     except Exception as e:
         return {"error": "Failed to delete program: " + str(e)}
@@ -581,8 +607,11 @@ def handle_type_list(args):
     script_dir = os.path.dirname(os.path.realpath(__file__))
     sys.path.insert(0, script_dir)
     try:
-        import types
-        return types.list_types()
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("ghidra_types", os.path.join(script_dir, "types.py"))
+        ghidra_types = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ghidra_types)
+        return ghidra_types.list_types()
     except Exception as e:
         return {"error": "Failed to list types: " + str(e)}
 
@@ -593,8 +622,11 @@ def handle_type_get(args):
     script_dir = os.path.dirname(os.path.realpath(__file__))
     sys.path.insert(0, script_dir)
     try:
-        import types
-        return types.get_type(args.get("name", ""))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("ghidra_types", os.path.join(script_dir, "types.py"))
+        ghidra_types = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ghidra_types)
+        return ghidra_types.get_type(args.get("name", ""))
     except Exception as e:
         return {"error": "Failed to get type: " + str(e)}
 
@@ -605,9 +637,12 @@ def handle_type_create(args):
     script_dir = os.path.dirname(os.path.realpath(__file__))
     sys.path.insert(0, script_dir)
     try:
-        import types
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("ghidra_types", os.path.join(script_dir, "types.py"))
+        ghidra_types = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ghidra_types)
         # The Python script expects a type name; CLI passes "definition" as the name
-        return types.create_type(args.get("definition", args.get("name", "")))
+        return ghidra_types.create_type(args.get("definition", args.get("name", "")))
     except Exception as e:
         return {"error": "Failed to create type: " + str(e)}
 
@@ -618,8 +653,11 @@ def handle_type_apply(args):
     script_dir = os.path.dirname(os.path.realpath(__file__))
     sys.path.insert(0, script_dir)
     try:
-        import types
-        return types.apply_type(args.get("address", ""), args.get("type_name", ""))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("ghidra_types", os.path.join(script_dir, "types.py"))
+        ghidra_types = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ghidra_types)
+        return ghidra_types.apply_type(args.get("address", ""), args.get("type_name", ""))
     except Exception as e:
         return {"error": "Failed to apply type: " + str(e)}
 
@@ -775,14 +813,21 @@ def handle_patch_export(args):
 # --- Disasm Handler ---
 
 def handle_disasm(args):
-    """Disassemble at address."""
+    """Disassemble at address or function name."""
+    addr_str = args.get("address", "")
+    if addr_str:
+        addr, err = resolve_address(addr_str)
+        if err:
+            return {"error": err}
+        addr_str = str(addr)
+
     import sys
     import os
     script_dir = os.path.dirname(os.path.realpath(__file__))
     sys.path.insert(0, script_dir)
     try:
         import disasm
-        return disasm.disassemble(args.get("address", ""), args.get("count", 10))
+        return disasm.disassemble(addr_str, args.get("count", 10))
     except Exception as e:
         return {"error": "Failed to disassemble: " + str(e)}
 
@@ -804,7 +849,7 @@ def handle_stats(args):
 
 def handle_import(args):
     """Import a binary into the current project."""
-    from ghidra.app.util.importer import AutoImporter
+    from ghidra.app.util.importer import AutoImporter, MessageLog
     from ghidra.util.task import ConsoleTaskMonitor
     from java.io import File
 
@@ -827,18 +872,28 @@ def handle_import(args):
             return {"error": "Binary file not found: " + binary_path}
 
         monitor = ConsoleTaskMonitor()
-        project_data = project.getProjectData()
+        log = MessageLog()
 
-        imported = AutoImporter.importByUsingBestGuess(
+        # Use project as the consumer for domain object lifecycle
+        consumer = project
+
+        # Ghidra 12+ API: importByUsingBestGuess(File, Project, String folderPath, Object consumer, MessageLog, TaskMonitor)
+        load_results = AutoImporter.importByUsingBestGuess(
             binary_file,
-            None,
-            project_data.getRootFolder(),
-            program_name,
+            project,
+            "/",
+            consumer,
+            log,
             monitor
         )
 
-        if imported is None:
+        if load_results is None:
             return {"error": "Failed to import binary"}
+
+        # Save each loaded program to the project, then release
+        for loaded in load_results:
+            loaded.save(monitor)
+        load_results.release(consumer)
 
         return {"status": "success", "program": program_name}
 
@@ -846,9 +901,9 @@ def handle_import(args):
         return {"error": "Import failed: " + str(e)}
 
 def handle_analyze(args):
-    """Trigger auto-analysis on the current program."""
-    from ghidra.app.cmd.analysis import AutoAnalysisManager
+    """Trigger auto-analysis on the current program (blocking)."""
     from ghidra.util.task import ConsoleTaskMonitor
+    import time
 
     program_name = args.get("program")
     if not program_name:
@@ -857,23 +912,144 @@ def handle_analyze(args):
     if currentProgram is None:
         return {"error": "No program currently loaded"}
 
+    # If requested program differs from current, switch to it first
     if currentProgram.getName() != program_name:
-        return {"error": "Program mismatch: expected " + program_name + " but current is " + currentProgram.getName()}
+        switch_result = handle_open_program({"program": program_name})
+        if "error" in switch_result:
+            return switch_result
 
     try:
+        # Try Ghidra 12+ import path first, fall back to older path
+        try:
+            from ghidra.app.plugin.core.analysis import AutoAnalysisManager
+        except ImportError:
+            from ghidra.app.cmd.analysis import AutoAnalysisManager
+
         monitor = ConsoleTaskMonitor()
         auto_mgr = AutoAnalysisManager.getAnalysisManager(currentProgram)
 
         if auto_mgr is None:
             return {"error": "Could not get AutoAnalysisManager"}
 
+        # Schedule full re-analysis
         auto_mgr.reAnalyzeAll(None)
         auto_mgr.startAnalysis(monitor)
+
+        # startAnalysis() is non-blocking — poll until analysis completes
+        while auto_mgr.isAnalyzing():
+            time.sleep(1)
+
+        # Save the program so analysis results persist
+        try:
+            currentProgram.save("Analysis complete", monitor)
+        except Exception as save_err:
+            # Best effort — some contexts don't allow save
+            pass
 
         return {"status": "success", "program": program_name}
 
     except Exception as e:
         return {"error": "Analysis failed: " + str(e)}
+
+def handle_list_programs(args):
+    """List all programs in the current project."""
+    project = state.getProject()
+    if project is None:
+        return {"error": "No project open"}
+
+    try:
+        project_data = project.getProjectData()
+        root_folder = project_data.getRootFolder()
+        programs = []
+
+        for domain_file in root_folder.getFiles():
+            is_current = (currentProgram is not None and
+                          domain_file.getName() == currentProgram.getName())
+            programs.append({
+                "name": domain_file.getName(),
+                "path": domain_file.getPathname(),
+                "type": domain_file.getContentType(),
+                "version": domain_file.getVersion(),
+                "current": is_current,
+            })
+
+        return {"programs": programs, "count": len(programs)}
+
+    except Exception as e:
+        return {"error": "Failed to list programs: " + str(e)}
+
+def handle_open_program(args):
+    """Open/switch to a program in the current project."""
+    global currentProgram
+    from ghidra.util.task import ConsoleTaskMonitor
+
+    program_name = args.get("program")
+    if not program_name:
+        return {"error": "Program name required"}
+
+    # Already the current program? No-op.
+    if currentProgram is not None and currentProgram.getName() == program_name:
+        return {"status": "success", "program": program_name}
+
+    project = state.getProject()
+    if project is None:
+        return {"error": "No project open"}
+
+    try:
+        project_data = project.getProjectData()
+
+        # Find the domain file by name (search root folder)
+        domain_file = None
+        root_folder = project_data.getRootFolder()
+        for f in root_folder.getFiles():
+            if f.getName() == program_name:
+                domain_file = f
+                break
+
+        if domain_file is None:
+            # Try as a path (must start with /)
+            path = program_name if program_name.startswith("/") else "/" + program_name
+            domain_file = project_data.getFile(path)
+
+        if domain_file is None:
+            # List available programs for a helpful error message
+            available = [f.getName() for f in root_folder.getFiles()]
+            return {"error": "Program not found: " + program_name + ". Available: " + ", ".join(available)}
+
+        # Use a stable consumer object for domain object lifecycle
+        consumer = project
+
+        # Release current program if one is open
+        if currentProgram is not None:
+            try:
+                currentProgram.save("Auto-save before switch", ConsoleTaskMonitor())
+            except:
+                pass  # Best effort save
+            try:
+                currentProgram.release(consumer)
+            except:
+                pass
+
+        # Open the requested program
+        monitor = ConsoleTaskMonitor()
+        program = domain_file.getDomainObject(
+            consumer,
+            True,   # upgrade if needed
+            False,  # don't recover
+            monitor
+        )
+
+        # Update globals
+        currentProgram = program
+        builtins.currentProgram = program
+
+        return {
+            "status": "success",
+            "program": program.getName(),
+        }
+
+    except Exception as e:
+        return {"error": "Failed to open program: " + str(e)}
 
 COMMANDS = {
     "ping": handle_ping,
@@ -884,6 +1060,8 @@ COMMANDS = {
     "program_close": handle_program_close,
     "program_delete": handle_program_delete,
     "program_export": handle_program_export,
+    "list_programs": handle_list_programs,
+    "open_program": handle_open_program,
     "list_functions": handle_list_functions,
     "decompile": handle_decompile,
     "list_strings": handle_list_strings,

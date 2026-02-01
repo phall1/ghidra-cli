@@ -4,6 +4,46 @@ use crate::ghidra::bridge::GhidraBridge;
 use anyhow::{Context, Result};
 use serde_json::json;
 
+pub async fn handle_program_list(bridge: &mut GhidraBridge) -> Result<String> {
+    let response = bridge
+        .send_command::<serde_json::Value>("list_programs", None)
+        .context("Failed to list programs")?;
+
+    if response.status == "success" {
+        let data = response.data.unwrap_or(json!({}));
+        serde_json::to_string(&data).context("Failed to serialize response")
+    } else {
+        let message = response
+            .message
+            .unwrap_or_else(|| "Failed to list programs".to_string());
+        anyhow::bail!("{}", message)
+    }
+}
+
+pub async fn handle_program_open(
+    bridge: &mut GhidraBridge,
+    program_name: &str,
+) -> Result<String> {
+    let response = bridge
+        .send_command::<serde_json::Value>(
+            "open_program",
+            Some(json!({
+                "program": program_name
+            })),
+        )
+        .context("Failed to open program")?;
+
+    if response.status == "success" {
+        let data = response.data.unwrap_or(json!({}));
+        serde_json::to_string(&data).context("Failed to serialize response")
+    } else {
+        let message = response
+            .message
+            .unwrap_or_else(|| "Failed to open program".to_string());
+        anyhow::bail!("{}", message)
+    }
+}
+
 pub async fn handle_program_close(bridge: &mut GhidraBridge) -> Result<String> {
     let response = bridge
         .send_command::<serde_json::Value>("program_close", None)

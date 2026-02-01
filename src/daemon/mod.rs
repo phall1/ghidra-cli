@@ -31,8 +31,16 @@ pub struct DaemonConfig {
     pub ghidra_install_dir: Option<PathBuf>,
     /// Log file path
     pub log_file: PathBuf,
-    /// Program name to load
-    pub program_name: Option<String>,
+}
+
+/// Shared daemon state accessible by handlers.
+pub struct DaemonState {
+    /// The Ghidra bridge instance (None until first import/analyze)
+    pub bridge: Arc<Mutex<Option<GhidraBridge>>>,
+    /// Ghidra installation directory
+    pub ghidra_install_dir: Option<PathBuf>,
+    /// Project path on disk
+    pub project_path: PathBuf,
 }
 
 /// Run the daemon with the new bridge architecture.
@@ -46,42 +54,14 @@ pub async fn run(config: DaemonConfig) -> Result<()> {
     // Create shutdown channel
     let (shutdown_tx, _shutdown_rx) = broadcast::channel::<()>(1);
 
-    // Initialize the Ghidra bridge (starts as None until we have a program)
-    let bridge: Arc<Mutex<Option<GhidraBridge>>> = Arc::new(Mutex::new(None));
+    // Initialize shared daemon state - bridge starts as None, lazy-started on first command
+    let daemon_state = Arc::new(DaemonState {
+        bridge: Arc::new(Mutex::new(None)),
+        ghidra_install_dir: config.ghidra_install_dir.clone(),
+        project_path: config.project_path.clone(),
+    });
 
-    // If we have Ghidra install dir and program name, start the bridge
-    if let (Some(ghidra_dir), Some(program_name)) =
-        (&config.ghidra_install_dir, &config.program_name)
-    {
-        info!("Starting Ghidra bridge for program: {}", program_name);
-
-        let project_name = config
-            .project_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("project")
-            .to_string();
-
-        let mut new_bridge = GhidraBridge::new(
-            ghidra_dir.clone(),
-            config.project_path.clone(),
-            project_name,
-            program_name.clone(),
-        );
-
-        if let Err(e) = new_bridge.start() {
-            warn!(
-                "Failed to start Ghidra bridge: {}. Will operate without persistent connection.",
-                e
-            );
-        } else {
-            info!("Ghidra bridge started successfully");
-            let mut bridge_guard = bridge.lock().await;
-            *bridge_guard = Some(new_bridge);
-        }
-    } else {
-        info!("No program specified, bridge will be started on first command");
-    }
+    info!("Bridge will be started on first import/analyze command");
 
     // Write lock file
     let daemon_info = DaemonInfo::new(&config.project_path, &config.log_file);
@@ -89,12 +69,12 @@ pub async fn run(config: DaemonConfig) -> Result<()> {
         .context("Failed to write lock file")?;
 
     // Start IPC server task
-    let ipc_bridge = bridge.clone();
+    let ipc_state = daemon_state.clone();
     let ipc_shutdown_tx = shutdown_tx.clone();
     let ipc_project_path = config.project_path.clone();
     let ipc_handle = tokio::spawn(async move {
         if let Err(e) =
-            ipc_server::run_ipc_server(ipc_bridge, ipc_shutdown_tx, &ipc_project_path).await
+            ipc_server::run_ipc_server(ipc_state, ipc_shutdown_tx, &ipc_project_path).await
         {
             error!("IPC server error: {}", e);
         }
@@ -108,9 +88,9 @@ pub async fn run(config: DaemonConfig) -> Result<()> {
     // Clean up
     shutdown_tx.send(()).ok(); // Signal all tasks to stop
 
-    // Stop the bridge
+    // Stop the bridge if it was started
     {
-        let mut bridge_guard = bridge.lock().await;
+        let mut bridge_guard = daemon_state.bridge.lock().await;
         if let Some(mut b) = bridge_guard.take() {
             info!("Stopping Ghidra bridge...");
             if let Err(e) = b.stop() {
@@ -203,7 +183,6 @@ mod tests {
             project_path: PathBuf::from("/test/project"),
             ghidra_install_dir: None,
             log_file: PathBuf::from("/test/logs/daemon.log"),
-            program_name: None,
         };
 
         assert_eq!(config.project_path, PathBuf::from("/test/project"));
