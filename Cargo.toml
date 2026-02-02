@@ -1,6 +1,6 @@
 [package]
 name = "ghidra-cli"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["Alexander Kiselev"]
 description = "Rust CLI to run Ghidra headless for reverse engineering with Claude Code and other agents"
@@ -46,8 +46,8 @@ interprocess = { version = "2.2", features = ["tokio"] }
 # Time
 chrono = { version = "0.4", features = ["serde"] }
 
-# System info
-sysinfo = "0.30"
+# File locking
+fslock = "0.2"
 
 # Hashing
 md5 = "0.7"

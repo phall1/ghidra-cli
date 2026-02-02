@@ -12,7 +12,7 @@ use anyhow::{Context, Result};
 use tokio::sync::{broadcast, Mutex};
 use tracing::{error, info, warn};
 
-use crate::daemon::process::{get_data_dir, remove_lock_file, write_daemon_info, DaemonInfo};
+use crate::daemon::process::{acquire_daemon_lock, get_data_dir, remove_info_file, write_daemon_info, DaemonInfo};
 use crate::ghidra::bridge::GhidraBridge;
 
 pub mod cache;
@@ -63,10 +63,14 @@ pub async fn run(config: DaemonConfig) -> Result<()> {
 
     info!("Bridge will be started on first import/analyze command");
 
-    // Write lock file
+    // Acquire OS-level lock (atomic liveness check)
+    let _lock = acquire_daemon_lock(&data_dir, &config.project_path)
+        .context("Failed to acquire daemon lock")?;
+
+    // Write daemon info to separate file
     let daemon_info = DaemonInfo::new(&config.project_path, &config.log_file);
     write_daemon_info(&data_dir, &config.project_path, &daemon_info)
-        .context("Failed to write lock file")?;
+        .context("Failed to write daemon info")?;
 
     // Start IPC server task
     let ipc_state = daemon_state.clone();
@@ -109,8 +113,8 @@ pub async fn run(config: DaemonConfig) -> Result<()> {
         }
     }
 
-    // Remove lock file
-    remove_lock_file(&data_dir, &config.project_path).context("Failed to remove lock file")?;
+    // Remove info file; lock file is released when _lock drops at end of scope
+    remove_info_file(&data_dir, &config.project_path).ok();
 
     info!("Daemon stopped");
     Ok(())

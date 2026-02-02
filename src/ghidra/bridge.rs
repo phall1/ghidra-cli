@@ -105,14 +105,26 @@ impl GhidraBridge {
         // Build command - pyghidraRun needs different arguments
         let mut cmd = Command::new(&headless_script);
 
-        // Build the base args (project dir + project name)
+        // analyzeHeadless/pyghidraRun expects: <parent_directory> <project_name>
+        // self.project_dir is the FULL project path (e.g., /c/Users/dev/git/ghidra-altium)
+        // We need to split it into parent dir and project name for Ghidra's CLI
+        let ghidra_project_dir = self
+            .project_dir
+            .parent()
+            .unwrap_or(&self.project_dir);
+        let ghidra_project_name = self
+            .project_dir
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| self.project_name.clone());
+
         if is_pyghidra {
             cmd.arg("--headless")
-                .arg(&self.project_dir)
-                .arg(&self.project_name);
+                .arg(ghidra_project_dir)
+                .arg(&ghidra_project_name);
         } else {
-            cmd.arg(&self.project_dir)
-                .arg(&self.project_name);
+            cmd.arg(ghidra_project_dir)
+                .arg(&ghidra_project_name);
         }
 
         // Add mode-specific args
