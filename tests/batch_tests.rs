@@ -38,7 +38,8 @@ query --function main
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("batch")
         .arg(batch_file.to_str().unwrap())
         .assert()
@@ -69,7 +70,8 @@ fn test_batch_empty_file() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("batch")
         .arg(batch_file.to_str().unwrap())
         .assert()
@@ -100,7 +102,8 @@ query --address 0x100000
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("batch")
         .arg(batch_file.to_str().unwrap())
         .assert()
@@ -122,7 +125,8 @@ fn test_batch_invalid_file() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("batch")
         .arg("/nonexistent/batch/file.txt")
         .assert()
@@ -150,7 +154,8 @@ query --address 0x100000
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("batch")
         .arg(batch_file.to_str().unwrap())
         .assert()

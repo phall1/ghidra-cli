@@ -34,13 +34,9 @@ struct BridgeRequest {
 /// How to start the bridge - import a new binary or open an existing program.
 pub enum BridgeStartMode {
     /// Import a binary file into the project, then start bridge
-    Import {
-        binary_path: String,
-    },
+    Import { binary_path: String },
     /// Open an existing program in the project
-    Process {
-        program_name: String,
-    },
+    Process { program_name: String },
 }
 
 /// Embedded Java bridge script
@@ -84,7 +80,9 @@ pub fn read_port_file(project_path: &Path) -> Result<Option<u16>> {
         return Ok(None);
     }
     let content = std::fs::read_to_string(&path)?;
-    let port: u16 = content.trim().parse()
+    let port: u16 = content
+        .trim()
+        .parse()
         .context("Invalid port in port file")?;
     Ok(Some(port))
 }
@@ -96,8 +94,7 @@ pub fn read_pid_file(project_path: &Path) -> Result<Option<u32>> {
         return Ok(None);
     }
     let content = std::fs::read_to_string(&path)?;
-    let pid: u32 = content.trim().parse()
-        .context("Invalid PID in PID file")?;
+    let pid: u32 = content.trim().parse().context("Invalid PID in PID file")?;
     Ok(Some(pid))
 }
 
@@ -209,16 +206,13 @@ pub fn start_bridge(
     let mut cmd = Command::new(&headless_script);
 
     // analyzeHeadless expects: <parent_directory> <project_name>
-    let ghidra_project_dir = project_path
-        .parent()
-        .unwrap_or(project_path);
+    let ghidra_project_dir = project_path.parent().unwrap_or(project_path);
     let ghidra_project_name = project_path
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "project".to_string());
 
-    cmd.arg(ghidra_project_dir)
-        .arg(&ghidra_project_name);
+    cmd.arg(ghidra_project_dir).arg(&ghidra_project_name);
 
     // Add mode-specific args
     match &mode {
@@ -226,9 +220,7 @@ pub fn start_bridge(
             cmd.arg("-import").arg(binary_path);
         }
         BridgeStartMode::Process { program_name } => {
-            cmd.arg("-process")
-                .arg(program_name)
-                .arg("-noanalysis");
+            cmd.arg("-process").arg(program_name).arg("-noanalysis");
         }
     }
 
@@ -330,8 +322,8 @@ pub fn send_command(
     command: &str,
     args: Option<serde_json::Value>,
 ) -> Result<serde_json::Value> {
-    let mut stream = TcpStream::connect(format!("127.0.0.1:{}", port))
-        .context("Failed to connect to bridge")?;
+    let mut stream =
+        TcpStream::connect(format!("127.0.0.1:{}", port)).context("Failed to connect to bridge")?;
     stream.set_read_timeout(Some(Duration::from_secs(300))).ok();
     stream.set_write_timeout(Some(Duration::from_secs(30))).ok();
 
@@ -355,19 +347,15 @@ pub fn send_command(
     let response: BridgeResponse<serde_json::Value> = serde_json::from_str(&response_line)?;
 
     match response.status.as_str() {
-        "success" => {
-            Ok(response.data.unwrap_or(serde_json::json!({})))
-        }
+        "success" => Ok(response.data.unwrap_or(serde_json::json!({}))),
         "error" => {
-            let msg = response.message.unwrap_or_else(|| "Unknown error".to_string());
+            let msg = response
+                .message
+                .unwrap_or_else(|| "Unknown error".to_string());
             anyhow::bail!("{}", msg)
         }
-        "shutdown" => {
-            Ok(serde_json::json!({"status": "shutdown"}))
-        }
-        _ => {
-            Ok(response.data.unwrap_or(serde_json::json!({})))
-        }
+        "shutdown" => Ok(serde_json::json!({"status": "shutdown"})),
+        _ => Ok(response.data.unwrap_or(serde_json::json!({}))),
     }
 }
 
@@ -377,8 +365,8 @@ pub fn send_typed_command<T: for<'de> Deserialize<'de>>(
     command: &str,
     args: Option<serde_json::Value>,
 ) -> Result<BridgeResponse<T>> {
-    let mut stream = TcpStream::connect(format!("127.0.0.1:{}", port))
-        .context("Failed to connect to bridge")?;
+    let mut stream =
+        TcpStream::connect(format!("127.0.0.1:{}", port)).context("Failed to connect to bridge")?;
     stream.set_read_timeout(Some(Duration::from_secs(300))).ok();
     stream.set_write_timeout(Some(Duration::from_secs(30))).ok();
 
@@ -475,10 +463,7 @@ fn find_headless_script(ghidra_install_dir: &Path) -> Result<PathBuf> {
     if script_path.exists() {
         Ok(script_path)
     } else {
-        anyhow::bail!(
-            "analyzeHeadless not found at: {}",
-            support_dir.display()
-        )
+        anyhow::bail!("analyzeHeadless not found at: {}", support_dir.display())
     }
 }
 

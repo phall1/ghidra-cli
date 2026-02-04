@@ -28,7 +28,8 @@ fn test_stale_files_cleaned_on_restart() {
         // Verify bridge is working
         assert_cmd::Command::cargo_bin("ghidra")
             .unwrap()
-            .arg("--project").arg(TEST_PROJECT)
+            .arg("--project")
+            .arg(TEST_PROJECT)
             .arg("daemon")
             .arg("ping")
             .timeout(Duration::from_secs(30))
@@ -49,7 +50,8 @@ fn test_stale_files_cleaned_on_restart() {
         // Verify bridge is working
         assert_cmd::Command::cargo_bin("ghidra")
             .unwrap()
-            .arg("--project").arg(TEST_PROJECT)
+            .arg("--project")
+            .arg(TEST_PROJECT)
             .arg("daemon")
             .arg("ping")
             .timeout(Duration::from_secs(30))
@@ -70,13 +72,14 @@ fn test_recovery_after_crash() {
 
     // Start bridge and verify it works
     {
-        let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-            .expect("Failed to start bridge");
+        let harness =
+            DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start bridge");
 
         // Verify it's working
         assert_cmd::Command::cargo_bin("ghidra")
             .unwrap()
-            .arg("--project").arg(TEST_PROJECT)
+            .arg("--project")
+            .arg(TEST_PROJECT)
             .arg("daemon")
             .arg("ping")
             .timeout(Duration::from_secs(30))
@@ -97,7 +100,8 @@ fn test_recovery_after_crash() {
         // Verify new bridge is working
         assert_cmd::Command::cargo_bin("ghidra")
             .unwrap()
-            .arg("--project").arg(TEST_PROJECT)
+            .arg("--project")
+            .arg(TEST_PROJECT)
             .arg("daemon")
             .arg("ping")
             .timeout(Duration::from_secs(30))
@@ -120,7 +124,8 @@ fn test_bridge_not_ready_error() {
     // Ping should work
     assert_cmd::Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("daemon")
         .arg("ping")
         .timeout(Duration::from_secs(30))

@@ -18,15 +18,11 @@ use ghidra::GhidraClient;
 use ipc::client::BridgeClient;
 use std::path::{Path, PathBuf};
 
-
-
 fn main() {
     // Initialize logging with info level by default, can be overridden via RUST_LOG
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-    tracing_subscriber::fmt()
-        .with_env_filter(env_filter)
-        .init();
+    tracing_subscriber::fmt().with_env_filter(env_filter).init();
 
     let cli = Cli::parse();
 
@@ -60,9 +56,7 @@ fn run_command(cli: Cli) -> anyhow::Result<()> {
         Commands::SetDefault(args) => handle_set_default(args.clone()),
         Commands::Project(args) => handle_project_command(args.command.clone()),
         // Commands requiring bridge
-        _ if requires_bridge(&cli.command) => {
-            run_with_bridge(cli)
-        }
+        _ if requires_bridge(&cli.command) => run_with_bridge(cli),
         _ => {
             println!("Command not yet implemented");
             Ok(())
@@ -211,9 +205,11 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
         .ghidra_install_dir
         .clone()
         .or_else(|| config.get_ghidra_install_dir().ok())
-        .ok_or_else(|| anyhow::anyhow!(
-            "Ghidra installation directory not configured. Run 'ghidra setup' first."
-        ))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Ghidra installation directory not configured. Run 'ghidra setup' first."
+            )
+        })?;
 
     // For Import and Quick, we may need to start a new bridge
     let client = match &cli.command {
@@ -232,7 +228,8 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
                 let result = client.import_binary(&args.binary, args.program.as_deref())?;
 
                 let program_name = args.program.clone().unwrap_or_else(|| {
-                    result.get("program")
+                    result
+                        .get("program")
                         .and_then(|p| p.as_str())
                         .unwrap_or("unknown")
                         .to_string()
@@ -330,12 +327,13 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
             // For query commands, ensure bridge is running (auto-start in process mode if needed)
             if !bridge::is_bridge_running(&project_path) {
                 // Need a program name to start the bridge in process mode
-                let program = config.get_default_program()
-                    .ok_or_else(|| anyhow::anyhow!(
+                let program = config.get_default_program().ok_or_else(|| {
+                    anyhow::anyhow!(
                         "No bridge running and no default program configured.\n\
                          Import a binary first: ghidra import <binary>\n\
                          Or set a default: ghidra set-default program <name>"
-                    ))?;
+                    )
+                })?;
 
                 eprintln!("Starting Ghidra bridge...");
                 let port = bridge::ensure_bridge_running(
@@ -406,64 +404,62 @@ fn execute_via_bridge(
                 FunctionCommands::Get(args) => {
                     client.send_command("get_function", Some(json!({"address": args.target})))
                 }
-                FunctionCommands::Disasm(args) => {
-                    client.disasm(&args.target, None)
-                }
-                FunctionCommands::Calls(args) => {
-                    client.find_calls(&args.target)
-                }
-                FunctionCommands::XRefs(args) => {
-                    client.xrefs_to(args.target.clone())
-                }
-                FunctionCommands::Rename(args) => {
-                    client.send_command("rename_function", Some(json!({
+                FunctionCommands::Disasm(args) => client.disasm(&args.target, None),
+                FunctionCommands::Calls(args) => client.find_calls(&args.target),
+                FunctionCommands::XRefs(args) => client.xrefs_to(args.target.clone()),
+                FunctionCommands::Rename(args) => client.send_command(
+                    "rename_function",
+                    Some(json!({
                         "old_name": args.old_name,
                         "new_name": args.new_name,
-                    })))
-                }
-                FunctionCommands::Create(args) => {
-                    client.send_command("create_function", Some(json!({
+                    })),
+                ),
+                FunctionCommands::Create(args) => client.send_command(
+                    "create_function",
+                    Some(json!({
                         "address": args.address,
                         "name": args.name,
-                    })))
-                }
-                FunctionCommands::Delete(args) => {
-                    client.send_command("delete_function", Some(json!({
+                    })),
+                ),
+                FunctionCommands::Delete(args) => client.send_command(
+                    "delete_function",
+                    Some(json!({
                         "address": args.target,
-                    })))
-                }
+                    })),
+                ),
             }
         }
         Commands::Strings(cmd) => {
             use cli::StringsCommands;
             match cmd {
                 StringsCommands::List(opts) => client.list_strings(opts.limit),
-                StringsCommands::Refs(args) => {
-                    client.xrefs_to(args.string.clone())
-                }
+                StringsCommands::Refs(args) => client.xrefs_to(args.string.clone()),
             }
         }
         Commands::Memory(cmd) => {
             use cli::MemoryCommands;
             match cmd {
                 MemoryCommands::Map(_) => client.memory_map(),
-                MemoryCommands::Read(args) => {
-                    client.send_command("read_memory", Some(json!({
+                MemoryCommands::Read(args) => client.send_command(
+                    "read_memory",
+                    Some(json!({
                         "address": args.address,
                         "size": args.size,
-                    })))
-                }
-                MemoryCommands::Write(args) => {
-                    client.send_command("write_memory", Some(json!({
+                    })),
+                ),
+                MemoryCommands::Write(args) => client.send_command(
+                    "write_memory",
+                    Some(json!({
                         "address": args.address,
                         "bytes": args.bytes,
-                    })))
-                }
-                MemoryCommands::Search(args) => {
-                    client.send_command("search_memory", Some(json!({
+                    })),
+                ),
+                MemoryCommands::Search(args) => client.send_command(
+                    "search_memory",
+                    Some(json!({
                         "pattern": args.pattern,
-                    })))
-                }
+                    })),
+                ),
             }
         }
         Commands::Dump(cmd) => {
@@ -483,9 +479,7 @@ fn execute_via_bridge(
             match cmd {
                 XRefCommands::To(args) => client.xrefs_to(args.address.clone()),
                 XRefCommands::From(args) => client.xrefs_from(args.address.clone()),
-                XRefCommands::List(_) => {
-                    client.send_command("xrefs_list", None)
-                }
+                XRefCommands::List(_) => client.send_command("xrefs_list", None),
             }
         }
         Commands::Program(cmd) => {
@@ -493,13 +487,16 @@ fn execute_via_bridge(
             match cmd {
                 ProgramCommands::List(_) => client.list_programs(),
                 ProgramCommands::Open(args) => {
-                    let program = args.program.as_ref()
-                        .ok_or_else(|| anyhow::anyhow!("Program name required. Use --program <name>"))?;
+                    let program = args.program.as_ref().ok_or_else(|| {
+                        anyhow::anyhow!("Program name required. Use --program <name>")
+                    })?;
                     client.open_program(program)
                 }
                 ProgramCommands::Close(_) => client.program_close(),
                 ProgramCommands::Delete(args) => {
-                    let program = args.program.as_ref()
+                    let program = args
+                        .program
+                        .as_ref()
                         .ok_or_else(|| anyhow::anyhow!("Program name required"))?;
                     client.program_delete(program)
                 }
@@ -516,7 +513,9 @@ fn execute_via_bridge(
                 SymbolCommands::Get(args) => client.symbol_get(&args.name),
                 SymbolCommands::Create(args) => client.symbol_create(&args.address, &args.name),
                 SymbolCommands::Delete(args) => client.symbol_delete(&args.name),
-                SymbolCommands::Rename(args) => client.symbol_rename(&args.old_name, &args.new_name),
+                SymbolCommands::Rename(args) => {
+                    client.symbol_rename(&args.old_name, &args.new_name)
+                }
             }
         }
         Commands::Type(cmd) => {
@@ -562,7 +561,9 @@ fn execute_via_bridge(
         Commands::Diff(cmd) => {
             use cli::DiffCommands;
             match cmd {
-                DiffCommands::Programs(args) => client.diff_programs(&args.program1, &args.program2),
+                DiffCommands::Programs(args) => {
+                    client.diff_programs(&args.program1, &args.program2)
+                }
                 DiffCommands::Functions(args) => client.diff_functions(&args.func1, &args.func2),
             }
         }
@@ -583,9 +584,7 @@ fn execute_via_bridge(
                 ScriptCommands::List => client.script_list(),
             }
         }
-        Commands::Disasm(args) => {
-            client.disasm(&args.address, args.num_instructions)
-        }
+        Commands::Disasm(args) => client.disasm(&args.address, args.num_instructions),
         Commands::Batch(args) => {
             // Read batch file and send commands
             let content = std::fs::read_to_string(&args.script_file)
@@ -593,11 +592,7 @@ fn execute_via_bridge(
             let commands: Vec<serde_json::Value> = content
                 .lines()
                 .filter(|l| !l.trim().is_empty() && !l.trim().starts_with('#'))
-                .map(|l| {
-                    serde_json::from_str(l).unwrap_or_else(|_| {
-                        json!({"command": l.trim()})
-                    })
-                })
+                .map(|l| serde_json::from_str(l).unwrap_or_else(|_| json!({"command": l.trim()})))
                 .collect();
             client.batch(&commands)
         }
@@ -638,10 +633,7 @@ fn handle_daemon_command_dispatch(cli: Cli) -> anyhow::Result<()> {
 }
 
 /// Start the bridge for a project.
-fn handle_bridge_start(
-    project: Option<String>,
-    program: Option<String>,
-) -> anyhow::Result<()> {
+fn handle_bridge_start(project: Option<String>, program: Option<String>) -> anyhow::Result<()> {
     let config = Config::load()?;
     let project_path = resolve_project_path(&project, &config)?;
 
@@ -649,39 +641,35 @@ fn handle_bridge_start(
         .ghidra_install_dir
         .clone()
         .or_else(|| config.get_ghidra_install_dir().ok())
-        .ok_or_else(|| anyhow::anyhow!(
-            "Ghidra installation directory not configured. Run 'ghidra setup' first."
-        ))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Ghidra installation directory not configured. Run 'ghidra setup' first."
+            )
+        })?;
 
     // Check if bridge is already running
     if bridge::is_bridge_running(&project_path) {
-        println!("Bridge is already running for project: {}", project_path.display());
+        println!(
+            "Bridge is already running for project: {}",
+            project_path.display()
+        );
         return Ok(());
     }
 
     // Determine start mode
     let mode = if let Some(prog) = program {
-        BridgeStartMode::Process {
-            program_name: prog,
-        }
+        BridgeStartMode::Process { program_name: prog }
     } else {
         // Need a program name
-        let prog = config.get_default_program()
-            .ok_or_else(|| anyhow::anyhow!(
-                "No program specified. Use --program <name> or set a default."
-            ))?;
-        BridgeStartMode::Process {
-            program_name: prog,
-        }
+        let prog = config.get_default_program().ok_or_else(|| {
+            anyhow::anyhow!("No program specified. Use --program <name> or set a default.")
+        })?;
+        BridgeStartMode::Process { program_name: prog }
     };
 
     println!("Starting bridge for project: {}", project_path.display());
 
-    let port = bridge::ensure_bridge_running(
-        &project_path,
-        &ghidra_install_dir,
-        mode,
-    )?;
+    let port = bridge::ensure_bridge_running(&project_path, &ghidra_install_dir, mode)?;
 
     println!("Bridge started on port {}", port);
     Ok(())
@@ -1045,8 +1033,9 @@ fn resolve_program(program: &Option<String>, config: &Config) -> Result<String> 
 
 /// Connect to a running bridge for a project.
 fn connect_to_bridge(project_path: &Path) -> anyhow::Result<BridgeClient> {
-    let port = bridge::read_port_file(project_path)?
-        .ok_or_else(|| anyhow::anyhow!("Bridge not running for project: {}", project_path.display()))?;
+    let port = bridge::read_port_file(project_path)?.ok_or_else(|| {
+        anyhow::anyhow!("Bridge not running for project: {}", project_path.display())
+    })?;
     Ok(BridgeClient::new(port))
 }
 

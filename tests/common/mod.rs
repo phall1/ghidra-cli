@@ -119,7 +119,8 @@ impl DaemonTestHarness {
             .join(project);
 
         // Start the bridge using the CLI command (which starts Ghidra headless)
-        let mut cmd = assert_cmd::Command::cargo_bin("ghidra").expect("Failed to find ghidra binary");
+        let mut cmd =
+            assert_cmd::Command::cargo_bin("ghidra").expect("Failed to find ghidra binary");
         let result = cmd
             .arg("daemon")
             .arg("start")
@@ -134,7 +135,11 @@ impl DaemonTestHarness {
         if !result.status.success() {
             let stderr = String::from_utf8_lossy(&result.stderr);
             let stdout = String::from_utf8_lossy(&result.stdout);
-            anyhow::bail!("Failed to start bridge:\nstdout: {}\nstderr: {}", stdout, stderr);
+            anyhow::bail!(
+                "Failed to start bridge:\nstdout: {}\nstderr: {}",
+                stdout,
+                stderr
+            );
         }
 
         // Read port from port file
@@ -157,7 +162,10 @@ impl DaemonTestHarness {
         let data_dir = dirs::data_local_dir()
             .context("Could not determine data directory")?
             .join("ghidra-cli");
-        let hash = format!("{:x}", md5::compute(project_path.to_string_lossy().as_bytes()));
+        let hash = format!(
+            "{:x}",
+            md5::compute(project_path.to_string_lossy().as_bytes())
+        );
         let port_file = data_dir.join(format!("bridge-{}.port", hash));
 
         while start.elapsed() < timeout {

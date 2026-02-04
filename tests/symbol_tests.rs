@@ -21,7 +21,8 @@ fn test_symbol_list() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("symbol")
         .arg("list")
         .arg("--program")
@@ -43,7 +44,8 @@ fn test_symbol_create_and_get() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("symbol")
         .arg("create")
         .arg("0x1000")
@@ -55,7 +57,8 @@ fn test_symbol_create_and_get() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("symbol")
         .arg("get")
         .arg("test_symbol")
@@ -78,7 +81,8 @@ fn test_symbol_rename() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("symbol")
         .arg("create")
         .arg("0x2000")
@@ -90,7 +94,8 @@ fn test_symbol_rename() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("symbol")
         .arg("rename")
         .arg("old_symbol")
@@ -113,7 +118,8 @@ fn test_symbol_get_nonexistent() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("symbol")
         .arg("get")
         .arg("nonexistent_symbol_12345")

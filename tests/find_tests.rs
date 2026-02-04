@@ -21,7 +21,8 @@ fn test_find_string() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("find")
         .arg("string")
         .arg("test")
@@ -44,7 +45,8 @@ fn test_find_bytes() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("find")
         .arg("bytes")
         .arg("4883ec08")
@@ -67,7 +69,8 @@ fn test_find_function() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("find")
         .arg("function")
         .arg("main")
@@ -90,7 +93,8 @@ fn test_find_function_glob() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("find")
         .arg("function")
         .arg("m*")
@@ -113,7 +117,8 @@ fn test_find_calls() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("find")
         .arg("calls")
         .arg("printf")
@@ -135,7 +140,8 @@ fn test_find_crypto() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("find")
         .arg("crypto")
         .arg("--program")
@@ -157,7 +163,8 @@ fn test_find_interesting() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("find")
         .arg("interesting")
         .arg("--program")
@@ -179,7 +186,8 @@ fn test_find_string_no_matches() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("find")
         .arg("string")
         .arg("nonexistent_string_xyz123")

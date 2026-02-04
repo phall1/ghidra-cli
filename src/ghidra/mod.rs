@@ -1,8 +1,6 @@
 #![allow(dead_code)]
 
 pub mod bridge;
-pub mod data;
-pub mod scripts;
 pub mod setup;
 
 use crate::config::Config;
@@ -42,13 +40,11 @@ impl GhidraClient {
 
         #[cfg(target_os = "windows")]
         {
-            // Use analyzeHeadless with Jython support
             support_dir.join("analyzeHeadless.bat")
         }
 
         #[cfg(not(target_os = "windows"))]
         {
-            // Use analyzeHeadless with Jython support
             support_dir.join("analyzeHeadless")
         }
     }

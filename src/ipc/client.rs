@@ -35,8 +35,9 @@ impl BridgeClient {
         command: &str,
         args: Option<serde_json::Value>,
     ) -> Result<serde_json::Value> {
-        let mut stream = TcpStream::connect(format!("127.0.0.1:{}", self.port))
-            .map_err(|e| anyhow::anyhow!("Failed to connect to bridge on port {}: {}", self.port, e))?;
+        let mut stream = TcpStream::connect(format!("127.0.0.1:{}", self.port)).map_err(|e| {
+            anyhow::anyhow!("Failed to connect to bridge on port {}: {}", self.port, e)
+        })?;
         stream.set_read_timeout(Some(Duration::from_secs(300))).ok();
         stream.set_write_timeout(Some(Duration::from_secs(30))).ok();
 
@@ -62,7 +63,9 @@ impl BridgeClient {
         match response.status.as_str() {
             "success" => Ok(response.data.unwrap_or(json!({}))),
             "error" => {
-                let msg = response.message.unwrap_or_else(|| "Unknown error".to_string());
+                let msg = response
+                    .message
+                    .unwrap_or_else(|| "Unknown error".to_string());
                 anyhow::bail!("{}", msg)
             }
             "shutdown" => Ok(json!({"status": "shutdown"})),
@@ -179,7 +182,10 @@ impl BridgeClient {
     }
 
     pub fn symbol_create(&self, address: &str, name: &str) -> Result<serde_json::Value> {
-        self.send_command("symbol_create", Some(json!({"address": address, "name": name})))
+        self.send_command(
+            "symbol_create",
+            Some(json!({"address": address, "name": name})),
+        )
     }
 
     pub fn symbol_delete(&self, name: &str) -> Result<serde_json::Value> {
@@ -187,7 +193,10 @@ impl BridgeClient {
     }
 
     pub fn symbol_rename(&self, old_name: &str, new_name: &str) -> Result<serde_json::Value> {
-        self.send_command("symbol_rename", Some(json!({"old_name": old_name, "new_name": new_name})))
+        self.send_command(
+            "symbol_rename",
+            Some(json!({"old_name": old_name, "new_name": new_name})),
+        )
     }
 
     pub fn type_list(&self) -> Result<serde_json::Value> {
@@ -203,7 +212,10 @@ impl BridgeClient {
     }
 
     pub fn type_apply(&self, address: &str, type_name: &str) -> Result<serde_json::Value> {
-        self.send_command("type_apply", Some(json!({"address": address, "type_name": type_name})))
+        self.send_command(
+            "type_apply",
+            Some(json!({"address": address, "type_name": type_name})),
+        )
     }
 
     pub fn comment_list(&self) -> Result<serde_json::Value> {
@@ -214,12 +226,20 @@ impl BridgeClient {
         self.send_command("comment_get", Some(json!({"address": address})))
     }
 
-    pub fn comment_set(&self, address: &str, text: &str, comment_type: Option<&str>) -> Result<serde_json::Value> {
-        self.send_command("comment_set", Some(json!({
-            "address": address,
-            "text": text,
-            "type": comment_type,
-        })))
+    pub fn comment_set(
+        &self,
+        address: &str,
+        text: &str,
+        comment_type: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "comment_set",
+            Some(json!({
+                "address": address,
+                "text": text,
+                "type": comment_type,
+            })),
+        )
     }
 
     pub fn comment_delete(&self, address: &str) -> Result<serde_json::Value> {
@@ -231,11 +251,17 @@ impl BridgeClient {
     }
 
     pub fn graph_callers(&self, function: &str, depth: Option<usize>) -> Result<serde_json::Value> {
-        self.send_command("graph_callers", Some(json!({"function": function, "depth": depth})))
+        self.send_command(
+            "graph_callers",
+            Some(json!({"function": function, "depth": depth})),
+        )
     }
 
     pub fn graph_callees(&self, function: &str, depth: Option<usize>) -> Result<serde_json::Value> {
-        self.send_command("graph_callees", Some(json!({"function": function, "depth": depth})))
+        self.send_command(
+            "graph_callees",
+            Some(json!({"function": function, "depth": depth})),
+        )
     }
 
     pub fn graph_export(&self, format: &str) -> Result<serde_json::Value> {
@@ -267,11 +293,17 @@ impl BridgeClient {
     }
 
     pub fn diff_programs(&self, program1: &str, program2: &str) -> Result<serde_json::Value> {
-        self.send_command("diff_programs", Some(json!({"program1": program1, "program2": program2})))
+        self.send_command(
+            "diff_programs",
+            Some(json!({"program1": program1, "program2": program2})),
+        )
     }
 
     pub fn diff_functions(&self, func1: &str, func2: &str) -> Result<serde_json::Value> {
-        self.send_command("diff_functions", Some(json!({"func1": func1, "func2": func2})))
+        self.send_command(
+            "diff_functions",
+            Some(json!({"func1": func1, "func2": func2})),
+        )
     }
 
     pub fn patch_bytes(&self, address: &str, hex: &str) -> Result<serde_json::Value> {
@@ -286,8 +318,15 @@ impl BridgeClient {
         self.send_command("patch_export", Some(json!({"output": output})))
     }
 
-    pub fn disasm(&self, address: &str, num_instructions: Option<usize>) -> Result<serde_json::Value> {
-        self.send_command("disasm", Some(json!({"address": address, "count": num_instructions})))
+    pub fn disasm(
+        &self,
+        address: &str,
+        num_instructions: Option<usize>,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "disasm",
+            Some(json!({"address": address, "count": num_instructions})),
+        )
     }
 
     pub fn stats(&self) -> Result<serde_json::Value> {
@@ -295,7 +334,10 @@ impl BridgeClient {
     }
 
     pub fn script_run(&self, script_path: &str, args: &[String]) -> Result<serde_json::Value> {
-        self.send_command("script_run", Some(json!({"path": script_path, "args": args})))
+        self.send_command(
+            "script_run",
+            Some(json!({"path": script_path, "args": args})),
+        )
     }
 
     pub fn script_python(&self, code: &str) -> Result<serde_json::Value> {
@@ -323,6 +365,9 @@ impl BridgeClient {
     }
 
     pub fn program_export(&self, format: &str, output: Option<&str>) -> Result<serde_json::Value> {
-        self.send_command("export_program", Some(json!({"format": format, "output": output})))
+        self.send_command(
+            "export_program",
+            Some(json!({"format": format, "output": output})),
+        )
     }
 }

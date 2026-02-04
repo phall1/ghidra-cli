@@ -26,11 +26,6 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Install Python 3
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -44,10 +39,13 @@ jobs:
             ~/.local/share/ghidra-cli
             ~/Library/Application Support/ghidra-cli
             ~/AppData/Local/ghidra-cli
-          key: ghidra-${{ matrix.os }}-v1
+          key: ghidra-${{ matrix.os }}-v2
 
       - name: Build
         run: cargo build --verbose
+
+      - name: Build test fixture
+        run: rustc --edition 2021 -o tests/fixtures/sample_binary tests/fixtures/sample_binary.rs
 
       - name: Setup Ghidra
         run: cargo run -- setup --force
@@ -57,6 +55,8 @@ jobs:
 
       - name: Run integration tests
         run: cargo test --test '*' --verbose
+        env:
+          RUST_LOG: info
 
   build:
     name: Build ${{ matrix.target }}

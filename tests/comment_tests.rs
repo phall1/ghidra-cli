@@ -23,7 +23,8 @@ fn test_comment_set_and_get() {
     // Note: ELF entry is 0x18910, but Ghidra loads with base 0x100000
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("comment")
         .arg("set")
         .arg("0x00118910")
@@ -36,7 +37,8 @@ fn test_comment_set_and_get() {
     // Get the comment back
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("comment")
         .arg("get")
         .arg("0x00118910")
@@ -59,7 +61,8 @@ fn test_comment_list() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("comment")
         .arg("set")
         .arg("0x00118920") // Within executable range (Ghidra address space)
@@ -71,7 +74,8 @@ fn test_comment_list() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("comment")
         .arg("list")
         .arg("--program")
@@ -93,7 +97,8 @@ fn test_comment_delete() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("comment")
         .arg("set")
         .arg("0x00118930") // Within executable range (Ghidra address space)
@@ -105,7 +110,8 @@ fn test_comment_delete() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("comment")
         .arg("delete")
         .arg("0x00118930") // Within executable range (Ghidra address space)

@@ -23,11 +23,10 @@ fn test_daemon_start() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
-        .arg("daemon")
-        .arg("status")
         .arg("--project")
         .arg(TEST_PROJECT)
+        .arg("daemon")
+        .arg("status")
         .assert()
         .success();
 
@@ -46,11 +45,10 @@ fn test_daemon_status() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
-        .arg("daemon")
-        .arg("status")
         .arg("--project")
         .arg(TEST_PROJECT)
+        .arg("daemon")
+        .arg("status")
         .assert()
         .success()
         .stdout(predicate::str::contains("running"));
@@ -70,11 +68,10 @@ fn test_daemon_ping() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
-        .arg("daemon")
-        .arg("ping")
         .arg("--project")
         .arg(TEST_PROJECT)
+        .arg("daemon")
+        .arg("ping")
         .assert()
         .success();
 
@@ -93,11 +90,10 @@ fn test_daemon_clear_cache() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
-        .arg("daemon")
-        .arg("clear-cache")
         .arg("--project")
         .arg(TEST_PROJECT)
+        .arg("daemon")
+        .arg("clear-cache")
         .assert()
         .success();
 
@@ -116,32 +112,29 @@ fn test_daemon_lifecycle() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
-        .arg("daemon")
-        .arg("status")
         .arg("--project")
         .arg(TEST_PROJECT)
+        .arg("daemon")
+        .arg("status")
         .assert()
         .success()
         .stdout(predicate::str::contains("running"));
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
-        .arg("daemon")
-        .arg("ping")
         .arg("--project")
         .arg(TEST_PROJECT)
+        .arg("daemon")
+        .arg("ping")
         .assert()
         .success();
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
-        .arg("daemon")
-        .arg("stop")
         .arg("--project")
         .arg(TEST_PROJECT)
+        .arg("daemon")
+        .arg("stop")
         .assert()
         .success();
 }
@@ -158,21 +151,19 @@ fn test_daemon_stop() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
-        .arg("daemon")
-        .arg("stop")
         .arg("--project")
         .arg(TEST_PROJECT)
+        .arg("daemon")
+        .arg("stop")
         .assert()
         .success();
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
-        .arg("daemon")
-        .arg("status")
         .arg("--project")
         .arg(TEST_PROJECT)
+        .arg("daemon")
+        .arg("status")
         .assert()
         .success()
         .stdout(predicate::str::contains("No daemon running"));
@@ -192,11 +183,10 @@ fn test_daemon_restart() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
-        .arg("daemon")
-        .arg("restart")
         .arg("--project")
         .arg(TEST_PROJECT)
+        .arg("daemon")
+        .arg("restart")
         .arg("--program")
         .arg(TEST_PROGRAM)
         .assert()
@@ -204,11 +194,10 @@ fn test_daemon_restart() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
-        .arg("daemon")
-        .arg("stop")
         .arg("--project")
         .arg(TEST_PROJECT)
+        .arg("daemon")
+        .arg("stop")
         .assert()
         .success();
 
@@ -227,11 +216,10 @@ fn test_daemon_start_when_running() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
-        .arg("daemon")
-        .arg("start")
         .arg("--project")
         .arg(TEST_PROJECT)
+        .arg("daemon")
+        .arg("start")
         .arg("--program")
         .arg(TEST_PROGRAM)
         .assert()

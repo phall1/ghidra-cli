@@ -22,28 +22,14 @@ pub struct BridgeConfig {
 /// Ensure a bridge is running for the given project.
 /// If import mode, starts with the binary. If process mode, opens existing program.
 /// Returns the port number for connecting.
-pub fn ensure_bridge(
-    config: &BridgeConfig,
-    mode: BridgeStartMode,
-) -> Result<u16> {
-    bridge::ensure_bridge_running(
-        &config.project_path,
-        &config.ghidra_install_dir,
-        mode,
-    )
+pub fn ensure_bridge(config: &BridgeConfig, mode: BridgeStartMode) -> Result<u16> {
+    bridge::ensure_bridge_running(&config.project_path, &config.ghidra_install_dir, mode)
 }
 
 /// Start a new bridge for the given project.
 /// Returns the port number for connecting.
-pub fn start_bridge(
-    config: &BridgeConfig,
-    mode: BridgeStartMode,
-) -> Result<u16> {
-    bridge::start_bridge(
-        &config.project_path,
-        &config.ghidra_install_dir,
-        mode,
-    )
+pub fn start_bridge(config: &BridgeConfig, mode: BridgeStartMode) -> Result<u16> {
+    bridge::start_bridge(&config.project_path, &config.ghidra_install_dir, mode)
 }
 
 /// Stop the bridge for a project.

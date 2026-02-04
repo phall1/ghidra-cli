@@ -21,7 +21,8 @@ fn test_program_info() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("program")
         .arg("info")
         .arg("--program")
@@ -44,7 +45,8 @@ fn test_program_export_json() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("program")
         .arg("export")
         .arg("json")
@@ -67,7 +69,8 @@ fn test_program_close() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("program")
         .arg("close")
         .arg("--program")
@@ -88,7 +91,8 @@ fn test_program_info_no_program() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project").arg(TEST_PROJECT)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .arg("program")
         .arg("info")
         .assert()
