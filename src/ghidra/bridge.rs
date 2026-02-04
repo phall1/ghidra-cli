@@ -218,6 +218,9 @@ impl GhidraBridge {
     }
 
     /// Send a command to the bridge.
+    ///
+    /// On I/O errors, checks if the bridge process has died and updates
+    /// state accordingly. Returns a specific error if the process died.
     pub fn send_command<T: for<'de> Deserialize<'de>>(
         &mut self,
         command: &str,
@@ -240,14 +243,29 @@ impl GhidraBridge {
         let request_json = serde_json::to_string(&request)?;
         debug!("Sending: {}", request_json);
 
-        // Send request
-        writeln!(stream, "{}", request_json)?;
-        stream.flush()?;
+        // Send request - check process health on I/O error
+        if let Err(e) = writeln!(stream, "{}", request_json) {
+            if !self.check_health() {
+                anyhow::bail!("Bridge process died unexpectedly");
+            }
+            return Err(e.into());
+        }
+        if let Err(e) = stream.flush() {
+            if !self.check_health() {
+                anyhow::bail!("Bridge process died unexpectedly");
+            }
+            return Err(e.into());
+        }
 
-        // Read response
+        // Read response - check process health on I/O error
         let mut reader = BufReader::new(stream.try_clone()?);
         let mut response_line = String::new();
-        reader.read_line(&mut response_line)?;
+        if let Err(e) = reader.read_line(&mut response_line) {
+            if !self.check_health() {
+                anyhow::bail!("Bridge process died unexpectedly");
+            }
+            return Err(e.into());
+        }
 
         debug!("Received: {}", response_line.trim());
 
@@ -296,6 +314,35 @@ impl GhidraBridge {
     /// Check if the bridge is running.
     pub fn is_running(&self) -> bool {
         self.running.load(Ordering::SeqCst)
+    }
+
+    /// Check if the bridge process is actually healthy (still running).
+    ///
+    /// Performs an OS-level check on the child process to detect if it
+    /// has exited unexpectedly. If the process has died, updates the running
+    /// flag and returns false.
+    pub fn check_health(&mut self) -> bool {
+        if let Some(ref mut child) = self.child {
+            match child.try_wait() {
+                Ok(None) => true, // Process still running
+                Ok(Some(status)) => {
+                    // Process has exited
+                    warn!("Bridge process exited with status: {}", status);
+                    self.running.store(false, Ordering::SeqCst);
+                    false
+                }
+                Err(e) => {
+                    // Error checking process - assume dead
+                    error!("Error checking bridge process health: {}", e);
+                    self.running.store(false, Ordering::SeqCst);
+                    false
+                }
+            }
+        } else {
+            // No child process
+            self.running.store(false, Ordering::SeqCst);
+            false
+        }
     }
 
     /// Get the embedded bridge script path, writing all scripts to disk.

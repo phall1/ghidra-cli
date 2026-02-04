@@ -100,3 +100,34 @@ Commands sent to bridge.py in Ghidra:
 - `list_functions`, `decompile`, `list_strings`, etc.
 
 See `src/ghidra/scripts/bridge.py` for the full command reference.
+
+## Reliability
+
+### Bridge Health Monitoring
+
+The bridge (`GhidraBridge`) tracks whether the Ghidra JVM process is alive:
+
+- **`check_health()`** - Uses `try_wait()` on the child process to detect if Ghidra has exited
+- **`send_command()`** - On I/O errors, calls `check_health()` to distinguish process death from network timeouts
+- **State update** - When process death is detected, `running` flag is set to false and daemon initiates shutdown
+
+### Daemon Termination on Bridge Death
+
+When the bridge process dies (Ghidra JVM crash, OOM, etc.):
+
+1. Handler detects "process died" error from bridge
+2. Handler signals daemon shutdown via `shutdown_tx.send()`
+3. Daemon performs graceful cleanup (socket, lock, info files)
+4. Next CLI command auto-starts a fresh daemon
+
+This ensures clean state recovery without manual intervention.
+
+### Stale File Cleanup
+
+On daemon startup, `get_running_daemon_info()` detects and cleans stale files:
+
+- **Lock file** - If acquirable, previous daemon is dead; file removed
+- **Info file** - Removed alongside stale lock file
+- **Socket file** - Removed to prevent "address in use" errors
+
+This handles crash scenarios where daemon died without proper cleanup.

@@ -105,12 +105,12 @@ impl Config {
             return Ok(dir.clone());
         }
 
-        // Default to ~/git
-        let home = dirs::home_dir().ok_or_else(|| {
-            GhidraError::ConfigError("Could not determine home directory".to_string())
+        // Default to cache dir (e.g., ~/.cache/ghidra-cli/projects)
+        let cache_dir = dirs::cache_dir().ok_or_else(|| {
+            GhidraError::ConfigError("Could not determine cache directory".to_string())
         })?;
 
-        Ok(home.join("git"))
+        Ok(cache_dir.join("ghidra-cli").join("projects"))
     }
 
     #[cfg(target_os = "windows")]

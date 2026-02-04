@@ -271,13 +271,13 @@ async fn handle_command_inner(
         // === Program management commands ===
         Command::ListPrograms => {
             require_bridge(&state.bridge).await?;
-            execute_bridge_command(&state.bridge, "list_programs", None).await
+            execute_bridge_command(state, "list_programs", None).await
         }
 
         Command::OpenProgram { program } => {
             require_bridge(&state.bridge).await?;
             execute_bridge_command(
-                &state.bridge,
+                state,
                 "open_program",
                 Some(json!({"program": program})),
             )
@@ -288,7 +288,7 @@ async fn handle_command_inner(
         Command::ListFunctions { limit, filter } => {
             require_bridge(&state.bridge).await?;
             execute_bridge_command(
-                &state.bridge,
+                state,
                 "list_functions",
                 Some(json!({
                     "limit": limit,
@@ -301,7 +301,7 @@ async fn handle_command_inner(
         Command::Decompile { address } => {
             require_bridge(&state.bridge).await?;
             execute_bridge_command(
-                &state.bridge,
+                state,
                 "decompile",
                 Some(json!({
                     "address": address,
@@ -313,7 +313,7 @@ async fn handle_command_inner(
         Command::ListStrings { limit } => {
             require_bridge(&state.bridge).await?;
             execute_bridge_command(
-                &state.bridge,
+                state,
                 "list_strings",
                 Some(json!({
                     "limit": limit,
@@ -324,28 +324,28 @@ async fn handle_command_inner(
 
         Command::ListImports => {
             require_bridge(&state.bridge).await?;
-            execute_bridge_command(&state.bridge, "list_imports", None).await
+            execute_bridge_command(state, "list_imports", None).await
         }
 
         Command::ListExports => {
             require_bridge(&state.bridge).await?;
-            execute_bridge_command(&state.bridge, "list_exports", None).await
+            execute_bridge_command(state, "list_exports", None).await
         }
 
         Command::MemoryMap => {
             require_bridge(&state.bridge).await?;
-            execute_bridge_command(&state.bridge, "memory_map", None).await
+            execute_bridge_command(state, "memory_map", None).await
         }
 
         Command::ProgramInfo => {
             require_bridge(&state.bridge).await?;
-            execute_bridge_command(&state.bridge, "program_info", None).await
+            execute_bridge_command(state, "program_info", None).await
         }
 
         Command::XRefsTo { address } => {
             require_bridge(&state.bridge).await?;
             execute_bridge_command(
-                &state.bridge,
+                state,
                 "xrefs_to",
                 Some(json!({
                     "address": address,
@@ -357,7 +357,7 @@ async fn handle_command_inner(
         Command::XRefsFrom { address } => {
             require_bridge(&state.bridge).await?;
             execute_bridge_command(
-                &state.bridge,
+                state,
                 "xrefs_from",
                 Some(json!({
                     "address": address,
@@ -384,12 +384,14 @@ async fn handle_command_inner(
 }
 
 /// Execute a command on the Ghidra bridge.
+///
+/// If the bridge process dies during command execution, triggers daemon shutdown.
 async fn execute_bridge_command(
-    bridge: &Arc<Mutex<Option<GhidraBridge>>>,
+    state: &Arc<DaemonState>,
     command: &str,
     args: Option<serde_json::Value>,
 ) -> anyhow::Result<serde_json::Value> {
-    let mut bridge_guard = bridge.lock().await;
+    let mut bridge_guard = state.bridge.lock().await;
 
     let bridge = bridge_guard
         .as_mut()
@@ -401,7 +403,18 @@ async fn execute_bridge_command(
 
     debug!("Executing bridge command: {}", command);
 
-    let response = bridge.send_command::<serde_json::Value>(command, args)?;
+    let response = match bridge.send_command::<serde_json::Value>(command, args) {
+        Ok(resp) => resp,
+        Err(e) => {
+            // Check if bridge process died - trigger daemon shutdown
+            let err_msg = e.to_string();
+            if err_msg.contains("process died") || !bridge.is_running() {
+                info!("Bridge process died, triggering daemon shutdown");
+                let _ = state.shutdown_tx.send(());
+            }
+            return Err(e);
+        }
+    };
 
     if response.status == "success" {
         Ok(response.data.unwrap_or(json!({})))

@@ -139,6 +139,8 @@ pub fn get_running_daemon_info(data_dir: &Path, project_path: &Path) -> Result<O
         fs::remove_file(&lock_path).ok();
         let info_path = get_info_file_path(data_dir, project_path);
         fs::remove_file(&info_path).ok();
+        // Also clean up stale socket file (daemon may have crashed without cleanup)
+        crate::ipc::transport::remove_socket_for_project(project_path).ok();
         return Ok(None);
     }
 

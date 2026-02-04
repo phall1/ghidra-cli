@@ -41,6 +41,8 @@ pub struct DaemonState {
     pub ghidra_install_dir: Option<PathBuf>,
     /// Project path on disk
     pub project_path: PathBuf,
+    /// Shutdown signal sender - handlers can trigger daemon shutdown on bridge death
+    pub shutdown_tx: broadcast::Sender<()>,
 }
 
 /// Run the daemon with the new bridge architecture.
@@ -59,6 +61,7 @@ pub async fn run(config: DaemonConfig) -> Result<()> {
         bridge: Arc::new(Mutex::new(None)),
         ghidra_install_dir: config.ghidra_install_dir.clone(),
         project_path: config.project_path.clone(),
+        shutdown_tx: shutdown_tx.clone(),
     });
 
     info!("Bridge will be started on first import/analyze command");
