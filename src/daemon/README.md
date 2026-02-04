@@ -131,3 +131,19 @@ On daemon startup, `get_running_daemon_info()` detects and cleans stale files:
 - **Socket file** - Removed to prevent "address in use" errors
 
 This handles crash scenarios where daemon died without proper cleanup.
+
+### Startup Logging
+
+During bridge startup, all Ghidra stdout and stderr is captured and logged at `info` level:
+
+```
+[Ghidra stdout] INFO  ANALYZING all memory and code: ...
+[Ghidra stderr] java.lang.UnsatisfiedLinkError: libXtst.so.6 ...
+```
+
+This aids in diagnosing issues like:
+- Missing system libraries (X11 libs on Linux/WSL)
+- Java version mismatches
+- PyGhidra initialization failures
+
+Logs are written to: `~/.local/share/ghidra-cli/daemon.log`

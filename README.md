@@ -256,6 +256,74 @@ Example workflow with an AI agent:
 5. `ghidra patch nop <addr>` - AI patches anti-debug code
 6. `ghidra patch export` - Export patched binary
 
+## Troubleshooting
+
+### Common Issues
+
+#### Missing X11 Libraries (Linux/WSL)
+
+If you see errors like `libXtst.so.6: cannot open shared object file`, install X11 libraries:
+
+```bash
+# Arch Linux / WSL with Arch
+sudo pacman -S libxtst
+
+# Ubuntu / Debian / WSL with Ubuntu
+sudo apt install libxtst6
+
+# Fedora / RHEL
+sudo dnf install libXtst
+```
+
+#### Java Version Issues
+
+Ghidra requires JDK 17 or higher (not just JRE):
+
+```bash
+# Arch Linux
+sudo pacman -S jdk21-openjdk
+
+# Ubuntu / Debian
+sudo apt install openjdk-21-jdk
+
+# Verify installation
+java -version  # Should show 17+ and include "JDK"
+```
+
+#### WSL-Specific Notes
+
+WSL requires X11 libraries even for headless operation because Java AWT is loaded during initialization:
+
+1. Install X11 libraries (see above)
+2. If using WSL1, consider upgrading to WSL2 for better compatibility
+3. Logs are written to `~/.local/share/ghidra-cli/daemon.log`
+
+#### Viewing Detailed Logs
+
+For debugging issues, check the daemon log:
+
+```bash
+# View recent log entries
+tail -100 ~/.local/share/ghidra-cli/daemon.log
+
+# Follow log in real-time
+tail -f ~/.local/share/ghidra-cli/daemon.log
+```
+
+#### Running Doctor
+
+Use the doctor command to verify your installation:
+
+```bash
+ghidra doctor
+```
+
+This checks:
+- Ghidra installation directory
+- analyzeHeadless availability
+- Project directory configuration
+- Config file status
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit issues and pull requests.
