@@ -6,6 +6,7 @@
 use std::net::TcpStream;
 
 /// Check if a TCP port is reachable on localhost.
+#[allow(dead_code)]
 pub fn port_reachable(port: u16) -> bool {
     TcpStream::connect(format!("127.0.0.1:{}", port))
         .map(|_| true)

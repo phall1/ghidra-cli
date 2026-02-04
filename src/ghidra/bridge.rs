@@ -246,11 +246,9 @@ pub fn start_bridge(
     let stderr_handle = std::thread::spawn(move || {
         let reader = BufReader::new(stderr);
         let mut stderr_output = Vec::new();
-        for line in reader.lines() {
-            if let Ok(line) = line {
-                info!("[Ghidra stderr] {}", line);
-                stderr_output.push(line);
-            }
+        for line in reader.lines().map_while(Result::ok) {
+            info!("[Ghidra stderr] {}", line);
+            stderr_output.push(line);
         }
         stderr_output
     });
@@ -430,10 +428,8 @@ pub fn bridge_status(project_path: &Path) -> Result<BridgeStatus> {
     let pid = read_pid_file(project_path)?;
 
     if let (Some(port), Some(pid)) = (port, pid) {
-        if is_pid_alive(pid) {
-            if TcpStream::connect(format!("127.0.0.1:{}", port)).is_ok() {
-                return Ok(BridgeStatus::Running { port, pid });
-            }
+        if is_pid_alive(pid) && TcpStream::connect(format!("127.0.0.1:{}", port)).is_ok() {
+            return Ok(BridgeStatus::Running { port, pid });
         }
         // Stale files
         cleanup_stale_files(project_path).ok();

@@ -7,8 +7,10 @@
 
 ## Architecture
 
-ghidra-cli uses a **daemon-only architecture**:
-- All commands route through a daemon process
-- Daemon manages a persistent Ghidra bridge connection
-- Import/Analyze/Quick commands auto-start the daemon
-- One daemon per project
+ghidra-cli uses a **direct bridge architecture**:
+- CLI connects directly to a Java bridge running inside Ghidra's JVM via TCP
+- The bridge is a GhidraScript (`GhidraCliBridge.java`) started via `analyzeHeadless -postScript`
+- Bridge binds `ServerSocket(0)` on localhost, writes port/PID files for discovery
+- One bridge per project, identified by `~/.local/share/ghidra-cli/bridge-{md5}.port`
+- Import/Analyze/Quick commands auto-start the bridge if not running
+- No separate Rust daemon process — the Java bridge IS the persistent server

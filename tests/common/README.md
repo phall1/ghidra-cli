@@ -4,7 +4,7 @@ Shared infrastructure for E2E tests.
 
 ## DaemonTestHarness
 
-Manages daemon lifecycle for test suites requiring Ghidra daemon interaction.
+Manages bridge lifecycle for test suites requiring Ghidra bridge interaction.
 
 ### Usage
 
@@ -16,76 +16,41 @@ const TEST_PROGRAM: &str = "sample_binary";
 
 #[test]
 #[serial]
-fn test_with_daemon() {
+fn test_with_bridge() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon");
+        .expect("Failed to start bridge");
 
-    let mut client = harness.client().unwrap();
-    // Use client for IPC calls
+    Command::cargo_bin("ghidra")
+        .unwrap()
+        .arg("--project")
+        .arg(TEST_PROJECT)
+        .arg("my-command")
+        .arg("--program")
+        .arg(TEST_PROGRAM)
+        .assert()
+        .success();
 
-    // Daemon automatically shuts down when harness drops
+    // Bridge automatically shuts down when harness drops
 }
 ```
 
-### Shared Daemon Pattern
+### Port File Discovery
 
-For multiple tests in same suite:
-
-```rust
-use once_cell::sync::Lazy;
-
-static HARNESS: Lazy<DaemonTestHarness> = Lazy::new(|| {
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
-    DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-        .expect("Failed to start daemon")
-});
-
-#[test]
-#[serial]
-fn test_one() {
-    let harness = &*HARNESS;
-    // Use harness
-}
-
-#[test]
-#[serial]
-fn test_two() {
-    let harness = &*HARNESS;
-    // Same daemon instance
-}
+Each harness discovers the bridge via port file:
+```
+~/.local/share/ghidra-cli/bridge-{md5_hash}.port
 ```
 
-All tests using shared daemon must be marked `#[serial]` to prevent state races.
-
-### Why Runtime Field Exists
-
-`DaemonTestHarness` contains a `tokio::runtime::Runtime` field to:
-
-1. **Prevent panic-during-panic**: Creating Runtime during Drop panic unwinding causes abort. Pre-created runtime allows safe cleanup.
-2. **Amortize overhead**: Runtime creation takes ~10ms. Reusing across all async operations saves time.
-
-### Socket Path Isolation
-
-Each harness instance generates UUID-based Unix socket path:
-```
-/tmp/ghidra-test-<uuid>.sock
-```
-
-UUID prevents collisions:
-- Between parallel test suites
-- Across test runs on long-running CI (PID can wrap)
+Where `{md5_hash}` is derived from the canonical project path. The harness reads the port number from this file and connects via TCP.
 
 ### Cleanup Guarantees
 
 Drop implementation ensures best-effort cleanup:
-1. Send shutdown via IPC (ignores errors)
-2. Wait up to 5s for graceful exit
-3. Kill process if still running
-4. Remove socket file
-
-Accepts minor leak risk on panic-during-panic (rare edge case).
+1. Send shutdown command via TCP (ignores errors)
+2. Bridge deletes its own port/PID files on clean shutdown
+3. Kill process via PID if still running
 
 ## Fixtures
 
@@ -129,35 +94,29 @@ fn test_something() {
 
 Runs `ghidra doctor` and fails the test if Ghidra is unavailable, including doctor output.
 
+## GhidraCommand Builder (helpers.rs)
+
+Fluent builder for constructing CLI commands in tests:
+
+```rust
+use common::helpers::{ghidra, GhidraCommand};
+
+let result = ghidra(&harness)
+    .arg("function")
+    .arg("list")
+    .run();
+
+result.assert_success();
+```
+
+The `ghidra(&harness)` helper pre-configures `--project` args from the harness. Additional helpers include `with_project()`, `json_format()`, and `timeout()`.
+
 ## Design Decisions
 
 ### Exponential Backoff Parameters
 
-`wait_for_ready()` uses:
-- Initial delay: 100ms (responsive for fast starts)
-- Multiplier: 2x
-- Max attempts: 12
-- Total timeout: 120s
-
-Covers 100ms to ~200s range. Typical fast start exits in <5s.
-
-### ChildGuard Pattern
-
-`DaemonTestHarness::new()` uses ChildGuard to prevent daemon process leaks:
-
-```rust
-struct ChildGuard(Option<Child>);
-impl Drop for ChildGuard {
-    fn drop(&mut self) {
-        if let Some(mut child) = self.0.take() {
-            let _ = child.kill();
-        }
-    }
-}
-```
-
-If `wait_for_ready()` returns early due to error, ChildGuard ensures daemon process is killed. Without this, failed initialization leaks processes.
+`wait_for_port()` uses backoff to wait for the bridge port file to appear after launching `analyzeHeadless`. Typical fast start exits in <5s.
 
 ### Why 5s Shutdown Timeout
 
-Most daemons shut down in <1s. 5s allows graceful cleanup without blocking tests indefinitely. If daemon hangs, hard kill prevents test suite deadlock.
+Most bridges shut down in <1s. 5s allows graceful cleanup without blocking tests indefinitely. If bridge hangs, hard kill via PID prevents test suite deadlock.

@@ -1,4 +1,4 @@
-use clap::{Args, Parser, Subcommand};
+use clap::{ArgAction, Args, Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 
 #[derive(Parser)]
@@ -8,9 +8,9 @@ pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
 
-    /// Enable verbose output
-    #[arg(short, long, global = true)]
-    pub verbose: bool,
+    /// Increase log verbosity printed to stdout (-v=warn, -vv=info, -vvv=debug)
+    #[arg(short, long, action = ArgAction::Count, global = true)]
+    pub verbose: u8,
 
     /// Suppress non-essential output
     #[arg(short, long, global = true)]

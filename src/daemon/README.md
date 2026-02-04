@@ -1,30 +1,24 @@
-# Daemon Module
+# Bridge Architecture
 
-The daemon is the central execution authority for ghidra-cli. All commands route through the daemon, which maintains a persistent connection to Ghidra via the bridge.
+The bridge is the central execution layer for ghidra-cli. All commands route through a Java bridge running inside Ghidra's JVM, which maintains persistent access to the loaded program.
 
 ## Architecture
 
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│ CLI Client  │────▶│ IPC Server  │────▶│   Handler   │────▶│ GhidraBridge│
-│ (DaemonCli) │     │ Per-project │     │  (Routing)  │     │ (TCP→Ghidra)│
-│             │     │ Unix socket │     │             │     │             │
-└─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
-                                                                    │
-                                                                    ▼
-                                                            ┌─────────────┐
-                                                            │  bridge.py  │
-                                                            │ (In Ghidra) │
-                                                            └─────────────┘
+┌─────────────┐         ┌──────────────────────────────────────┐
+│ CLI Client  │──TCP──▶ │ GhidraCliBridge.java                 │
+│ (ghidra)    │         │ (GhidraScript in analyzeHeadless JVM)│
+│ --project X │         │ ServerSocket on localhost:dynamic     │
+└─────────────┘         └──────────────────────────────────────┘
 ```
 
-### Per-Project Socket Isolation
+### Per-Project Bridge Isolation
 
-Each project gets its own Unix socket to enable concurrent daemon operation:
+Each project gets its own bridge process with unique port/PID files:
 
-- **Socket naming**: `ghidra-cli-{hash}.sock` where `{hash}` is MD5 of project path
-- **Socket location**: `$XDG_RUNTIME_DIR/ghidra-cli/` or `/tmp/ghidra-cli/`
-- **Lock file naming**: `daemon-{hash}.lock` (same hash for consistency)
+- **Port file**: `~/.local/share/ghidra-cli/bridge-{hash}.port` — contains the TCP port number
+- **PID file**: `~/.local/share/ghidra-cli/bridge-{hash}.pid` — contains the JVM process ID
+- **Hash**: MD5 of the canonical project path
 
 This allows multiple agents or terminals to work on different projects without conflicts.
 
@@ -32,109 +26,89 @@ This allows multiple agents or terminals to work on different projects without c
 
 | File | Purpose |
 |------|---------|
-| `mod.rs` | Daemon main loop, startup, shutdown |
-| `ipc_server.rs` | Unix socket server, accepts client connections |
-| `handler.rs` | Routes IPC commands to bridge or specialized handlers |
-| `process.rs` | Daemon lifecycle, lock files, process management |
-| `queue.rs` | Command queue execution |
-| `cache.rs` | Result caching |
-| `state.rs` | Daemon state management |
-| `handlers/` | Specialized command handlers |
+| `src/ghidra/bridge.rs` | Bridge process management (start, stop, status, connect) |
+| `src/ghidra/scripts/GhidraCliBridge.java` | Java bridge server (TCP, 17+ command handlers) |
+| `src/ipc/client.rs` | BridgeClient — TCP connection, all command methods |
+| `src/ipc/protocol.rs` | BridgeRequest/BridgeResponse structs (JSON wire format) |
+| `src/ipc/transport.rs` | TCP transport helpers (port reachability check) |
+| `src/daemon/mod.rs` | Thin wrapper over bridge.rs (kept for API compatibility) |
 
 ## Command Flow
 
-1. **CLI sends command** via IPC (Unix socket)
-2. **IPC server** receives request, parses JSON
-3. **Handler** routes to appropriate processor:
-   - Direct bridge commands (decompile, function list, etc.)
-   - Import/Analyze commands (via bridge.py handlers)
-   - ExecuteCli for generic CLI command forwarding
-4. **Bridge** sends to Ghidra via TCP, receives response
-5. **Response** flows back through IPC to CLI
+1. **CLI parses command** and resolves project path
+2. **Bridge discovery**: read port file, verify PID alive, verify TCP connect
+3. **Auto-start**: if bridge not running, spawn `analyzeHeadless -postScript GhidraCliBridge.java`
+4. **Send command**: TCP connect to localhost:port, send `{"command":"...","args":{...}}\n`
+5. **Receive response**: read `{"status":"success|error","data":{...},"message":"..."}\n`
+6. **Format output**: CLI applies format transformation (human-readable, JSON, pretty)
 
 ## Auto-Start Behavior
 
-Import, Analyze, and Quick commands auto-start the daemon:
+Import, Analyze, and Quick commands auto-start the bridge:
 
-1. CLI checks if daemon is running for project
-2. If not, starts daemon in background (`daemonize_unix` / `daemonize_windows`)
-3. Waits briefly for daemon to initialize
-4. Connects and sends command
+1. CLI reads port file for the project
+2. If missing or stale (dead PID, TCP connect fails): launch `analyzeHeadless` with Java bridge
+3. Bridge binds `ServerSocket(0)`, writes port + PID files, prints ready signal
+4. CLI reads port from file, connects, sends command
 
 ## Lifecycle
 
-- **One daemon per project** - Lock file prevents duplicates
-- **One program per daemon** - Daemon loads a single program
-- **Graceful shutdown** - Handles SIGTERM, SIGINT, IPC shutdown command
-- **Lock files** - Located at `~/.local/share/ghidra-cli/daemon-{hash}.lock`
-- **Socket files** - Located at `$XDG_RUNTIME_DIR/ghidra-cli/ghidra-cli-{hash}.sock`
-- **Logs** - Located at `~/.local/share/ghidra-cli/daemon.log`
+- **One bridge per project** — port file path includes project hash
+- **Sequential command processing** — single accept loop, one connection at a time (Ghidra Program objects are not thread-safe)
+- **Graceful shutdown** — `shutdown` command breaks accept loop, deletes port/PID files, `run()` returns, `analyzeHeadless` exits
+- **Forced shutdown** — read PID file, kill process
+- **Stale file cleanup** — on startup, detect dead PID + unreachable port → clean up files and start fresh
 
-The `{hash}` is computed as `MD5(project_path_string)` ensuring each project has unique socket and lock file names.
-
-## Handlers
-
-Specialized handlers in `handlers/` directory:
-
-| Handler | Commands |
-|---------|----------|
-| `program.rs` | Program info, memory, imports, exports |
-| `symbols.rs` | Symbol operations |
-| `types.rs` | Data type operations |
-| `comments.rs` | Comment operations |
-| `graph.rs` | Call graph operations |
-| `find.rs` | Search operations |
-| `diff.rs` | Program diff operations |
-| `patch.rs` | Binary patching |
-| `script.rs` | Script execution |
-| `disasm.rs` | Disassembly |
-| `stats.rs` | Statistics |
-| `batch.rs` | Batch command execution |
+The `{hash}` is computed as `MD5(project_path_string)` ensuring each project has unique port and PID file names.
 
 ## Bridge Commands
 
-Commands sent to bridge.py in Ghidra:
+Commands handled by GhidraCliBridge.java:
 
-- `import` - Import binary using AutoImporter
-- `analyze` - Trigger analysis using AutoAnalysisManager
-- `list_functions`, `decompile`, `list_strings`, etc.
-
-See `src/ghidra/scripts/bridge.py` for the full command reference.
+| Category | Commands |
+|----------|----------|
+| Core | `ping`, `shutdown`, `status` |
+| Program | `program_info`, `list_programs`, `open_program`, `program_close`, `program_delete`, `program_export` |
+| Import/Analysis | `import`, `analyze` |
+| Functions | `list_functions`, `decompile` |
+| Data | `list_strings`, `list_imports`, `list_exports`, `memory_map` |
+| Xrefs | `xrefs_to`, `xrefs_from` |
+| Symbols | `symbol_list`, `symbol_get`, `symbol_create`, `symbol_delete`, `symbol_rename` |
+| Types | `type_list`, `type_get`, `type_create`, `type_apply` |
+| Comments | `comment_list`, `comment_get`, `comment_set`, `comment_delete` |
+| Search | `find_string`, `find_bytes`, `find_function`, `find_calls`, `find_crypto`, `find_interesting` |
+| Graph | `graph_calls`, `graph_callers`, `graph_callees`, `graph_export` |
+| Diff | `diff_programs`, `diff_functions` |
+| Patch | `patch_bytes`, `patch_nop`, `patch_export` |
+| Disasm | `disasm` |
+| Stats | `stats` |
+| Scripts | `script_run`, `script_python`, `script_java`, `script_list` |
+| Batch | `batch` |
 
 ## Reliability
 
-### Bridge Health Monitoring
+### Bridge Liveness Detection
 
-The bridge (`GhidraBridge`) tracks whether the Ghidra JVM process is alive:
+Bridge liveness is checked via three steps:
 
-- **`check_health()`** - Uses `try_wait()` on the child process to detect if Ghidra has exited
-- **`send_command()`** - On I/O errors, calls `check_health()` to distinguish process death from network timeouts
-- **State update** - When process death is detected, `running` flag is set to false and daemon initiates shutdown
+1. **Port file exists** — `bridge-{hash}.port` present in data directory
+2. **PID alive** — `kill(pid, 0)` succeeds (Unix) for the PID in `bridge-{hash}.pid`
+3. **TCP reachable** — `TcpStream::connect(("127.0.0.1", port))` succeeds
 
-### Daemon Termination on Bridge Death
-
-When the bridge process dies (Ghidra JVM crash, OOM, etc.):
-
-1. Handler detects "process died" error from bridge
-2. Handler signals daemon shutdown via `shutdown_tx.send()`
-3. Daemon performs graceful cleanup (socket, lock, info files)
-4. Next CLI command auto-starts a fresh daemon
-
-This ensures clean state recovery without manual intervention.
+If any check fails, stale files are cleaned up and a fresh bridge is started.
 
 ### Stale File Cleanup
 
-On daemon startup, `get_running_daemon_info()` detects and cleans stale files:
+On bridge startup, stale files from previous crashes are detected and removed:
 
-- **Lock file** - If acquirable, previous daemon is dead; file removed
-- **Info file** - Removed alongside stale lock file
-- **Socket file** - Removed to prevent "address in use" errors
+- **Port file** — removed if PID is dead or TCP unreachable
+- **PID file** — removed alongside stale port file
 
-This handles crash scenarios where daemon died without proper cleanup.
+This handles crash scenarios where the bridge died without proper cleanup.
 
 ### Startup Logging
 
-During bridge startup, all Ghidra stdout and stderr is captured and logged at `info` level:
+During bridge startup, all Ghidra stdout and stderr is captured and logged:
 
 ```
 [Ghidra stdout] INFO  ANALYZING all memory and code: ...
@@ -144,6 +118,4 @@ During bridge startup, all Ghidra stdout and stderr is captured and logged at `i
 This aids in diagnosing issues like:
 - Missing system libraries (X11 libs on Linux/WSL)
 - Java version mismatches
-- PyGhidra initialization failures
-
-Logs are written to: `~/.local/share/ghidra-cli/daemon.log`
+- GhidraScript compilation failures

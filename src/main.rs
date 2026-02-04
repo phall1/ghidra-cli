@@ -17,14 +17,45 @@ use ghidra::bridge::{self, BridgeStartMode, BridgeStatus};
 use ghidra::GhidraClient;
 use ipc::client::BridgeClient;
 use std::path::{Path, PathBuf};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::Layer;
 
 fn main() {
-    // Initialize logging with info level by default, can be overridden via RUST_LOG
-    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-    tracing_subscriber::fmt().with_env_filter(env_filter).init();
-
     let cli = Cli::parse();
+
+    // --- Logging setup ---
+    // File layer: always writes at debug level
+    let log_dir = dirs::data_local_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join("ghidra-cli");
+    let _ = std::fs::create_dir_all(&log_dir);
+    let file_appender = tracing_appender::rolling::daily(&log_dir, "ghidra-cli.log");
+    let file_layer = tracing_subscriber::fmt::layer()
+        .with_writer(file_appender)
+        .with_ansi(false)
+        .with_filter(tracing_subscriber::EnvFilter::new("debug"));
+
+    // Stdout layer: only if -v/-vv/-vvv is specified
+    let stdout_layer = match cli.verbose {
+        1 => Some("warn"),
+        2 => Some("info"),
+        3.. => Some("debug"),
+        _ => None,
+    }
+    .map(|level| {
+        tracing_subscriber::fmt::layer()
+            .with_writer(std::io::stderr)
+            .with_filter(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(level)),
+            )
+    });
+
+    tracing_subscriber::registry()
+        .with(file_layer)
+        .with(stdout_layer)
+        .init();
 
     let result = match &cli.command {
         Commands::Setup(_) => {

@@ -4,14 +4,14 @@ A high-performance Rust CLI for automating Ghidra reverse engineering tasks, des
 
 ## Features
 
-- **Daemon-only architecture** - All operations route through a persistent daemon for consistency
-- **Auto-start daemon** - Import/analyze commands automatically start the daemon
+- **Direct bridge architecture** - CLI connects directly to a Java bridge running inside Ghidra's JVM
+- **Auto-start bridge** - Import/analyze commands automatically start the bridge
 - **Fast queries** - Sub-second response times with Ghidra kept in memory
 - **Comprehensive analysis** - Functions, symbols, types, strings, cross-references
 - **Binary patching** - Modify bytes, NOP instructions, export patches
 - **Call graphs** - Generate caller/callee graphs, export to DOT format
 - **Search capabilities** - Find strings, bytes, functions, crypto patterns
-- **Script execution** - Run Python/Java scripts, inline or from files
+- **Script execution** - Run Java/Python Ghidra scripts, inline or from files
 - **Batch operations** - Execute multiple commands from a file
 - **Flexible output** - Human-readable, JSON, or pretty JSON formats
 - **Filtering** - Powerful expression-based filtering (e.g., `size > 100`)
@@ -19,24 +19,19 @@ A high-performance Rust CLI for automating Ghidra reverse engineering tasks, des
 ## Architecture
 
 ```
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│   CLI Command   │────▶│  Daemon (IPC)    │────▶│  GhidraBridge   │
-│  ghidra ...     │     │  Per-project     │     │  TCP to Ghidra  │
-│  --project X    │     │  Unix socket     │     │                 │
-└─────────────────┘     └──────────────────┘     └─────────────────┘
-                                                          │
-                                                          ▼
-                                                 ┌─────────────────┐
-                                                 │   bridge.py     │
-                                                 │  (Ghidra Script)│
-                                                 └─────────────────┘
+┌─────────────────┐         ┌──────────────────────────────────────┐
+│   CLI Command   │──TCP──▶ │  GhidraCliBridge.java                │
+│   ghidra ...    │         │  (GhidraScript in analyzeHeadless)   │
+│   --project X   │         │  ServerSocket on localhost:dynamic   │
+└─────────────────┘         └──────────────────────────────────────┘
 ```
 
-All commands go through the daemon, which maintains a persistent connection to Ghidra via the bridge script. This provides:
+The CLI connects directly to a Java bridge running inside Ghidra's JVM. This provides:
 - **Consistent state** - Single Ghidra process for all operations
 - **Fast queries** - No JVM startup overhead per command
-- **Auto-start** - Daemon starts automatically when needed
-- **Per-project isolation** - Each project gets its own daemon and socket, enabling concurrent analysis of multiple binaries
+- **Auto-start** - Bridge starts automatically when needed
+- **Per-project isolation** - Each project gets its own bridge process and port file, enabling concurrent analysis of multiple binaries
+- **Minimal dependencies** - Only Ghidra + Java required (no Python/PyGhidra)
 
 ## Installation
 
@@ -174,22 +169,22 @@ ghidra stats                           # Program statistics
 ghidra summary                         # Program summary
 ```
 
-## Daemon Management
+## Bridge Management
 
-The daemon keeps Ghidra loaded in memory. It starts automatically when needed, but you can also control it manually:
+The bridge keeps Ghidra loaded in memory. It starts automatically when needed, but you can also control it manually:
 
 ```bash
-# Start daemon with a program loaded
+# Start bridge with a program loaded
 ghidra daemon start --project myproject --program mybinary
 
-# Check daemon status
+# Check bridge status
 ghidra daemon status --project myproject
 
-# All commands use the daemon automatically
+# All commands use the bridge automatically
 ghidra function list --project myproject    # Fast!
 ghidra decompile main --project myproject   # Fast!
 
-# Stop daemon
+# Stop bridge
 ghidra daemon stop --project myproject
 
 # Restart with different program
@@ -198,7 +193,7 @@ ghidra daemon restart --project myproject --program otherbinary
 
 ### Multi-Project Support
 
-Each project gets its own daemon process and socket, allowing concurrent analysis:
+Each project gets its own bridge process and port file, allowing concurrent analysis:
 
 ```bash
 # Work on multiple projects simultaneously
@@ -296,19 +291,7 @@ WSL requires X11 libraries even for headless operation because Java AWT is loade
 
 1. Install X11 libraries (see above)
 2. If using WSL1, consider upgrading to WSL2 for better compatibility
-3. Logs are written to `~/.local/share/ghidra-cli/daemon.log`
-
-#### Viewing Detailed Logs
-
-For debugging issues, check the daemon log:
-
-```bash
-# View recent log entries
-tail -100 ~/.local/share/ghidra-cli/daemon.log
-
-# Follow log in real-time
-tail -f ~/.local/share/ghidra-cli/daemon.log
-```
+3. Bridge port/PID files are stored in `~/.local/share/ghidra-cli/`
 
 #### Running Doctor
 

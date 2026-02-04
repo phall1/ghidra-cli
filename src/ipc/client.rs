@@ -25,6 +25,7 @@ impl BridgeClient {
     }
 
     /// Get the port this client connects to.
+    #[allow(dead_code)]
     pub fn port(&self) -> u16 {
         self.port
     }
@@ -82,12 +83,14 @@ impl BridgeClient {
     }
 
     /// Shutdown the bridge.
+    #[allow(dead_code)]
     pub fn shutdown(&self) -> Result<()> {
         self.send_command("shutdown", None)?;
         Ok(())
     }
 
     /// Get bridge status.
+    #[allow(dead_code)]
     pub fn status(&self) -> Result<serde_json::Value> {
         self.send_command("status", None)
     }
