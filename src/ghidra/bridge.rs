@@ -150,21 +150,43 @@ impl GhidraBridge {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
+        // Log the full command for debugging
+        info!("Ghidra command: {:?}", cmd);
+
         // Spawn the process
         let mut child = cmd.spawn().context("Failed to spawn Ghidra headless")?;
+        info!("Ghidra process started with PID: {:?}", child.id());
 
-        // Wait for ready signal
+        // Spawn a thread to capture stderr
+        let stderr = child.stderr.take().expect("stderr should be piped");
+        let stderr_handle = std::thread::spawn(move || {
+            let reader = BufReader::new(stderr);
+            let mut stderr_output = Vec::new();
+            for line in reader.lines() {
+                if let Ok(line) = line {
+                    // Log all stderr to info level so it's always visible
+                    info!("[Ghidra stderr] {}", line);
+                    stderr_output.push(line);
+                }
+            }
+            stderr_output
+        });
+
+        // Wait for ready signal from stdout
         let stdout = child.stdout.take().expect("stdout should be piped");
         let reader = BufReader::new(stdout);
 
         let mut ready = false;
         let mut last_error = String::new();
+        let mut stdout_lines = Vec::new();
         for line in reader.lines() {
             let line = line?;
-            debug!("Ghidra: {}", line);
+            // Log all stdout to info level so it's always visible during startup
+            info!("[Ghidra stdout] {}", line);
+            stdout_lines.push(line.clone());
 
             // Capture Ghidra errors for better error messages
-            if line.contains("ERROR") {
+            if line.contains("ERROR") || line.contains("Exception") || line.contains("SEVERE") {
                 last_error = line.clone();
             }
 
@@ -184,11 +206,20 @@ impl GhidraBridge {
         }
 
         if !ready {
+            // Wait for stderr thread and collect output
+            let stderr_output = stderr_handle.join().unwrap_or_default();
+
             // Check if process died
             let detail = if !last_error.is_empty() {
                 format!(": {}", last_error)
+            } else if !stderr_output.is_empty() {
+                // Include last few stderr lines
+                let last_stderr: Vec<_> = stderr_output.iter().rev().take(5).rev().cloned().collect::<Vec<_>>();
+                format!(": stderr: {}", last_stderr.join("\n"))
             } else {
-                String::new()
+                // Include last few stdout lines for context
+                let last_stdout: Vec<_> = stdout_lines.iter().rev().take(10).rev().cloned().collect::<Vec<_>>();
+                format!("\nLast stdout:\n{}", last_stdout.join("\n"))
             };
             match child.try_wait() {
                 Ok(Some(status)) => {

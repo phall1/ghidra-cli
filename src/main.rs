@@ -21,9 +21,11 @@ use tracing::info;
 
 #[tokio::main]
 async fn main() {
-    // Initialize logging
+    // Initialize logging with info level by default, can be overridden via RUST_LOG
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_env_filter(env_filter)
         .init();
 
     let cli = Cli::parse();
