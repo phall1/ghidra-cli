@@ -46,7 +46,7 @@ fn test_script_list() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .env("GHIDRA_CLI_SOCKET", harness.socket_path())
+        .arg("--project").arg(TEST_PROJECT)
         .arg("script")
         .arg("list")
         .arg("--program")
@@ -70,7 +70,7 @@ fn test_script_run() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .env("GHIDRA_CLI_SOCKET", harness.socket_path())
+        .arg("--project").arg(TEST_PROJECT)
         .arg("script")
         .arg("run")
         .arg(script_path.to_str().unwrap())
@@ -95,7 +95,7 @@ fn test_script_python_inline() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .env("GHIDRA_CLI_SOCKET", harness.socket_path())
+        .arg("--project").arg(TEST_PROJECT)
         .arg("script")
         .arg("python")
         .arg("output = 'Hello from Python'")
@@ -118,7 +118,7 @@ fn test_script_run_nonexistent() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .env("GHIDRA_CLI_SOCKET", harness.socket_path())
+        .arg("--project").arg(TEST_PROJECT)
         .arg("script")
         .arg("run")
         .arg("/nonexistent/script.py")

@@ -21,7 +21,7 @@ fn test_type_list() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .env("GHIDRA_CLI_SOCKET", harness.socket_path())
+        .arg("--project").arg(TEST_PROJECT)
         .arg("type")
         .arg("list")
         .arg("--program")
@@ -43,7 +43,7 @@ fn test_type_get_primitive() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .env("GHIDRA_CLI_SOCKET", harness.socket_path())
+        .arg("--project").arg(TEST_PROJECT)
         .arg("type")
         .arg("get")
         .arg("int")
@@ -66,7 +66,7 @@ fn test_type_create() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .env("GHIDRA_CLI_SOCKET", harness.socket_path())
+        .arg("--project").arg(TEST_PROJECT)
         .arg("type")
         .arg("create")
         .arg("MyTestStruct")
@@ -88,7 +88,7 @@ fn test_type_apply() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .env("GHIDRA_CLI_SOCKET", harness.socket_path())
+        .arg("--project").arg(TEST_PROJECT)
         .arg("type")
         .arg("apply")
         .arg("0x1000")
@@ -111,7 +111,7 @@ fn test_type_get_nonexistent() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .env("GHIDRA_CLI_SOCKET", harness.socket_path())
+        .arg("--project").arg(TEST_PROJECT)
         .arg("type")
         .arg("get")
         .arg("NonexistentType12345")

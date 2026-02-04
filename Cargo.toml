@@ -34,20 +34,11 @@ log = "0.4"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-# Async runtime
-tokio = { version = "1.35", features = ["full"] }
-
-# RPC
-remoc = { version = "0.16", features = ["full"] }
-
-# IPC (local sockets)
-interprocess = { version = "2.2", features = ["tokio"] }
+# Async runtime (only needed for setup command's HTTP downloads)
+tokio = { version = "1.35", features = ["rt", "io-util", "time", "net"] }
 
 # Time
 chrono = { version = "0.4", features = ["serde"] }
-
-# File locking
-fslock = "0.2"
 
 # Hashing
 md5 = "0.7"
@@ -59,6 +50,7 @@ walkdir = "2.4"
 
 # Process management
 which = "6.0"
+libc = "0.2"
 
 # Regex
 regex = "1.10"

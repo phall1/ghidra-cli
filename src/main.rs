@@ -9,18 +9,18 @@ mod ipc;
 mod query;
 
 use clap::Parser;
-use cli::{Cli, Commands, DaemonCommands, SetupArgs};
+use cli::{Cli, Commands, DaemonCommands};
 use config::Config;
-use daemon::process::{ensure_not_running, get_data_dir, get_running_daemon_info};
-use daemon::{run as run_daemon, DaemonConfig};
 use error::{GhidraError, Result};
 use format::{auto_detect_format, DefaultFormatter, Formatter, OutputFormat};
+use ghidra::bridge::{self, BridgeStartMode, BridgeStatus};
 use ghidra::GhidraClient;
+use ipc::client::BridgeClient;
 use std::path::{Path, PathBuf};
-use tracing::info;
 
-#[tokio::main]
-async fn main() {
+
+
+fn main() {
     // Initialize logging with info level by default, can be overridden via RUST_LOG
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
@@ -31,14 +31,16 @@ async fn main() {
     let cli = Cli::parse();
 
     let result = match &cli.command {
-        Commands::Daemon(_) | Commands::Setup(_) => {
-            // Daemon and Setup commands are async
-            run_async(cli).await
+        Commands::Setup(_) => {
+            // Setup needs async for downloading
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            rt.block_on(run_setup(cli))
         }
-        _ => {
-            // Other commands can be sync or we check if daemon is running
-            run_with_daemon_check(cli).await
-        }
+        Commands::Daemon(_) => handle_daemon_command_dispatch(cli),
+        _ => run_command(cli),
     };
 
     if let Err(e) = result {
@@ -47,28 +49,19 @@ async fn main() {
     }
 }
 
-fn run(cli: Cli) -> anyhow::Result<()> {
-    match cli.command {
-        // Non-daemon commands
+/// Run a command, starting the bridge if needed.
+fn run_command(cli: Cli) -> anyhow::Result<()> {
+    match &cli.command {
+        // Non-bridge commands
         Commands::Init => handle_init(),
         Commands::Doctor => handle_doctor(),
         Commands::Version => handle_version(),
-        Commands::Config(cmd) => handle_config_command(cmd),
-        Commands::SetDefault(args) => handle_set_default(args),
-        Commands::Project(args) => handle_project_command(args.command),
-        // Commands requiring daemon are handled by run_with_daemon_check
-        Commands::Import(_)
-        | Commands::Analyze(_)
-        | Commands::Quick(_)
-        | Commands::Query(_)
-        | Commands::Summary(_)
-        | Commands::Function(_)
-        | Commands::Strings(_)
-        | Commands::Memory(_)
-        | Commands::Dump(_)
-        | Commands::Decompile(_)
-        | Commands::XRef(_) => {
-            unreachable!("Daemon-required commands should go through run_with_daemon_check")
+        Commands::Config(cmd) => handle_config_command(cmd.clone()),
+        Commands::SetDefault(args) => handle_set_default(args.clone()),
+        Commands::Project(args) => handle_project_command(args.command.clone()),
+        // Commands requiring bridge
+        _ if requires_bridge(&cli.command) => {
+            run_with_bridge(cli)
         }
         _ => {
             println!("Command not yet implemented");
@@ -77,17 +70,8 @@ fn run(cli: Cli) -> anyhow::Result<()> {
     }
 }
 
-/// Run async commands (daemon management, setup).
-async fn run_async(cli: Cli) -> anyhow::Result<()> {
-    match cli.command {
-        Commands::Daemon(cmd) => handle_daemon_command(cmd).await,
-        Commands::Setup(args) => handle_setup(args).await,
-        _ => unreachable!("run_async called with non-async command"),
-    }
-}
-
-/// Determines if a command requires the daemon to be running.
-fn requires_daemon(command: &Commands) -> bool {
+/// Determines if a command requires the bridge to be running.
+fn requires_bridge(command: &Commands) -> bool {
     matches!(
         command,
         Commands::Import(_)
@@ -215,276 +199,167 @@ fn extract_project_from_command(command: &Commands) -> Option<String> {
     }
 }
 
-/// Run commands with daemon check - route through daemon if required.
-async fn run_with_daemon_check(cli: Cli) -> anyhow::Result<()> {
-    // Commands that don't require daemon can run directly
-    if !requires_daemon(&cli.command) {
-        return run(cli);
-    }
-
+/// Run a command that requires the bridge.
+fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
     let config = Config::load()?;
 
     // Extract project from command args, fall back to config default
     let project_from_cmd = extract_project_from_command(&cli.command);
     let project_path = resolve_project_path(&project_from_cmd, &config)?;
 
-    ensure_daemon_running(&project_path).await?;
+    let ghidra_install_dir = config
+        .ghidra_install_dir
+        .clone()
+        .or_else(|| config.get_ghidra_install_dir().ok())
+        .ok_or_else(|| anyhow::anyhow!(
+            "Ghidra installation directory not configured. Run 'ghidra setup' first."
+        ))?;
 
-    let mut client = ipc::client::DaemonClient::connect(&project_path).await?;
-    info!("Connected to daemon via IPC");
-    let output =
-        execute_via_daemon(&mut client, &cli.command, cli.json, cli.pretty).await?;
-    if !output.is_empty() {
-        println!("{}", output);
-    }
-    Ok(())
-}
-
-/// Ensure daemon is running for the given project path.
-/// Starts the daemon if not running, and waits until it's accepting connections.
-async fn ensure_daemon_running(project_path: &Path) -> anyhow::Result<()> {
-    let data_dir = get_data_dir()?;
-
-    // Check if daemon is already running
-    if get_running_daemon_info(&data_dir, project_path)?.is_some() {
-        // Verify it's actually responding
-        if let Ok(mut client) = ipc::client::DaemonClient::connect(project_path).await {
-            if client.ping().await.is_ok() {
-                return Ok(());
-            }
-        }
-        // Lock file exists but daemon not responding - clean up and restart
-    }
-
-    let config = Config::load()?;
-    let log_file = data_dir.join("daemon.log");
-
-    let daemon_config = DaemonConfig {
-        project_path: project_path.to_path_buf(),
-        ghidra_install_dir: config.ghidra_install_dir.clone().or_else(|| config.get_ghidra_install_dir().ok()),
-        log_file,
-    };
-
-    eprintln!("Starting daemon...");
-
-    #[cfg(unix)]
-    {
-        daemonize_unix(daemon_config, None)?;
-    }
-
-    #[cfg(windows)]
-    {
-        daemonize_windows(daemon_config, None)?;
-    }
-
-    // Wait for daemon to be ready by polling for connection
-    let max_attempts = 30; // 30 * 200ms = 6 seconds max
-    for attempt in 0..max_attempts {
-        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
-
-        if let Ok(mut client) = ipc::client::DaemonClient::connect(project_path).await {
-            if client.ping().await.is_ok() {
-                eprintln!("Daemon ready.");
-                return Ok(());
-            }
-        }
-
-        if attempt > 0 && attempt % 10 == 0 {
-            eprintln!("Still waiting for daemon to start...");
-        }
-    }
-
-    anyhow::bail!("Daemon failed to start within timeout. Check logs at: {}", data_dir.join("daemon.log").display())
-}
-
-/// Execute a command via the daemon IPC connection.
-async fn execute_via_daemon(
-    client: &mut ipc::client::DaemonClient,
-    command: &Commands,
-    json_flag: bool,
-    pretty_flag: bool,
-) -> anyhow::Result<String> {
-    let result = match command {
+    // For Import and Quick, we may need to start a new bridge
+    let client = match &cli.command {
         Commands::Import(args) => {
             let binary_path = PathBuf::from(&args.binary);
             if !binary_path.exists() {
                 anyhow::bail!("Binary not found: {}", args.binary);
             }
 
-            let result = client
-                .import_binary(
-                    &args.binary,
-                    args.project
-                        .as_ref()
-                        .unwrap_or(&"quick-analysis".to_string()),
-                    args.program.as_deref(),
-                )
-                .await?;
+            // Check if bridge is already running
+            if bridge::is_bridge_running(&project_path) {
+                // Bridge running - import via bridge command
+                let port = bridge::read_port_file(&project_path)?
+                    .ok_or_else(|| anyhow::anyhow!("Bridge port file not found"))?;
+                let client = BridgeClient::new(port);
+                let result = client.import_binary(&args.binary, args.program.as_deref())?;
 
-            if let Some(program_name) = result.as_str() {
+                let program_name = args.program.clone().unwrap_or_else(|| {
+                    result.get("program")
+                        .and_then(|p| p.as_str())
+                        .unwrap_or("unknown")
+                        .to_string()
+                });
+
+                // Switch to the newly imported program
+                client.open_program(&program_name)?;
                 println!("Successfully imported as: {}", program_name);
-            } else if let Some(program_name) = result.get("program").and_then(|p| p.as_str()) {
-                println!("Successfully imported as: {}", program_name);
+                return Ok(());
             }
 
-            return Ok(String::new());
+            // No bridge running - start one in import mode
+            eprintln!("Starting Ghidra bridge...");
+            let port = bridge::ensure_bridge_running(
+                &project_path,
+                &ghidra_install_dir,
+                BridgeStartMode::Import {
+                    binary_path: args.binary.clone(),
+                },
+            )?;
+            let client = BridgeClient::new(port);
+            let info = client.program_info()?;
+            let program_name = args.program.clone().unwrap_or_else(|| {
+                info.get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("unknown")
+                    .to_string()
+            });
+            println!("Successfully imported as: {}", program_name);
+            return Ok(());
         }
-        Commands::Analyze(args) => {
-            let config = Config::load()?;
-            let program = resolve_program(&args.program, &config)?;
-            let project = resolve_project(&args.project, &config, &program)?;
 
-            println!("Analyzing {}...", program);
-
-            client.analyze_program(&project, &program).await?;
-
-            println!("Analysis complete!");
-
-            return Ok(String::new());
-        }
         Commands::Quick(args) => {
-            let project = args
-                .project
-                .clone()
-                .unwrap_or_else(|| "quick-analysis".to_string());
             let binary_path = PathBuf::from(&args.binary);
+            if !binary_path.exists() {
+                anyhow::bail!("Binary not found: {}", args.binary);
+            }
 
             println!("Quick analysis of {}...\n", args.binary);
 
             println!("[1/3] Importing binary...");
-            let result = client.import_binary(&args.binary, &project, None).await?;
+            let port = bridge::ensure_bridge_running(
+                &project_path,
+                &ghidra_install_dir,
+                BridgeStartMode::Import {
+                    binary_path: args.binary.clone(),
+                },
+            )?;
+            let client = BridgeClient::new(port);
 
-            let program_name = if let Some(name) = result.as_str() {
-                name.to_string()
-            } else if let Some(name) = result.get("program").and_then(|p| p.as_str()) {
-                name.to_string()
-            } else {
-                binary_path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("program")
-                    .to_string()
-            };
+            client.program_info()?;
 
             println!("[2/3] Running analysis...");
-            client.analyze_program(&project, &program_name).await?;
+            client.analyze()?;
 
             println!("[3/3] Done!\n");
-            println!("Analysis complete. To query the binary, start the daemon:");
-            println!(
-                "  ghidra daemon start --project {} --program {}",
-                project, program_name
-            );
-            println!("\nThen run queries like:");
+            println!("Analysis complete. The bridge is running on port {}.", port);
+            println!("\nRun queries like:");
             println!("  ghidra function list");
             println!("  ghidra decompile main");
             println!("  ghidra summary");
 
-            return Ok(String::new());
+            return Ok(());
         }
-        Commands::Query(args) => match args.data_type.as_str() {
-            "functions" => {
-                client
-                    .list_functions(args.limit, args.filter.clone())
-                    .await?
+
+        Commands::Analyze(args) => {
+            let program = resolve_program(&args.program, &config)?;
+
+            // If bridge is already running, just send analyze command
+            if bridge::is_bridge_running(&project_path) {
+                let client = connect_to_bridge(&project_path)?;
+                println!("Analyzing {}...", program);
+                client.analyze()?;
+                println!("Analysis complete!");
+                return Ok(());
             }
-            "strings" => client.list_strings(args.limit).await?,
-            "imports" => client.list_imports().await?,
-            "exports" => client.list_exports().await?,
-            "memory" => client.memory_map().await?,
-            other => anyhow::bail!("Query type '{}' not yet supported via daemon", other),
-        },
-        Commands::Decompile(args) => client.decompile(args.target.clone()).await?,
-        Commands::Function(cmd) => {
-            use cli::FunctionCommands;
-            match cmd {
-                FunctionCommands::List(opts) => {
-                    client
-                        .list_functions(opts.limit, opts.filter.clone())
-                        .await?
-                }
-                FunctionCommands::Decompile(args) => client.decompile(args.target.clone()).await?,
-                _ => anyhow::bail!("Function subcommand not yet supported via daemon"),
-            }
+
+            // Start bridge in process mode
+            eprintln!("Starting Ghidra bridge...");
+            let port = bridge::ensure_bridge_running(
+                &project_path,
+                &ghidra_install_dir,
+                BridgeStartMode::Process {
+                    program_name: program.clone(),
+                },
+            )?;
+            let client = BridgeClient::new(port);
+            println!("Analyzing {}...", program);
+            client.analyze()?;
+            println!("Analysis complete!");
+            return Ok(());
         }
-        Commands::Strings(cmd) => {
-            use cli::StringsCommands;
-            match cmd {
-                StringsCommands::List(opts) => client.list_strings(opts.limit).await?,
-                _ => anyhow::bail!("Strings subcommand not yet supported via daemon"),
-            }
-        }
-        Commands::Memory(cmd) => {
-            use cli::MemoryCommands;
-            match cmd {
-                MemoryCommands::Map(_) => client.memory_map().await?,
-                _ => anyhow::bail!("Memory subcommand not yet supported via daemon"),
-            }
-        }
-        Commands::Dump(cmd) => {
-            use cli::DumpCommands;
-            match cmd {
-                DumpCommands::Imports(_) => client.list_imports().await?,
-                DumpCommands::Exports(_) => client.list_exports().await?,
-                DumpCommands::Functions(opts) => {
-                    client
-                        .list_functions(opts.limit, opts.filter.clone())
-                        .await?
-                }
-                DumpCommands::Strings(opts) => client.list_strings(opts.limit).await?,
-            }
-        }
-        Commands::Summary(_) => client.program_info().await?,
-        Commands::XRef(cmd) => {
-            use cli::XRefCommands;
-            match cmd {
-                XRefCommands::To(args) => client.xrefs_to(args.address.clone()).await?,
-                XRefCommands::From(args) => client.xrefs_from(args.address.clone()).await?,
-                XRefCommands::List(_) => anyhow::bail!("XRef list not yet supported via daemon"),
+
+        _ => {
+            // For query commands, ensure bridge is running (auto-start in process mode if needed)
+            if !bridge::is_bridge_running(&project_path) {
+                // Need a program name to start the bridge in process mode
+                let program = config.get_default_program()
+                    .ok_or_else(|| anyhow::anyhow!(
+                        "No bridge running and no default program configured.\n\
+                         Import a binary first: ghidra import <binary>\n\
+                         Or set a default: ghidra set-default program <name>"
+                    ))?;
+
+                eprintln!("Starting Ghidra bridge...");
+                let port = bridge::ensure_bridge_running(
+                    &project_path,
+                    &ghidra_install_dir,
+                    BridgeStartMode::Process {
+                        program_name: program,
+                    },
+                )?;
+                eprintln!("Bridge ready.");
+                BridgeClient::new(port)
+            } else {
+                connect_to_bridge(&project_path)?
             }
         }
-        Commands::Program(cmd) => {
-            use cli::ProgramCommands;
-            match cmd {
-                ProgramCommands::List(_) => {
-                    client.list_programs().await?
-                }
-                ProgramCommands::Open(args) => {
-                    let program = args.program.as_ref()
-                        .ok_or_else(|| anyhow::anyhow!("Program name required. Use --program <name>"))?;
-                    client.open_program(program).await?
-                }
-                // Other program commands go through ExecuteCli
-                _ => {
-                    let command_json = serde_json::to_string(command)
-                        .map_err(|e| anyhow::anyhow!("Failed to serialize command: {}", e))?;
-                    client.execute_cli_json(command_json).await?
-                }
-            }
-        }
-        // New commands - forward through ExecuteCli
-        Commands::Symbol(_)
-        | Commands::Type(_)
-        | Commands::Comment(_)
-        | Commands::Graph(_)
-        | Commands::Find(_)
-        | Commands::Diff(_)
-        | Commands::Patch(_)
-        | Commands::Script(_)
-        | Commands::Disasm(_)
-        | Commands::Batch(_)
-        | Commands::Stats(_) => {
-            let command_json = serde_json::to_string(command)
-                .map_err(|e| anyhow::anyhow!("Failed to serialize command: {}", e))?;
-            client.execute_cli_json(command_json).await?
-        }
-        _ => anyhow::bail!("Command not supported via daemon"),
     };
 
+    // Execute the command via bridge
+    let result = execute_via_bridge(&client, &cli.command)?;
+
     // Determine output format based on flags and TTY detection
-    let format = if pretty_flag {
+    let format = if cli.pretty {
         OutputFormat::Json
-    } else if json_flag {
+    } else if cli.json {
         OutputFormat::JsonCompact
     } else {
         auto_detect_format(atty::is(atty::Stream::Stdout))
@@ -497,202 +372,401 @@ async fn execute_via_daemon(
     };
 
     let formatter = DefaultFormatter;
-    formatter.format(&values, format).map_err(Into::into)
-}
-
-/// Handle daemon management commands.
-async fn handle_daemon_command(cmd: DaemonCommands) -> anyhow::Result<()> {
-    match cmd {
-        DaemonCommands::Start {
-            project,
-            program,
-            port,
-            foreground,
-        } => handle_daemon_start(project, program, port, foreground).await,
-        DaemonCommands::Stop { project } => handle_daemon_stop(project).await,
-        DaemonCommands::Restart {
-            project,
-            program,
-            port,
-        } => handle_daemon_restart(project, program, port).await,
-        DaemonCommands::Status { project } => handle_daemon_status(project).await,
-        DaemonCommands::Ping { project } => handle_daemon_ping(project).await,
-        DaemonCommands::ClearCache { project } => handle_daemon_clear_cache(project).await,
+    let output = formatter.format(&values, format)?;
+    if !output.is_empty() {
+        println!("{}", output);
     }
-}
-
-/// Start the daemon.
-async fn handle_daemon_start(
-    project: Option<String>,
-    _program: Option<String>,
-    port: Option<u16>,
-    foreground: bool,
-) -> anyhow::Result<()> {
-    let config = Config::load()?;
-    let data_dir = get_data_dir()?;
-    let project_path = resolve_project_path(&project, &config)?;
-
-    // Check if daemon is already running
-    ensure_not_running(&data_dir, &project_path)?;
-
-    // Create log file path
-    let log_file = data_dir.join("daemon.log");
-
-    let daemon_config = DaemonConfig {
-        project_path: project_path.clone(),
-        ghidra_install_dir: config.ghidra_install_dir.clone().or_else(|| config.get_ghidra_install_dir().ok()),
-        log_file,
-    };
-
-    if foreground {
-        // Run in foreground
-        run_daemon(daemon_config).await?;
-    } else {
-        // Run in background - platform-specific daemonization
-        println!("Starting daemon for project: {}", project_path.display());
-
-        #[cfg(unix)]
-        {
-            daemonize_unix(daemon_config, port)?;
-        }
-
-        #[cfg(windows)]
-        {
-            daemonize_windows(daemon_config, port)?;
-        }
-
-        println!("Daemon started successfully");
-        println!("  Log file: {}", data_dir.join("daemon.log").display());
-        println!("  Use 'ghidra daemon status' to check daemon status");
-    }
-
     Ok(())
 }
 
-/// Stop the daemon.
-async fn handle_daemon_stop(project: Option<String>) -> anyhow::Result<()> {
-    let config = Config::load()?;
-    let data_dir = get_data_dir()?;
-    let project_path = resolve_project_path(&project, &config)?;
+/// Execute a command via the bridge client.
+fn execute_via_bridge(
+    client: &BridgeClient,
+    command: &Commands,
+) -> anyhow::Result<serde_json::Value> {
+    use serde_json::json;
 
-    if let Some(daemon_info) = get_running_daemon_info(&data_dir, &project_path)? {
-        println!("Stopping daemon (PID: {})...", daemon_info.pid);
-
-        // Connect via IPC and send shutdown (using project path for socket)
-        let mut client = ipc::client::DaemonClient::connect(&project_path).await?;
-        client.shutdown().await?;
-
-        println!("Daemon stopped successfully");
-    } else {
-        println!("No daemon running for project: {}", project_path.display());
-    }
-
-    Ok(())
-}
-
-/// Restart the daemon.
-async fn handle_daemon_restart(
-    project: Option<String>,
-    program: Option<String>,
-    port: Option<u16>,
-) -> anyhow::Result<()> {
-    // Stop first
-    handle_daemon_stop(project.clone()).await?;
-
-    // Wait a moment
-    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-
-    // Start again
-    handle_daemon_start(project, program, port, false).await
-}
-
-/// Get daemon status.
-async fn handle_daemon_status(project: Option<String>) -> anyhow::Result<()> {
-    let config = Config::load()?;
-    let data_dir = get_data_dir()?;
-    let project_path = resolve_project_path(&project, &config)?;
-
-    if let Some(daemon_info) = get_running_daemon_info(&data_dir, &project_path)? {
-        println!("Daemon is running:");
-        println!("  PID: {}", daemon_info.pid);
-        println!("  Project: {}", daemon_info.project_path.display());
-        println!("  Started: {}", daemon_info.started_at);
-        println!("  Log file: {}", daemon_info.log_file.display());
-
-        // Try to get detailed status from daemon via IPC
-        if let Ok(mut client) = ipc::client::DaemonClient::connect(&project_path).await {
-            if let Ok(status) = client.status().await {
-                if let Some(bridge_running) = status.get("bridge_running").and_then(|v| v.as_bool())
-                {
-                    println!(
-                        "  Bridge: {}",
-                        if bridge_running { "running" } else { "stopped" }
-                    );
+    match command {
+        Commands::Query(args) => match args.data_type.as_str() {
+            "functions" => client.list_functions(args.limit, args.filter.clone()),
+            "strings" => client.list_strings(args.limit),
+            "imports" => client.list_imports(),
+            "exports" => client.list_exports(),
+            "memory" => client.memory_map(),
+            other => anyhow::bail!("Query type '{}' not supported", other),
+        },
+        Commands::Decompile(args) => client.decompile(args.target.clone()),
+        Commands::Function(cmd) => {
+            use cli::FunctionCommands;
+            match cmd {
+                FunctionCommands::List(opts) => {
+                    client.list_functions(opts.limit, opts.filter.clone())
+                }
+                FunctionCommands::Decompile(args) => client.decompile(args.target.clone()),
+                FunctionCommands::Get(args) => {
+                    client.send_command("get_function", Some(json!({"address": args.target})))
+                }
+                FunctionCommands::Disasm(args) => {
+                    client.disasm(&args.target, None)
+                }
+                FunctionCommands::Calls(args) => {
+                    client.find_calls(&args.target)
+                }
+                FunctionCommands::XRefs(args) => {
+                    client.xrefs_to(args.target.clone())
+                }
+                FunctionCommands::Rename(args) => {
+                    client.send_command("rename_function", Some(json!({
+                        "old_name": args.old_name,
+                        "new_name": args.new_name,
+                    })))
+                }
+                FunctionCommands::Create(args) => {
+                    client.send_command("create_function", Some(json!({
+                        "address": args.address,
+                        "name": args.name,
+                    })))
+                }
+                FunctionCommands::Delete(args) => {
+                    client.send_command("delete_function", Some(json!({
+                        "address": args.target,
+                    })))
                 }
             }
         }
+        Commands::Strings(cmd) => {
+            use cli::StringsCommands;
+            match cmd {
+                StringsCommands::List(opts) => client.list_strings(opts.limit),
+                StringsCommands::Refs(args) => {
+                    client.xrefs_to(args.string.clone())
+                }
+            }
+        }
+        Commands::Memory(cmd) => {
+            use cli::MemoryCommands;
+            match cmd {
+                MemoryCommands::Map(_) => client.memory_map(),
+                MemoryCommands::Read(args) => {
+                    client.send_command("read_memory", Some(json!({
+                        "address": args.address,
+                        "size": args.size,
+                    })))
+                }
+                MemoryCommands::Write(args) => {
+                    client.send_command("write_memory", Some(json!({
+                        "address": args.address,
+                        "bytes": args.bytes,
+                    })))
+                }
+                MemoryCommands::Search(args) => {
+                    client.send_command("search_memory", Some(json!({
+                        "pattern": args.pattern,
+                    })))
+                }
+            }
+        }
+        Commands::Dump(cmd) => {
+            use cli::DumpCommands;
+            match cmd {
+                DumpCommands::Imports(_) => client.list_imports(),
+                DumpCommands::Exports(_) => client.list_exports(),
+                DumpCommands::Functions(opts) => {
+                    client.list_functions(opts.limit, opts.filter.clone())
+                }
+                DumpCommands::Strings(opts) => client.list_strings(opts.limit),
+            }
+        }
+        Commands::Summary(_) => client.program_info(),
+        Commands::XRef(cmd) => {
+            use cli::XRefCommands;
+            match cmd {
+                XRefCommands::To(args) => client.xrefs_to(args.address.clone()),
+                XRefCommands::From(args) => client.xrefs_from(args.address.clone()),
+                XRefCommands::List(_) => {
+                    client.send_command("xrefs_list", None)
+                }
+            }
+        }
+        Commands::Program(cmd) => {
+            use cli::ProgramCommands;
+            match cmd {
+                ProgramCommands::List(_) => client.list_programs(),
+                ProgramCommands::Open(args) => {
+                    let program = args.program.as_ref()
+                        .ok_or_else(|| anyhow::anyhow!("Program name required. Use --program <name>"))?;
+                    client.open_program(program)
+                }
+                ProgramCommands::Close(_) => client.program_close(),
+                ProgramCommands::Delete(args) => {
+                    let program = args.program.as_ref()
+                        .ok_or_else(|| anyhow::anyhow!("Program name required"))?;
+                    client.program_delete(program)
+                }
+                ProgramCommands::Info(_) => client.program_info(),
+                ProgramCommands::Export(args) => {
+                    client.program_export(&args.format, args.output.as_deref())
+                }
+            }
+        }
+        Commands::Symbol(cmd) => {
+            use cli::SymbolCommands;
+            match cmd {
+                SymbolCommands::List(opts) => client.symbol_list(opts.filter.as_deref()),
+                SymbolCommands::Get(args) => client.symbol_get(&args.name),
+                SymbolCommands::Create(args) => client.symbol_create(&args.address, &args.name),
+                SymbolCommands::Delete(args) => client.symbol_delete(&args.name),
+                SymbolCommands::Rename(args) => client.symbol_rename(&args.old_name, &args.new_name),
+            }
+        }
+        Commands::Type(cmd) => {
+            use cli::TypeCommands;
+            match cmd {
+                TypeCommands::List(_) => client.type_list(),
+                TypeCommands::Get(args) => client.type_get(&args.name),
+                TypeCommands::Create(args) => client.type_create(&args.definition),
+                TypeCommands::Apply(args) => client.type_apply(&args.address, &args.type_name),
+            }
+        }
+        Commands::Comment(cmd) => {
+            use cli::CommentCommands;
+            match cmd {
+                CommentCommands::List(_) => client.comment_list(),
+                CommentCommands::Get(args) => client.comment_get(&args.address),
+                CommentCommands::Set(args) => {
+                    client.comment_set(&args.address, &args.text, args.comment_type.as_deref())
+                }
+                CommentCommands::Delete(args) => client.comment_delete(&args.address),
+            }
+        }
+        Commands::Graph(cmd) => {
+            use cli::GraphCommands;
+            match cmd {
+                GraphCommands::Calls(opts) => client.graph_calls(opts.limit),
+                GraphCommands::Callers(args) => client.graph_callers(&args.function, args.depth),
+                GraphCommands::Callees(args) => client.graph_callees(&args.function, args.depth),
+                GraphCommands::Export(args) => client.graph_export(&args.format),
+            }
+        }
+        Commands::Find(cmd) => {
+            use cli::FindCommands;
+            match cmd {
+                FindCommands::String(args) => client.find_string(&args.pattern),
+                FindCommands::Bytes(args) => client.find_bytes(&args.hex),
+                FindCommands::Function(args) => client.find_function(&args.pattern),
+                FindCommands::Calls(args) => client.find_calls(&args.function),
+                FindCommands::Crypto(_) => client.find_crypto(),
+                FindCommands::Interesting(_) => client.find_interesting(),
+            }
+        }
+        Commands::Diff(cmd) => {
+            use cli::DiffCommands;
+            match cmd {
+                DiffCommands::Programs(args) => client.diff_programs(&args.program1, &args.program2),
+                DiffCommands::Functions(args) => client.diff_functions(&args.func1, &args.func2),
+            }
+        }
+        Commands::Patch(cmd) => {
+            use cli::PatchCommands;
+            match cmd {
+                PatchCommands::Bytes(args) => client.patch_bytes(&args.address, &args.hex),
+                PatchCommands::Nop(args) => client.patch_nop(&args.address),
+                PatchCommands::Export(args) => client.patch_export(&args.output),
+            }
+        }
+        Commands::Script(cmd) => {
+            use cli::ScriptCommands;
+            match cmd {
+                ScriptCommands::Run(args) => client.script_run(&args.script_path, &args.args),
+                ScriptCommands::Python(args) => client.script_python(&args.code),
+                ScriptCommands::Java(args) => client.script_java(&args.code),
+                ScriptCommands::List => client.script_list(),
+            }
+        }
+        Commands::Disasm(args) => {
+            client.disasm(&args.address, args.num_instructions)
+        }
+        Commands::Batch(args) => {
+            // Read batch file and send commands
+            let content = std::fs::read_to_string(&args.script_file)
+                .map_err(|e| anyhow::anyhow!("Failed to read batch file: {}", e))?;
+            let commands: Vec<serde_json::Value> = content
+                .lines()
+                .filter(|l| !l.trim().is_empty() && !l.trim().starts_with('#'))
+                .map(|l| {
+                    serde_json::from_str(l).unwrap_or_else(|_| {
+                        json!({"command": l.trim()})
+                    })
+                })
+                .collect();
+            client.batch(&commands)
+        }
+        Commands::Stats(_) => client.stats(),
+        _ => anyhow::bail!("Command not supported"),
+    }
+}
+
+/// Dispatch daemon (bridge management) commands.
+fn handle_daemon_command_dispatch(cli: Cli) -> anyhow::Result<()> {
+    match cli.command {
+        Commands::Daemon(cmd) => match cmd {
+            DaemonCommands::Start {
+                project,
+                program,
+                port: _,
+                foreground: _,
+            } => handle_bridge_start(project, program),
+            DaemonCommands::Stop { project } => handle_bridge_stop(project),
+            DaemonCommands::Restart {
+                project,
+                program,
+                port: _,
+            } => {
+                handle_bridge_stop(project.clone())?;
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                handle_bridge_start(project, program)
+            }
+            DaemonCommands::Status { project } => handle_bridge_status(project),
+            DaemonCommands::Ping { project } => handle_bridge_ping(project),
+            DaemonCommands::ClearCache { project: _ } => {
+                println!("Cache is managed by the bridge process");
+                Ok(())
+            }
+        },
+        _ => unreachable!(),
+    }
+}
+
+/// Start the bridge for a project.
+fn handle_bridge_start(
+    project: Option<String>,
+    program: Option<String>,
+) -> anyhow::Result<()> {
+    let config = Config::load()?;
+    let project_path = resolve_project_path(&project, &config)?;
+
+    let ghidra_install_dir = config
+        .ghidra_install_dir
+        .clone()
+        .or_else(|| config.get_ghidra_install_dir().ok())
+        .ok_or_else(|| anyhow::anyhow!(
+            "Ghidra installation directory not configured. Run 'ghidra setup' first."
+        ))?;
+
+    // Check if bridge is already running
+    if bridge::is_bridge_running(&project_path) {
+        println!("Bridge is already running for project: {}", project_path.display());
+        return Ok(());
+    }
+
+    // Determine start mode
+    let mode = if let Some(prog) = program {
+        BridgeStartMode::Process {
+            program_name: prog,
+        }
     } else {
-        println!("No daemon running for project: {}", project_path.display());
+        // Need a program name
+        let prog = config.get_default_program()
+            .ok_or_else(|| anyhow::anyhow!(
+                "No program specified. Use --program <name> or set a default."
+            ))?;
+        BridgeStartMode::Process {
+            program_name: prog,
+        }
+    };
+
+    println!("Starting bridge for project: {}", project_path.display());
+
+    let port = bridge::ensure_bridge_running(
+        &project_path,
+        &ghidra_install_dir,
+        mode,
+    )?;
+
+    println!("Bridge started on port {}", port);
+    Ok(())
+}
+
+/// Stop the bridge for a project.
+fn handle_bridge_stop(project: Option<String>) -> anyhow::Result<()> {
+    let config = Config::load()?;
+    let project_path = resolve_project_path(&project, &config)?;
+
+    if bridge::is_bridge_running(&project_path) {
+        println!("Stopping bridge...");
+        bridge::stop_bridge(&project_path)?;
+        println!("Bridge stopped");
+    } else {
+        println!("No bridge running for project: {}", project_path.display());
     }
 
     Ok(())
 }
 
-/// Ping the daemon.
-async fn handle_daemon_ping(project: Option<String>) -> anyhow::Result<()> {
+/// Get bridge status for a project.
+fn handle_bridge_status(project: Option<String>) -> anyhow::Result<()> {
     let config = Config::load()?;
-    let data_dir = get_data_dir()?;
     let project_path = resolve_project_path(&project, &config)?;
 
-    if let Some(_daemon_info) = get_running_daemon_info(&data_dir, &project_path)? {
-        let mut client = ipc::client::DaemonClient::connect(&project_path).await?;
-        client.ping().await?;
-        println!("Daemon is responsive");
-    } else {
-        println!("No daemon running for project: {}", project_path.display());
+    match bridge::bridge_status(&project_path)? {
+        BridgeStatus::Running { port, pid } => {
+            println!("Bridge is running:");
+            println!("  PID: {}", pid);
+            println!("  Port: {}", port);
+            println!("  Project: {}", project_path.display());
+        }
+        BridgeStatus::Stopped => {
+            println!("No bridge running for project: {}", project_path.display());
+        }
     }
 
     Ok(())
 }
 
-/// Clear daemon cache.
-async fn handle_daemon_clear_cache(project: Option<String>) -> anyhow::Result<()> {
+/// Ping the bridge.
+fn handle_bridge_ping(project: Option<String>) -> anyhow::Result<()> {
     let config = Config::load()?;
-    let data_dir = get_data_dir()?;
     let project_path = resolve_project_path(&project, &config)?;
 
-    if let Some(_daemon_info) = get_running_daemon_info(&data_dir, &project_path)? {
-        // TODO: Implement cache clear via IPC
-        println!("Cache clear not yet implemented via IPC");
-        println!("Note: Cache will naturally expire after TTL");
+    if bridge::is_bridge_running(&project_path) {
+        let client = connect_to_bridge(&project_path)?;
+        if client.ping()? {
+            println!("Bridge is responsive");
+        } else {
+            println!("Bridge is not responding");
+        }
     } else {
-        println!("No daemon running for project: {}", project_path.display());
+        println!("No bridge running for project: {}", project_path.display());
     }
 
     Ok(())
 }
 
 /// Handle the setup command - download and install Ghidra.
-async fn handle_setup(args: SetupArgs) -> anyhow::Result<()> {
+async fn run_setup(cli: Cli) -> anyhow::Result<()> {
+    let args = match cli.command {
+        Commands::Setup(args) => args,
+        _ => unreachable!(),
+    };
+
     println!("Ghidra Setup Wizard");
     println!("===================\n");
 
     // 1. Check Java
     if !args.force {
         if let Err(e) = ghidra::setup::check_java_requirement() {
-            eprintln!("⚠ Java prerequisite check failed: {}", e);
+            eprintln!("Java prerequisite check failed: {}", e);
             eprintln!("Ghidra requires JDK 17+. Use --force to continue anyway.");
             std::process::exit(1);
         }
     } else {
-        println!("⚠ Skipping Java check (--force specified)");
+        println!("Skipping Java check (--force specified)");
     }
 
     // 2. Determine Install Directory
     let install_base = if let Some(d) = args.dir {
         PathBuf::from(d)
     } else {
-        // Default to XDG_DATA_HOME/ghidra-cli/ghidra
         dirs::data_local_dir()
             .ok_or(anyhow::anyhow!("Could not determine data directory"))?
             .join("ghidra-cli")
@@ -705,119 +779,24 @@ async fn handle_setup(args: SetupArgs) -> anyhow::Result<()> {
     println!("\nInstalling to: {}", install_base.display());
     let final_path = ghidra::setup::install_ghidra(args.version, install_base).await?;
 
-    // 4. Install PyGhidra (required for Python scripting in Ghidra 12+)
-    if let Err(e) = ghidra::setup::install_pyghidra(&final_path) {
-        println!("⚠ PyGhidra setup failed: {}", e);
-        println!("  Python scripting may not work. You can try running setup again.");
-    }
-
-    // 5. Update Config
+    // 4. Update Config
     let mut config = Config::load()?;
     config.ghidra_install_dir = Some(final_path.clone());
     config.save()?;
 
-    println!("\n✓ Success! Ghidra installed at: {}", final_path.display());
-    println!("✓ Configuration updated.");
+    println!("\nSuccess! Ghidra installed at: {}", final_path.display());
+    println!("Configuration updated.");
 
-    // 6. Verify
+    // 5. Verify
     println!("\nVerifying installation...");
     let client = GhidraClient::new(config)?;
     if client.verify_installation().is_ok() {
-        println!("✓ Verification passed!");
+        println!("Verification passed!");
         println!("\nYou can now run: ghidra quick <binary>");
     } else {
-        println!("⚠ Verification failed - analyzeHeadless not found");
+        println!("Verification failed - analyzeHeadless not found");
         println!("  The installation may be incomplete.");
     }
-
-    Ok(())
-}
-
-/// Daemonize by spawning a detached process (cross-platform).
-///
-/// This approach spawns a new process with --foreground flag instead of forking,
-/// which avoids issues with Tokio runtime inheritance after fork.
-#[cfg(unix)]
-fn daemonize_unix(daemon_config: DaemonConfig, port: Option<u16>) -> anyhow::Result<()> {
-    use std::fs::OpenOptions;
-    use std::process::{Command, Stdio};
-
-    let log_file_path = daemon_config.log_file.clone();
-
-    // Ensure log directory exists
-    if let Some(parent) = log_file_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-
-    // Open log file for stdout/stderr
-    let log_file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_file_path)?;
-
-    let stdout = log_file.try_clone()?;
-    let stderr = log_file;
-
-    // Get the current executable path
-    let exe_path = std::env::current_exe()?;
-
-    // Build the command to spawn ourselves with --foreground flag
-    let mut cmd = Command::new(exe_path);
-    cmd.arg("daemon").arg("start").arg("--foreground");
-
-    // Add project path
-    cmd.arg("--project")
-        .arg(daemon_config.project_path.to_string_lossy().to_string());
-
-    // Add port if specified
-    if let Some(p) = port {
-        cmd.arg("--port").arg(p.to_string());
-    }
-
-    // Redirect stdout/stderr to log file, detach stdin
-    cmd.stdin(Stdio::null());
-    cmd.stdout(stdout);
-    cmd.stderr(stderr);
-
-    // Spawn the detached process
-    cmd.spawn()
-        .map_err(|e| anyhow::anyhow!("Failed to spawn daemon process: {}", e))?;
-
-    Ok(())
-}
-
-/// Daemonize on Windows by spawning a detached process.
-#[cfg(windows)]
-fn daemonize_windows(daemon_config: DaemonConfig, port: Option<u16>) -> anyhow::Result<()> {
-    use std::process::Command;
-
-    // Get the current executable path
-    let exe_path = std::env::current_exe()?;
-
-    // Build the command to spawn ourselves with --foreground flag
-    let mut cmd = Command::new(exe_path);
-    cmd.arg("daemon").arg("start").arg("--foreground");
-
-    // Add project path
-    cmd.arg("--project")
-        .arg(daemon_config.project_path.to_string_lossy().to_string());
-
-    // Add port if specified
-    if let Some(p) = port {
-        cmd.arg("--port").arg(p.to_string());
-    }
-
-    // Windows-specific: CREATE_NO_WINDOW flag
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        const DETACHED_PROCESS: u32 = 0x00000008;
-        cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
-    }
-
-    // Spawn the detached process
-    cmd.spawn()
-        .map_err(|e| anyhow::anyhow!("Failed to spawn daemon process: {}", e))?;
 
     Ok(())
 }
@@ -828,20 +807,9 @@ fn handle_init() -> anyhow::Result<()> {
 
     let mut config = Config::default();
 
-    // Check if Ghidra is installed
-    #[cfg(target_os = "windows")]
-    {
-        if let Some(dir) = Config::detect_ghidra_windows() {
-            println!("Found Ghidra installation at: {}", dir.display());
-            config.ghidra_install_dir = Some(dir);
-        }
-    }
-
     if config.ghidra_install_dir.is_none() {
         println!("Ghidra installation not found automatically.");
-        println!("Please set GHIDRA_INSTALL_DIR environment variable or update the config file.");
-        println!("\nExample:");
-        println!("  set GHIDRA_INSTALL_DIR=C:\\ghidra\\ghidra_11.0");
+        println!("Please set GHIDRA_INSTALL_DIR environment variable or run 'ghidra setup'.");
     }
 
     // Set default project directory
@@ -875,16 +843,16 @@ fn handle_doctor() -> anyhow::Result<()> {
     print!("Checking Ghidra installation... ");
     match config.get_ghidra_install_dir() {
         Ok(dir) => {
-            println!("✓");
+            println!("OK");
             println!("  Location: {}", dir.display());
 
             let client = GhidraClient::new(config.clone());
             match client {
                 Ok(c) => {
                     if c.verify_installation().is_ok() {
-                        println!("  analyzeHeadless: ✓");
+                        println!("  analyzeHeadless: OK");
                     } else {
-                        println!("  analyzeHeadless: ✗ (not found)");
+                        println!("  analyzeHeadless: NOT FOUND");
                     }
                 }
                 Err(e) => {
@@ -893,7 +861,17 @@ fn handle_doctor() -> anyhow::Result<()> {
             }
         }
         Err(e) => {
-            println!("✗");
+            println!("FAILED");
+            println!("  Error: {}", e);
+        }
+    }
+
+    // Check Java
+    print!("\nChecking Java... ");
+    match ghidra::setup::check_java_requirement() {
+        Ok(()) => println!("OK (JDK 17+)"),
+        Err(e) => {
+            println!("FAILED");
             println!("  Error: {}", e);
         }
     }
@@ -902,7 +880,7 @@ fn handle_doctor() -> anyhow::Result<()> {
     print!("\nChecking project directory... ");
     match config.get_project_dir() {
         Ok(dir) => {
-            println!("✓");
+            println!("OK");
             println!("  Location: {}", dir.display());
             println!(
                 "  Exists: {}",
@@ -914,7 +892,7 @@ fn handle_doctor() -> anyhow::Result<()> {
             );
         }
         Err(e) => {
-            println!("✗");
+            println!("FAILED");
             println!("  Error: {}", e);
         }
     }
@@ -923,12 +901,12 @@ fn handle_doctor() -> anyhow::Result<()> {
     print!("\nConfig file... ");
     match Config::config_path() {
         Ok(path) => {
-            println!("✓");
+            println!("OK");
             println!("  Location: {}", path.display());
             println!("  Exists: {}", if path.exists() { "yes" } else { "no" });
         }
         Err(e) => {
-            println!("✗");
+            println!("FAILED");
             println!("  Error: {}", e);
         }
     }
@@ -962,7 +940,6 @@ fn handle_config_command(cmd: cli::ConfigCommands) -> anyhow::Result<()> {
         }
         ConfigCommands::Set { key, value } => {
             let mut config = Config::load()?;
-            // Simple key-value setting (could be expanded)
             match key.as_str() {
                 "default_output_format" => config.default_output_format = Some(value),
                 "timeout" => {
@@ -1066,16 +1043,14 @@ fn resolve_program(program: &Option<String>, config: &Config) -> Result<String> 
         .ok_or_else(|| GhidraError::Other("No program specified. Use --program or set default with 'ghidra set-default program <name>'".to_string()))
 }
 
-fn resolve_project(project: &Option<String>, config: &Config, program: &str) -> Result<String> {
-    Ok(project
-        .clone()
-        .or_else(|| config.get_default_project())
-        .unwrap_or_else(|| format!("{}-project", program)))
+/// Connect to a running bridge for a project.
+fn connect_to_bridge(project_path: &Path) -> anyhow::Result<BridgeClient> {
+    let port = bridge::read_port_file(project_path)?
+        .ok_or_else(|| anyhow::anyhow!("Bridge not running for project: {}", project_path.display()))?;
+    Ok(BridgeClient::new(port))
 }
 
 /// Resolve a project name to its full path on disk.
-/// If the project name is already an absolute path, returns it as-is.
-/// Otherwise, resolves relative to the configured project directory.
 fn resolve_project_path(project: &Option<String>, config: &Config) -> anyhow::Result<PathBuf> {
     let project_name = project
         .clone()

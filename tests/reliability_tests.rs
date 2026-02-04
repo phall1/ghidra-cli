@@ -1,7 +1,6 @@
-//! Tests for daemon IPC reliability - bridge death detection and socket cleanup.
+//! Tests for bridge reliability - bridge death detection and port file cleanup.
 
 use serial_test::serial;
-use std::path::PathBuf;
 use std::time::Duration;
 
 #[macro_use]
@@ -11,30 +10,27 @@ use common::{ensure_test_project, DaemonTestHarness};
 const TEST_PROJECT: &str = "reliability-test";
 const TEST_PROGRAM: &str = "sample_binary";
 
-/// Test that stale socket files are cleaned up on daemon restart.
+/// Test that stale port files are cleaned up on bridge restart.
 ///
-/// Simulates a crash scenario where socket file remains but daemon is dead.
+/// Simulates a crash scenario where port file remains but bridge is dead.
 #[test]
 #[serial]
-fn test_stale_socket_cleaned_on_restart() {
+fn test_stale_files_cleaned_on_restart() {
     require_ghidra!();
 
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    // First daemon - start and stop cleanly
+    // First bridge - start and stop cleanly
     {
         let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-            .expect("Failed to start first daemon");
+            .expect("Failed to start first bridge");
 
-        // Verify daemon is working
+        // Verify bridge is working
         assert_cmd::Command::cargo_bin("ghidra")
             .unwrap()
-            .env("GHIDRA_CLI_DATA_DIR", harness.data_dir())
-            .env("GHIDRA_CLI_SOCKET", harness.socket_path())
+            .arg("--project").arg(TEST_PROJECT)
             .arg("daemon")
             .arg("ping")
-            .arg("--project")
-            .arg(TEST_PROJECT)
             .timeout(Duration::from_secs(30))
             .assert()
             .success();
@@ -45,29 +41,26 @@ fn test_stale_socket_cleaned_on_restart() {
     // Brief pause to ensure cleanup completes
     std::thread::sleep(Duration::from_millis(500));
 
-    // Second daemon - should start without issues (no stale socket conflict)
+    // Second bridge - should start without issues (no stale port file conflict)
     {
         let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-            .expect("Failed to start second daemon - stale socket may not have been cleaned");
+            .expect("Failed to start second bridge - stale files may not have been cleaned");
 
-        // Verify daemon is working
+        // Verify bridge is working
         assert_cmd::Command::cargo_bin("ghidra")
             .unwrap()
-            .env("GHIDRA_CLI_DATA_DIR", harness.data_dir())
-            .env("GHIDRA_CLI_SOCKET", harness.socket_path())
+            .arg("--project").arg(TEST_PROJECT)
             .arg("daemon")
             .arg("ping")
-            .arg("--project")
-            .arg(TEST_PROJECT)
             .timeout(Duration::from_secs(30))
             .assert()
             .success();
     }
 }
 
-/// Test recovery after daemon crash (simulated via process kill).
+/// Test recovery after bridge crash (simulated via process kill).
 ///
-/// After killing daemon, a new daemon should be able to start successfully.
+/// After killing bridge, a new bridge should be able to start successfully.
 #[test]
 #[serial]
 fn test_recovery_after_crash() {
@@ -75,57 +68,45 @@ fn test_recovery_after_crash() {
 
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
-    let socket_path: PathBuf;
-    let data_dir: PathBuf;
-
-    // Start daemon and get its paths
+    // Start bridge and verify it works
     {
         let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-            .expect("Failed to start daemon");
-
-        socket_path = harness.socket_path().to_path_buf();
-        data_dir = harness.data_dir().to_path_buf();
+            .expect("Failed to start bridge");
 
         // Verify it's working
         assert_cmd::Command::cargo_bin("ghidra")
             .unwrap()
-            .env("GHIDRA_CLI_DATA_DIR", &data_dir)
-            .env("GHIDRA_CLI_SOCKET", &socket_path)
+            .arg("--project").arg(TEST_PROJECT)
             .arg("daemon")
             .arg("ping")
-            .arg("--project")
-            .arg(TEST_PROJECT)
             .timeout(Duration::from_secs(30))
             .assert()
             .success();
 
-        // Harness drop will kill daemon (simulating crash)
+        // Harness drop will kill bridge (simulating crash)
     }
 
     // Brief pause
     std::thread::sleep(Duration::from_millis(1000));
 
-    // New daemon should start successfully after crash cleanup
+    // New bridge should start successfully after crash cleanup
     {
         let harness = DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM)
-            .expect("Failed to start daemon after crash - cleanup may have failed");
+            .expect("Failed to start bridge after crash - cleanup may have failed");
 
-        // Verify new daemon is working
+        // Verify new bridge is working
         assert_cmd::Command::cargo_bin("ghidra")
             .unwrap()
-            .env("GHIDRA_CLI_DATA_DIR", harness.data_dir())
-            .env("GHIDRA_CLI_SOCKET", harness.socket_path())
+            .arg("--project").arg(TEST_PROJECT)
             .arg("daemon")
             .arg("ping")
-            .arg("--project")
-            .arg(TEST_PROJECT)
             .timeout(Duration::from_secs(30))
             .assert()
             .success();
     }
 }
 
-/// Test that daemon commands return appropriate errors when bridge is not ready.
+/// Test that bridge commands return appropriate errors when bridge is not ready.
 #[test]
 #[serial]
 fn test_bridge_not_ready_error() {
@@ -134,17 +115,14 @@ fn test_bridge_not_ready_error() {
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
-        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start bridge");
 
-    // Ping should work (doesn't require bridge)
+    // Ping should work
     assert_cmd::Command::cargo_bin("ghidra")
         .unwrap()
-        .env("GHIDRA_CLI_DATA_DIR", harness.data_dir())
-        .env("GHIDRA_CLI_SOCKET", harness.socket_path())
+        .arg("--project").arg(TEST_PROJECT)
         .arg("daemon")
         .arg("ping")
-        .arg("--project")
-        .arg(TEST_PROJECT)
         .timeout(Duration::from_secs(30))
         .assert()
         .success();

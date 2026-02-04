@@ -1,204 +1,328 @@
-//! CLI-side IPC client for communicating with the daemon.
+//! Bridge client for direct communication with the Java bridge.
+//!
+//! Connects directly to the Java GhidraCliBridge via TCP.
+//! No intermediate daemon process is needed.
 
-#![allow(dead_code)]
+use std::io::{BufRead, BufReader, Write};
+use std::net::TcpStream;
+use std::time::Duration;
 
-use std::path::Path;
+use anyhow::Result;
+use serde_json::json;
+use tracing::debug;
 
-use anyhow::{Context, Result};
-use tokio::io::{ReadHalf, WriteHalf};
+use super::protocol::{BridgeRequest, BridgeResponse};
 
-use super::protocol::{Command, Request, Response};
-use super::transport::{self, Stream};
-
-/// Client for communicating with the Ghidra daemon.
-pub struct DaemonClient {
-    reader: ReadHalf<Stream>,
-    writer: WriteHalf<Stream>,
-    next_id: u64,
+/// Client for communicating with the Ghidra Java bridge.
+pub struct BridgeClient {
+    port: u16,
 }
 
-impl DaemonClient {
-    /// Connect to the running daemon for a specific project.
-    pub async fn connect(project_path: &Path) -> Result<Self> {
-        let stream = transport::connect_for_project(project_path)
-            .await
-            .map_err(|e| {
-                if e.kind() == std::io::ErrorKind::NotFound
-                    || e.kind() == std::io::ErrorKind::ConnectionRefused
-                {
-                    anyhow::anyhow!("Daemon not running for project: {}", project_path.display())
-                } else {
-                    anyhow::anyhow!("Failed to connect to daemon: {}", e)
-                }
-            })?;
-
-        let (reader, writer) = tokio::io::split(stream);
-
-        Ok(Self {
-            reader,
-            writer,
-            next_id: 1,
-        })
+impl BridgeClient {
+    /// Create a client for a known port.
+    pub fn new(port: u16) -> Self {
+        Self { port }
     }
 
-    /// Send a command and wait for the response.
-    pub async fn send_command(&mut self, command: Command) -> Result<serde_json::Value> {
-        let id = self.next_id;
-        self.next_id += 1;
+    /// Get the port this client connects to.
+    pub fn port(&self) -> u16 {
+        self.port
+    }
 
-        let request = Request::new(id, command);
-        let json = serde_json::to_vec(&request).context("Failed to serialize request")?;
+    /// Send a command to the bridge and return the result.
+    pub fn send_command(
+        &self,
+        command: &str,
+        args: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value> {
+        let mut stream = TcpStream::connect(format!("127.0.0.1:{}", self.port))
+            .map_err(|e| anyhow::anyhow!("Failed to connect to bridge on port {}: {}", self.port, e))?;
+        stream.set_read_timeout(Some(Duration::from_secs(300))).ok();
+        stream.set_write_timeout(Some(Duration::from_secs(30))).ok();
 
-        transport::send_message(&mut self.writer, &json)
-            .await
-            .context("Failed to send message to daemon")?;
+        let request = BridgeRequest {
+            command: command.to_string(),
+            args,
+        };
 
-        let response_data = transport::recv_message(&mut self.reader)
-            .await
-            .context("Failed to receive message from daemon")?;
+        let request_json = serde_json::to_string(&request)?;
+        debug!("Sending: {}", request_json);
 
-        let response: Response =
-            serde_json::from_slice(&response_data).context("Failed to parse daemon response")?;
+        writeln!(stream, "{}", request_json)?;
+        stream.flush()?;
 
-        if response.id != id {
-            anyhow::bail!("Response ID mismatch: expected {}, got {}", id, response.id);
-        }
+        let mut reader = BufReader::new(&stream);
+        let mut response_line = String::new();
+        reader.read_line(&mut response_line)?;
 
-        if response.success {
-            Ok(response.result.unwrap_or(serde_json::json!({})))
-        } else {
-            let error = response
-                .error
-                .unwrap_or_else(|| "Unknown error".to_string());
-            anyhow::bail!("{}", error)
+        debug!("Received: {}", response_line.trim());
+
+        let response: BridgeResponse = serde_json::from_str(&response_line)?;
+
+        match response.status.as_str() {
+            "success" => Ok(response.data.unwrap_or(json!({}))),
+            "error" => {
+                let msg = response.message.unwrap_or_else(|| "Unknown error".to_string());
+                anyhow::bail!("{}", msg)
+            }
+            "shutdown" => Ok(json!({"status": "shutdown"})),
+            _ => Ok(response.data.unwrap_or(json!({}))),
         }
     }
 
-    /// Check if daemon is responding.
-    pub async fn ping(&mut self) -> Result<bool> {
-        match self.send_command(Command::Ping).await {
+    /// Check if bridge is responding.
+    pub fn ping(&self) -> Result<bool> {
+        match self.send_command("ping", None) {
             Ok(_) => Ok(true),
-            Err(e) if e.to_string().contains("not running") => Ok(false),
-            Err(e) => Err(e),
+            Err(_) => Ok(false),
         }
     }
 
-    /// Get daemon status.
-    pub async fn status(&mut self) -> Result<serde_json::Value> {
-        self.send_command(Command::Status).await
-    }
-
-    /// Shutdown the daemon.
-    pub async fn shutdown(&mut self) -> Result<()> {
-        self.send_command(Command::Shutdown).await?;
+    /// Shutdown the bridge.
+    pub fn shutdown(&self) -> Result<()> {
+        self.send_command("shutdown", None)?;
         Ok(())
     }
 
-    /// Clear the result cache.
-    pub async fn clear_cache(&mut self) -> Result<()> {
-        self.send_command(Command::ClearCache).await?;
-        Ok(())
+    /// Get bridge status.
+    pub fn status(&self) -> Result<serde_json::Value> {
+        self.send_command("status", None)
     }
 
     /// List functions.
-    pub async fn list_functions(
-        &mut self,
+    pub fn list_functions(
+        &self,
         limit: Option<usize>,
         filter: Option<String>,
     ) -> Result<serde_json::Value> {
-        self.send_command(Command::ListFunctions { limit, filter })
-            .await
+        self.send_command(
+            "list_functions",
+            Some(json!({"limit": limit, "filter": filter})),
+        )
     }
 
     /// Decompile a function.
-    pub async fn decompile(&mut self, address: String) -> Result<serde_json::Value> {
-        self.send_command(Command::Decompile { address }).await
+    pub fn decompile(&self, address: String) -> Result<serde_json::Value> {
+        self.send_command("decompile", Some(json!({"address": address})))
     }
 
     /// List strings.
-    pub async fn list_strings(&mut self, limit: Option<usize>) -> Result<serde_json::Value> {
-        self.send_command(Command::ListStrings { limit }).await
+    pub fn list_strings(&self, limit: Option<usize>) -> Result<serde_json::Value> {
+        self.send_command("list_strings", Some(json!({"limit": limit})))
     }
 
     /// List imports.
-    pub async fn list_imports(&mut self) -> Result<serde_json::Value> {
-        self.send_command(Command::ListImports).await
+    pub fn list_imports(&self) -> Result<serde_json::Value> {
+        self.send_command("list_imports", None)
     }
 
     /// List exports.
-    pub async fn list_exports(&mut self) -> Result<serde_json::Value> {
-        self.send_command(Command::ListExports).await
+    pub fn list_exports(&self) -> Result<serde_json::Value> {
+        self.send_command("list_exports", None)
     }
 
     /// Get memory map.
-    pub async fn memory_map(&mut self) -> Result<serde_json::Value> {
-        self.send_command(Command::MemoryMap).await
+    pub fn memory_map(&self) -> Result<serde_json::Value> {
+        self.send_command("memory_map", None)
     }
 
     /// Get program info.
-    pub async fn program_info(&mut self) -> Result<serde_json::Value> {
-        self.send_command(Command::ProgramInfo).await
+    pub fn program_info(&self) -> Result<serde_json::Value> {
+        self.send_command("program_info", None)
     }
 
     /// Get cross-references to an address.
-    pub async fn xrefs_to(&mut self, address: String) -> Result<serde_json::Value> {
-        self.send_command(Command::XRefsTo { address }).await
+    pub fn xrefs_to(&self, address: String) -> Result<serde_json::Value> {
+        self.send_command("xrefs_to", Some(json!({"address": address})))
     }
 
     /// Get cross-references from an address.
-    pub async fn xrefs_from(&mut self, address: String) -> Result<serde_json::Value> {
-        self.send_command(Command::XRefsFrom { address }).await
+    pub fn xrefs_from(&self, address: String) -> Result<serde_json::Value> {
+        self.send_command("xrefs_from", Some(json!({"address": address})))
     }
 
-    /// Execute a CLI command through the daemon (takes pre-serialized JSON).
-    pub async fn execute_cli_json(&mut self, command_json: String) -> Result<serde_json::Value> {
-        self.send_command(Command::ExecuteCli { command_json })
-            .await
-    }
-
-    /// Import a binary into a project.
-    pub async fn import_binary(
-        &mut self,
+    /// Import a binary.
+    pub fn import_binary(
+        &self,
         binary_path: &str,
-        project: &str,
         program: Option<&str>,
     ) -> Result<serde_json::Value> {
-        self.send_command(Command::Import {
-            binary_path: binary_path.to_string(),
-            project: project.to_string(),
-            program: program.map(|s| s.to_string()),
-        })
-        .await
+        self.send_command(
+            "import",
+            Some(json!({"binary_path": binary_path, "program": program})),
+        )
     }
 
-    /// List all programs in the project.
-    pub async fn list_programs(&mut self) -> Result<serde_json::Value> {
-        self.send_command(Command::ListPrograms).await
+    /// Analyze the current program.
+    pub fn analyze(&self) -> Result<serde_json::Value> {
+        self.send_command("analyze", None)
     }
 
-    /// Open/switch to a program in the project.
-    pub async fn open_program(&mut self, program: &str) -> Result<serde_json::Value> {
-        self.send_command(Command::OpenProgram {
-            program: program.to_string(),
-        })
-        .await
+    /// List programs in the project.
+    pub fn list_programs(&self) -> Result<serde_json::Value> {
+        self.send_command("list_programs", None)
     }
 
-    /// Analyze a program in a project.
-    pub async fn analyze_program(
-        &mut self,
-        project: &str,
-        program: &str,
-    ) -> Result<serde_json::Value> {
-        self.send_command(Command::Analyze {
-            project: project.to_string(),
-            program: program.to_string(),
-        })
-        .await
+    /// Open/switch to a program.
+    pub fn open_program(&self, program: &str) -> Result<serde_json::Value> {
+        self.send_command("open_program", Some(json!({"program": program})))
     }
-}
 
-/// Check if daemon is running for a specific project (without establishing a full connection).
-pub fn daemon_available(project_path: &Path) -> bool {
-    transport::socket_exists_for_project(project_path)
+    // === Extended commands (symbols, types, comments, etc.) ===
+
+    pub fn symbol_list(&self, filter: Option<&str>) -> Result<serde_json::Value> {
+        self.send_command("symbol_list", Some(json!({"filter": filter})))
+    }
+
+    pub fn symbol_get(&self, name: &str) -> Result<serde_json::Value> {
+        self.send_command("symbol_get", Some(json!({"name": name})))
+    }
+
+    pub fn symbol_create(&self, address: &str, name: &str) -> Result<serde_json::Value> {
+        self.send_command("symbol_create", Some(json!({"address": address, "name": name})))
+    }
+
+    pub fn symbol_delete(&self, name: &str) -> Result<serde_json::Value> {
+        self.send_command("symbol_delete", Some(json!({"name": name})))
+    }
+
+    pub fn symbol_rename(&self, old_name: &str, new_name: &str) -> Result<serde_json::Value> {
+        self.send_command("symbol_rename", Some(json!({"old_name": old_name, "new_name": new_name})))
+    }
+
+    pub fn type_list(&self) -> Result<serde_json::Value> {
+        self.send_command("type_list", None)
+    }
+
+    pub fn type_get(&self, name: &str) -> Result<serde_json::Value> {
+        self.send_command("type_get", Some(json!({"name": name})))
+    }
+
+    pub fn type_create(&self, definition: &str) -> Result<serde_json::Value> {
+        self.send_command("type_create", Some(json!({"definition": definition})))
+    }
+
+    pub fn type_apply(&self, address: &str, type_name: &str) -> Result<serde_json::Value> {
+        self.send_command("type_apply", Some(json!({"address": address, "type_name": type_name})))
+    }
+
+    pub fn comment_list(&self) -> Result<serde_json::Value> {
+        self.send_command("comment_list", None)
+    }
+
+    pub fn comment_get(&self, address: &str) -> Result<serde_json::Value> {
+        self.send_command("comment_get", Some(json!({"address": address})))
+    }
+
+    pub fn comment_set(&self, address: &str, text: &str, comment_type: Option<&str>) -> Result<serde_json::Value> {
+        self.send_command("comment_set", Some(json!({
+            "address": address,
+            "text": text,
+            "type": comment_type,
+        })))
+    }
+
+    pub fn comment_delete(&self, address: &str) -> Result<serde_json::Value> {
+        self.send_command("comment_delete", Some(json!({"address": address})))
+    }
+
+    pub fn graph_calls(&self, limit: Option<usize>) -> Result<serde_json::Value> {
+        self.send_command("graph_calls", Some(json!({"limit": limit})))
+    }
+
+    pub fn graph_callers(&self, function: &str, depth: Option<usize>) -> Result<serde_json::Value> {
+        self.send_command("graph_callers", Some(json!({"function": function, "depth": depth})))
+    }
+
+    pub fn graph_callees(&self, function: &str, depth: Option<usize>) -> Result<serde_json::Value> {
+        self.send_command("graph_callees", Some(json!({"function": function, "depth": depth})))
+    }
+
+    pub fn graph_export(&self, format: &str) -> Result<serde_json::Value> {
+        self.send_command("graph_export", Some(json!({"format": format})))
+    }
+
+    pub fn find_string(&self, pattern: &str) -> Result<serde_json::Value> {
+        self.send_command("find_string", Some(json!({"pattern": pattern})))
+    }
+
+    pub fn find_bytes(&self, hex: &str) -> Result<serde_json::Value> {
+        self.send_command("find_bytes", Some(json!({"hex": hex})))
+    }
+
+    pub fn find_function(&self, pattern: &str) -> Result<serde_json::Value> {
+        self.send_command("find_function", Some(json!({"pattern": pattern})))
+    }
+
+    pub fn find_calls(&self, function: &str) -> Result<serde_json::Value> {
+        self.send_command("find_calls", Some(json!({"function": function})))
+    }
+
+    pub fn find_crypto(&self) -> Result<serde_json::Value> {
+        self.send_command("find_crypto", None)
+    }
+
+    pub fn find_interesting(&self) -> Result<serde_json::Value> {
+        self.send_command("find_interesting", None)
+    }
+
+    pub fn diff_programs(&self, program1: &str, program2: &str) -> Result<serde_json::Value> {
+        self.send_command("diff_programs", Some(json!({"program1": program1, "program2": program2})))
+    }
+
+    pub fn diff_functions(&self, func1: &str, func2: &str) -> Result<serde_json::Value> {
+        self.send_command("diff_functions", Some(json!({"func1": func1, "func2": func2})))
+    }
+
+    pub fn patch_bytes(&self, address: &str, hex: &str) -> Result<serde_json::Value> {
+        self.send_command("patch_bytes", Some(json!({"address": address, "hex": hex})))
+    }
+
+    pub fn patch_nop(&self, address: &str) -> Result<serde_json::Value> {
+        self.send_command("patch_nop", Some(json!({"address": address})))
+    }
+
+    pub fn patch_export(&self, output: &str) -> Result<serde_json::Value> {
+        self.send_command("patch_export", Some(json!({"output": output})))
+    }
+
+    pub fn disasm(&self, address: &str, num_instructions: Option<usize>) -> Result<serde_json::Value> {
+        self.send_command("disasm", Some(json!({"address": address, "count": num_instructions})))
+    }
+
+    pub fn stats(&self) -> Result<serde_json::Value> {
+        self.send_command("stats", None)
+    }
+
+    pub fn script_run(&self, script_path: &str, args: &[String]) -> Result<serde_json::Value> {
+        self.send_command("script_run", Some(json!({"path": script_path, "args": args})))
+    }
+
+    pub fn script_python(&self, code: &str) -> Result<serde_json::Value> {
+        self.send_command("script_python", Some(json!({"code": code})))
+    }
+
+    pub fn script_java(&self, code: &str) -> Result<serde_json::Value> {
+        self.send_command("script_java", Some(json!({"code": code})))
+    }
+
+    pub fn script_list(&self) -> Result<serde_json::Value> {
+        self.send_command("script_list", None)
+    }
+
+    pub fn batch(&self, commands: &[serde_json::Value]) -> Result<serde_json::Value> {
+        self.send_command("batch", Some(json!({"commands": commands})))
+    }
+
+    pub fn program_close(&self) -> Result<serde_json::Value> {
+        self.send_command("close_program", None)
+    }
+
+    pub fn program_delete(&self, program: &str) -> Result<serde_json::Value> {
+        self.send_command("delete_program", Some(json!({"program": program})))
+    }
+
+    pub fn program_export(&self, format: &str, output: Option<&str>) -> Result<serde_json::Value> {
+        self.send_command("export_program", Some(json!({"format": format, "output": output})))
+    }
 }

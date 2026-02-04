@@ -21,7 +21,7 @@ fn test_graph_calls() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .env("GHIDRA_CLI_SOCKET", harness.socket_path())
+        .arg("--project").arg(TEST_PROJECT)
         .arg("graph")
         .arg("calls")
         .arg("--program")
@@ -44,7 +44,7 @@ fn test_graph_callers() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .env("GHIDRA_CLI_SOCKET", harness.socket_path())
+        .arg("--project").arg(TEST_PROJECT)
         .arg("graph")
         .arg("callers")
         .arg("main")
@@ -67,7 +67,7 @@ fn test_graph_callees() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .env("GHIDRA_CLI_SOCKET", harness.socket_path())
+        .arg("--project").arg(TEST_PROJECT)
         .arg("graph")
         .arg("callees")
         .arg("main")
@@ -90,7 +90,7 @@ fn test_graph_export_dot() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
-        .env("GHIDRA_CLI_SOCKET", harness.socket_path())
+        .arg("--project").arg(TEST_PROJECT)
         .arg("graph")
         .arg("export")
         .arg("dot")

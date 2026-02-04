@@ -1,23 +1,18 @@
-//! Ghidra Bridge - manages a persistent Ghidra process.
+//! Ghidra Bridge - manages a persistent Ghidra Java bridge process.
 //!
-//! Instead of spawning a new `analyzeHeadless` process for each command,
-//! the bridge maintains a single long-running Ghidra process that serves
-//! commands via a TCP socket.
+//! The bridge runs a GhidraCliBridge.java script via `analyzeHeadless` that
+//! starts a TCP socket server. The CLI connects directly to this server
+//! to execute commands. No intermediate daemon process is needed.
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, info, warn};
-
-/// Default bridge port
-const DEFAULT_BRIDGE_PORT: u16 = 18700;
+use tracing::{debug, info, warn};
 
 /// Response from the bridge
 #[derive(Debug, Deserialize)]
@@ -48,407 +43,442 @@ pub enum BridgeStartMode {
     },
 }
 
-/// Manages a persistent Ghidra bridge process.
-pub struct GhidraBridge {
-    /// Child process handle
-    child: Option<Child>,
-    /// TCP connection to the bridge
-    stream: Option<TcpStream>,
-    /// Bridge port
-    port: u16,
-    /// Project name
-    project_name: String,
-    /// Path to Ghidra installation
-    ghidra_install_dir: PathBuf,
-    /// Project directory
-    project_dir: PathBuf,
-    /// Whether the bridge is running
-    running: Arc<AtomicBool>,
+/// Embedded Java bridge script
+const JAVA_BRIDGE_SCRIPT: &str = include_str!("scripts/GhidraCliBridge.java");
+
+/// Get the data directory for bridge port/PID files.
+pub fn get_data_dir() -> Result<PathBuf> {
+    let dir = dirs::data_local_dir()
+        .ok_or_else(|| anyhow::anyhow!("Could not determine data directory"))?
+        .join("ghidra-cli");
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
 }
 
-impl GhidraBridge {
-    /// Create a new bridge (not started yet).
-    pub fn new(
-        ghidra_install_dir: PathBuf,
-        project_dir: PathBuf,
-        project_name: String,
-    ) -> Self {
-        Self {
-            child: None,
-            stream: None,
-            port: DEFAULT_BRIDGE_PORT,
-            project_name,
-            ghidra_install_dir,
-            project_dir,
-            running: Arc::new(AtomicBool::new(false)),
+/// Compute MD5 hash of project path for file naming.
+fn project_hash(project_path: &Path) -> String {
+    format!(
+        "{:x}",
+        md5::compute(project_path.to_string_lossy().as_bytes())
+    )
+}
+
+/// Get the port file path for a project.
+pub fn port_file_path(project_path: &Path) -> Result<PathBuf> {
+    let data_dir = get_data_dir()?;
+    let hash = project_hash(project_path);
+    Ok(data_dir.join(format!("bridge-{}.port", hash)))
+}
+
+/// Get the PID file path for a project.
+pub fn pid_file_path(project_path: &Path) -> Result<PathBuf> {
+    let data_dir = get_data_dir()?;
+    let hash = project_hash(project_path);
+    Ok(data_dir.join(format!("bridge-{}.pid", hash)))
+}
+
+/// Read the port from the port file.
+pub fn read_port_file(project_path: &Path) -> Result<Option<u16>> {
+    let path = port_file_path(project_path)?;
+    if !path.exists() {
+        return Ok(None);
+    }
+    let content = std::fs::read_to_string(&path)?;
+    let port: u16 = content.trim().parse()
+        .context("Invalid port in port file")?;
+    Ok(Some(port))
+}
+
+/// Read the PID from the PID file.
+pub fn read_pid_file(project_path: &Path) -> Result<Option<u32>> {
+    let path = pid_file_path(project_path)?;
+    if !path.exists() {
+        return Ok(None);
+    }
+    let content = std::fs::read_to_string(&path)?;
+    let pid: u32 = content.trim().parse()
+        .context("Invalid PID in PID file")?;
+    Ok(Some(pid))
+}
+
+/// Check if a process with the given PID is alive.
+pub fn is_pid_alive(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        unsafe { libc::kill(pid as i32, 0) == 0 }
+    }
+    #[cfg(windows)]
+    {
+        use std::process::Command;
+        Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {}", pid)])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
+            .unwrap_or(false)
+    }
+}
+
+/// Clean up stale port and PID files.
+pub fn cleanup_stale_files(project_path: &Path) -> Result<()> {
+    let port_path = port_file_path(project_path)?;
+    let pid_path = pid_file_path(project_path)?;
+    if port_path.exists() {
+        std::fs::remove_file(&port_path).ok();
+    }
+    if pid_path.exists() {
+        std::fs::remove_file(&pid_path).ok();
+    }
+    Ok(())
+}
+
+/// Check if a bridge is running for the given project.
+///
+/// Verifies: port file exists, PID is alive, TCP connect succeeds.
+pub fn is_bridge_running(project_path: &Path) -> bool {
+    let port = match read_port_file(project_path) {
+        Ok(Some(p)) => p,
+        _ => return false,
+    };
+
+    let pid = match read_pid_file(project_path) {
+        Ok(Some(p)) => p,
+        _ => return false,
+    };
+
+    if !is_pid_alive(pid) {
+        return false;
+    }
+
+    // Verify TCP connect
+    TcpStream::connect(format!("127.0.0.1:{}", port))
+        .map(|_| true)
+        .unwrap_or(false)
+}
+
+/// Ensure a bridge is running for the given project.
+/// Returns the port number to connect to.
+pub fn ensure_bridge_running(
+    project_path: &Path,
+    ghidra_install_dir: &Path,
+    mode: BridgeStartMode,
+) -> Result<u16> {
+    // Check if already running
+    if let Ok(Some(port)) = read_port_file(project_path) {
+        if let Ok(Some(pid)) = read_pid_file(project_path) {
+            if is_pid_alive(pid) {
+                // Verify TCP connect
+                if TcpStream::connect(format!("127.0.0.1:{}", port)).is_ok() {
+                    info!("Bridge already running on port {}", port);
+                    return Ok(port);
+                }
+            }
+        }
+        // Stale files - clean up
+        cleanup_stale_files(project_path)?;
+    }
+
+    // Start a new bridge
+    start_bridge(project_path, ghidra_install_dir, mode)
+}
+
+/// Start a new bridge process.
+/// Returns the port number once the bridge is ready.
+pub fn start_bridge(
+    project_path: &Path,
+    ghidra_install_dir: &Path,
+    mode: BridgeStartMode,
+) -> Result<u16> {
+    info!("Starting Ghidra bridge...");
+
+    // Write the Java bridge script to disk
+    let scripts_dir = dirs::config_dir()
+        .ok_or_else(|| anyhow::anyhow!("Could not determine config directory"))?
+        .join("ghidra-cli")
+        .join("scripts");
+    std::fs::create_dir_all(&scripts_dir)?;
+    let java_script_path = scripts_dir.join("GhidraCliBridge.java");
+    std::fs::write(&java_script_path, JAVA_BRIDGE_SCRIPT)?;
+
+    // Find analyzeHeadless
+    let headless_script = find_headless_script(ghidra_install_dir)?;
+
+    // Compute port file path
+    let port_file = port_file_path(project_path)?;
+
+    // Build command
+    let mut cmd = Command::new(&headless_script);
+
+    // analyzeHeadless expects: <parent_directory> <project_name>
+    let ghidra_project_dir = project_path
+        .parent()
+        .unwrap_or(project_path);
+    let ghidra_project_name = project_path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "project".to_string());
+
+    cmd.arg(ghidra_project_dir)
+        .arg(&ghidra_project_name);
+
+    // Add mode-specific args
+    match &mode {
+        BridgeStartMode::Import { binary_path } => {
+            cmd.arg("-import").arg(binary_path);
+        }
+        BridgeStartMode::Process { program_name } => {
+            cmd.arg("-process")
+                .arg(program_name)
+                .arg("-noanalysis");
         }
     }
 
-    /// Start the bridge with the given mode.
-    pub fn start(&mut self, mode: BridgeStartMode) -> Result<()> {
-        if self.running.load(Ordering::SeqCst) {
-            return Ok(());
-        }
+    // Add Java bridge script args
+    cmd.arg("-scriptPath")
+        .arg(scripts_dir.to_str().unwrap())
+        .arg("-postScript")
+        .arg("GhidraCliBridge.java")
+        .arg(port_file.to_str().unwrap());
 
-        info!("Starting Ghidra bridge...");
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
-        // Find headless script (pyghidraRun or analyzeHeadless)
-        let headless_script = self.find_headless_script()?;
-        let is_pyghidra = headless_script
-            .file_name()
-            .map(|n| n.to_string_lossy().contains("pyghidra"))
-            .unwrap_or(false);
+    info!("Ghidra command: {:?}", cmd);
 
-        // Get bridge script path
-        let bridge_script = self.get_bridge_script_path()?;
+    // Spawn the process
+    let mut child = cmd.spawn().context("Failed to spawn Ghidra headless")?;
+    info!("Ghidra process started with PID: {:?}", child.id());
 
-        // Build command - pyghidraRun needs different arguments
-        let mut cmd = Command::new(&headless_script);
-
-        // analyzeHeadless/pyghidraRun expects: <parent_directory> <project_name>
-        // self.project_dir is the FULL project path (e.g., /c/Users/dev/git/ghidra-altium)
-        // We need to split it into parent dir and project name for Ghidra's CLI
-        let ghidra_project_dir = self
-            .project_dir
-            .parent()
-            .unwrap_or(&self.project_dir);
-        let ghidra_project_name = self
-            .project_dir
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| self.project_name.clone());
-
-        if is_pyghidra {
-            cmd.arg("--headless")
-                .arg(ghidra_project_dir)
-                .arg(&ghidra_project_name);
-        } else {
-            cmd.arg(ghidra_project_dir)
-                .arg(&ghidra_project_name);
-        }
-
-        // Add mode-specific args
-        match &mode {
-            BridgeStartMode::Import { binary_path } => {
-                cmd.arg("-import").arg(binary_path);
-            }
-            BridgeStartMode::Process { program_name } => {
-                cmd.arg("-process")
-                    .arg(program_name)
-                    .arg("-noanalysis");
-            }
-        }
-
-        // Add bridge script args
-        cmd.arg("-scriptPath")
-            .arg(bridge_script.parent().unwrap())
-            .arg("-postScript")
-            .arg("bridge.py")
-            .arg(self.port.to_string());
-
-        cmd.stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-
-        // Log the full command for debugging
-        info!("Ghidra command: {:?}", cmd);
-
-        // Spawn the process
-        let mut child = cmd.spawn().context("Failed to spawn Ghidra headless")?;
-        info!("Ghidra process started with PID: {:?}", child.id());
-
-        // Spawn a thread to capture stderr
-        let stderr = child.stderr.take().expect("stderr should be piped");
-        let stderr_handle = std::thread::spawn(move || {
-            let reader = BufReader::new(stderr);
-            let mut stderr_output = Vec::new();
-            for line in reader.lines() {
-                if let Ok(line) = line {
-                    // Log all stderr to info level so it's always visible
-                    info!("[Ghidra stderr] {}", line);
-                    stderr_output.push(line);
-                }
-            }
-            stderr_output
-        });
-
-        // Wait for ready signal from stdout
-        let stdout = child.stdout.take().expect("stdout should be piped");
-        let reader = BufReader::new(stdout);
-
-        let mut ready = false;
-        let mut last_error = String::new();
-        let mut stdout_lines = Vec::new();
+    // Spawn a thread to capture stderr
+    let stderr = child.stderr.take().expect("stderr should be piped");
+    let stderr_handle = std::thread::spawn(move || {
+        let reader = BufReader::new(stderr);
+        let mut stderr_output = Vec::new();
         for line in reader.lines() {
-            let line = line?;
-            // Log all stdout to info level so it's always visible during startup
-            info!("[Ghidra stdout] {}", line);
-            stdout_lines.push(line.clone());
-
-            // Capture Ghidra errors for better error messages
-            if line.contains("ERROR") || line.contains("Exception") || line.contains("SEVERE") {
-                last_error = line.clone();
-            }
-
-            // Look for ready signal
-            if line.contains("---GHIDRA_CLI_START---") {
-                // Read the next line for the JSON ready message
-                continue;
-            }
-            if line.contains("\"status\": \"ready\"") || line.contains("\"status\":\"ready\"") {
-                info!("Bridge is ready on port {}", self.port);
-                ready = true;
-                break;
-            }
-            if line.contains("---GHIDRA_CLI_END---") && ready {
-                break;
+            if let Ok(line) = line {
+                info!("[Ghidra stderr] {}", line);
+                stderr_output.push(line);
             }
         }
+        stderr_output
+    });
 
-        if !ready {
-            // Wait for stderr thread and collect output
-            let stderr_output = stderr_handle.join().unwrap_or_default();
+    // Wait for ready signal from stdout
+    let stdout = child.stdout.take().expect("stdout should be piped");
+    let reader = BufReader::new(stdout);
 
-            // Check if process died
-            let detail = if !last_error.is_empty() {
-                format!(": {}", last_error)
-            } else if !stderr_output.is_empty() {
-                // Include last few stderr lines
-                let last_stderr: Vec<_> = stderr_output.iter().rev().take(5).rev().cloned().collect::<Vec<_>>();
-                format!(": stderr: {}", last_stderr.join("\n"))
-            } else {
-                // Include last few stdout lines for context
-                let last_stdout: Vec<_> = stdout_lines.iter().rev().take(10).rev().cloned().collect::<Vec<_>>();
-                format!("\nLast stdout:\n{}", last_stdout.join("\n"))
-            };
-            match child.try_wait() {
-                Ok(Some(status)) => {
-                    anyhow::bail!("Ghidra process exited with status: {}{}", status, detail);
-                }
-                Ok(None) => {
-                    anyhow::bail!("Ghidra bridge did not send ready signal{}", detail);
-                }
-                Err(e) => {
-                    anyhow::bail!("Error checking process status: {}", e);
-                }
-            }
+    let mut ready = false;
+    let mut last_error = String::new();
+    let mut stdout_lines = Vec::new();
+    for line in reader.lines() {
+        let line = line?;
+        info!("[Ghidra stdout] {}", line);
+        stdout_lines.push(line.clone());
+
+        if line.contains("ERROR") || line.contains("Exception") || line.contains("SEVERE") {
+            last_error = line.clone();
         }
 
-        // Connect to the bridge
-        let stream = TcpStream::connect(format!("127.0.0.1:{}", self.port))
-            .context("Failed to connect to bridge")?;
-        stream.set_read_timeout(Some(Duration::from_secs(300))).ok();
-        stream.set_write_timeout(Some(Duration::from_secs(30))).ok();
-
-        self.child = Some(child);
-        self.stream = Some(stream);
-        self.running.store(true, Ordering::SeqCst);
-
-        info!("Ghidra bridge started successfully");
-        Ok(())
+        if line.contains("---GHIDRA_CLI_START---") {
+            continue;
+        }
+        if line.contains("\"status\"") && line.contains("\"ready\"") {
+            info!("Bridge is ready");
+            ready = true;
+            break;
+        }
+        if line.contains("---GHIDRA_CLI_END---") && ready {
+            break;
+        }
     }
 
-    /// Send a command to the bridge.
-    ///
-    /// On I/O errors, checks if the bridge process has died and updates
-    /// state accordingly. Returns a specific error if the process died.
-    pub fn send_command<T: for<'de> Deserialize<'de>>(
-        &mut self,
-        command: &str,
-        args: Option<serde_json::Value>,
-    ) -> Result<BridgeResponse<T>> {
-        if !self.running.load(Ordering::SeqCst) {
-            anyhow::bail!("Bridge not running");
-        }
-
-        let stream = self
-            .stream
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("No connection to bridge"))?;
-
-        let request = BridgeRequest {
-            command: command.to_string(),
-            args,
+    if !ready {
+        let stderr_output = stderr_handle.join().unwrap_or_default();
+        let detail = if !last_error.is_empty() {
+            format!(": {}", last_error)
+        } else if !stderr_output.is_empty() {
+            let last_stderr: Vec<_> = stderr_output.iter().rev().take(5).rev().cloned().collect();
+            format!(": stderr: {}", last_stderr.join("\n"))
+        } else {
+            let last_stdout: Vec<_> = stdout_lines.iter().rev().take(10).rev().cloned().collect();
+            format!("\nLast stdout:\n{}", last_stdout.join("\n"))
         };
-
-        let request_json = serde_json::to_string(&request)?;
-        debug!("Sending: {}", request_json);
-
-        // Send request - check process health on I/O error
-        if let Err(e) = writeln!(stream, "{}", request_json) {
-            if !self.check_health() {
-                anyhow::bail!("Bridge process died unexpectedly");
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                anyhow::bail!("Ghidra process exited with status: {}{}", status, detail);
             }
-            return Err(e.into());
-        }
-        if let Err(e) = stream.flush() {
-            if !self.check_health() {
-                anyhow::bail!("Bridge process died unexpectedly");
+            Ok(None) => {
+                anyhow::bail!("Ghidra bridge did not send ready signal{}", detail);
             }
-            return Err(e.into());
-        }
-
-        // Read response - check process health on I/O error
-        let mut reader = BufReader::new(stream.try_clone()?);
-        let mut response_line = String::new();
-        if let Err(e) = reader.read_line(&mut response_line) {
-            if !self.check_health() {
-                anyhow::bail!("Bridge process died unexpectedly");
+            Err(e) => {
+                anyhow::bail!("Error checking process status: {}", e);
             }
-            return Err(e.into());
         }
-
-        debug!("Received: {}", response_line.trim());
-
-        let response: BridgeResponse<T> = serde_json::from_str(&response_line)?;
-        Ok(response)
     }
 
-    /// Stop the bridge.
-    pub fn stop(&mut self) -> Result<()> {
-        if !self.running.load(Ordering::SeqCst) {
-            return Ok(());
+    // Read port from port file
+    let port = read_port_file(project_path)?
+        .ok_or_else(|| anyhow::anyhow!("Port file not created by bridge"))?;
+
+    info!("Ghidra bridge started on port {}", port);
+    Ok(port)
+}
+
+/// Send a command to the bridge and return the response.
+pub fn send_command(
+    port: u16,
+    command: &str,
+    args: Option<serde_json::Value>,
+) -> Result<serde_json::Value> {
+    let mut stream = TcpStream::connect(format!("127.0.0.1:{}", port))
+        .context("Failed to connect to bridge")?;
+    stream.set_read_timeout(Some(Duration::from_secs(300))).ok();
+    stream.set_write_timeout(Some(Duration::from_secs(30))).ok();
+
+    let request = BridgeRequest {
+        command: command.to_string(),
+        args,
+    };
+
+    let request_json = serde_json::to_string(&request)?;
+    debug!("Sending: {}", request_json);
+
+    writeln!(stream, "{}", request_json)?;
+    stream.flush()?;
+
+    let mut reader = BufReader::new(&stream);
+    let mut response_line = String::new();
+    reader.read_line(&mut response_line)?;
+
+    debug!("Received: {}", response_line.trim());
+
+    let response: BridgeResponse<serde_json::Value> = serde_json::from_str(&response_line)?;
+
+    match response.status.as_str() {
+        "success" => {
+            Ok(response.data.unwrap_or(serde_json::json!({})))
         }
+        "error" => {
+            let msg = response.message.unwrap_or_else(|| "Unknown error".to_string());
+            anyhow::bail!("{}", msg)
+        }
+        "shutdown" => {
+            Ok(serde_json::json!({"status": "shutdown"}))
+        }
+        _ => {
+            Ok(response.data.unwrap_or(serde_json::json!({})))
+        }
+    }
+}
 
-        info!("Stopping Ghidra bridge...");
+/// Send a typed command to the bridge.
+pub fn send_typed_command<T: for<'de> Deserialize<'de>>(
+    port: u16,
+    command: &str,
+    args: Option<serde_json::Value>,
+) -> Result<BridgeResponse<T>> {
+    let mut stream = TcpStream::connect(format!("127.0.0.1:{}", port))
+        .context("Failed to connect to bridge")?;
+    stream.set_read_timeout(Some(Duration::from_secs(300))).ok();
+    stream.set_write_timeout(Some(Duration::from_secs(30))).ok();
 
-        // Send shutdown command
-        if let Ok(response) = self.send_command::<serde_json::Value>("shutdown", None) {
+    let request = BridgeRequest {
+        command: command.to_string(),
+        args,
+    };
+
+    let request_json = serde_json::to_string(&request)?;
+    debug!("Sending: {}", request_json);
+
+    writeln!(stream, "{}", request_json)?;
+    stream.flush()?;
+
+    let mut reader = BufReader::new(&stream);
+    let mut response_line = String::new();
+    reader.read_line(&mut response_line)?;
+
+    debug!("Received: {}", response_line.trim());
+
+    let response: BridgeResponse<T> = serde_json::from_str(&response_line)?;
+    Ok(response)
+}
+
+/// Stop the bridge for a project.
+pub fn stop_bridge(project_path: &Path) -> Result<()> {
+    // Try graceful shutdown via TCP
+    if let Ok(Some(port)) = read_port_file(project_path) {
+        if let Ok(response) = send_command(port, "shutdown", None) {
             debug!("Shutdown response: {:?}", response);
         }
+    }
 
-        // Close stream
-        self.stream.take();
-
-        // Wait for child to exit
-        if let Some(mut child) = self.child.take() {
-            match child.wait_timeout(Duration::from_secs(10)) {
-                Ok(Some(status)) => {
-                    info!("Ghidra process exited with status: {}", status);
-                }
-                Ok(None) => {
-                    warn!("Ghidra process did not exit, killing...");
-                    child.kill().ok();
-                }
-                Err(e) => {
-                    error!("Error waiting for process: {}", e);
-                    child.kill().ok();
-                }
+    // If PID file exists, kill the process as fallback
+    if let Ok(Some(pid)) = read_pid_file(project_path) {
+        if is_pid_alive(pid) {
+            warn!("Killing bridge process {} as fallback", pid);
+            #[cfg(unix)]
+            unsafe {
+                libc::kill(pid as i32, libc::SIGTERM);
+            }
+            #[cfg(windows)]
+            {
+                let _ = std::process::Command::new("taskkill")
+                    .args(["/PID", &pid.to_string(), "/F"])
+                    .output();
             }
         }
-
-        self.running.store(false, Ordering::SeqCst);
-        info!("Bridge stopped");
-        Ok(())
     }
 
-    /// Check if the bridge is running.
-    pub fn is_running(&self) -> bool {
-        self.running.load(Ordering::SeqCst)
-    }
+    // Clean up files
+    cleanup_stale_files(project_path)?;
 
-    /// Check if the bridge process is actually healthy (still running).
-    ///
-    /// Performs an OS-level check on the child process to detect if it
-    /// has exited unexpectedly. If the process has died, updates the running
-    /// flag and returns false.
-    pub fn check_health(&mut self) -> bool {
-        if let Some(ref mut child) = self.child {
-            match child.try_wait() {
-                Ok(None) => true, // Process still running
-                Ok(Some(status)) => {
-                    // Process has exited
-                    warn!("Bridge process exited with status: {}", status);
-                    self.running.store(false, Ordering::SeqCst);
-                    false
-                }
-                Err(e) => {
-                    // Error checking process - assume dead
-                    error!("Error checking bridge process health: {}", e);
-                    self.running.store(false, Ordering::SeqCst);
-                    false
-                }
-            }
-        } else {
-            // No child process
-            self.running.store(false, Ordering::SeqCst);
-            false
-        }
-    }
-
-    /// Get the embedded bridge script path, writing all scripts to disk.
-    fn get_bridge_script_path(&self) -> Result<PathBuf> {
-        let scripts_dir = dirs::config_dir()
-            .ok_or_else(|| anyhow::anyhow!("Could not determine config directory"))?
-            .join("ghidra-cli")
-            .join("scripts");
-
-        std::fs::create_dir_all(&scripts_dir)?;
-
-        // Write all embedded Python scripts
-        // Bridge and its module dependencies
-        let scripts: &[(&str, &str)] = &[
-            ("bridge.py", include_str!("scripts/bridge.py")),
-            ("comments.py", include_str!("scripts/comments.py")),
-            ("symbols.py", include_str!("scripts/symbols.py")),
-            ("types.py", include_str!("scripts/types.py")),
-            ("graph.py", include_str!("scripts/graph.py")),
-            ("find.py", include_str!("scripts/find.py")),
-            ("diff.py", include_str!("scripts/diff.py")),
-            ("patch.py", include_str!("scripts/patch.py")),
-            ("disasm.py", include_str!("scripts/disasm.py")),
-            ("stats.py", include_str!("scripts/stats.py")),
-            ("program.py", include_str!("scripts/program.py")),
-            ("script_runner.py", include_str!("scripts/script_runner.py")),
-            ("batch.py", include_str!("scripts/batch.py")),
-        ];
-
-        for (name, content) in scripts {
-            std::fs::write(scripts_dir.join(name), content)?;
-        }
-
-        Ok(scripts_dir.join("bridge.py"))
-    }
-
-    /// Find the analyzeHeadless script.
-    fn find_headless_script(&self) -> Result<PathBuf> {
-        // First try pyghidraRun for Ghidra 12+ (required for Python support)
-        #[cfg(unix)]
-        let pyghidra_name = "pyghidraRun";
-        #[cfg(windows)]
-        let pyghidra_name = "pyghidraRun.bat";
-
-        let support_dir = self.ghidra_install_dir.join("support");
-        let pyghidra_path = support_dir.join(pyghidra_name);
-
-        if pyghidra_path.exists() {
-            return Ok(pyghidra_path);
-        }
-
-        // Fall back to analyzeHeadless for older versions
-        #[cfg(unix)]
-        let script_name = "analyzeHeadless";
-        #[cfg(windows)]
-        let script_name = "analyzeHeadless.bat";
-
-        let script_path = support_dir.join(script_name);
-
-        if script_path.exists() {
-            Ok(script_path)
-        } else {
-            anyhow::bail!(
-                "Neither pyghidraRun nor analyzeHeadless found at: {}",
-                support_dir.display()
-            )
-        }
-    }
+    info!("Bridge stopped");
+    Ok(())
 }
 
-impl Drop for GhidraBridge {
-    fn drop(&mut self) {
-        if let Err(e) = self.stop() {
-            error!("Error stopping bridge on drop: {}", e);
+/// Get bridge status for a project.
+pub fn bridge_status(project_path: &Path) -> Result<BridgeStatus> {
+    let port = read_port_file(project_path)?;
+    let pid = read_pid_file(project_path)?;
+
+    if let (Some(port), Some(pid)) = (port, pid) {
+        if is_pid_alive(pid) {
+            if TcpStream::connect(format!("127.0.0.1:{}", port)).is_ok() {
+                return Ok(BridgeStatus::Running { port, pid });
+            }
         }
+        // Stale files
+        cleanup_stale_files(project_path).ok();
+    }
+
+    Ok(BridgeStatus::Stopped)
+}
+
+/// Bridge status
+#[derive(Debug)]
+pub enum BridgeStatus {
+    Running { port: u16, pid: u32 },
+    Stopped,
+}
+
+/// Find the analyzeHeadless script.
+fn find_headless_script(ghidra_install_dir: &Path) -> Result<PathBuf> {
+    let support_dir = ghidra_install_dir.join("support");
+
+    #[cfg(unix)]
+    let script_name = "analyzeHeadless";
+    #[cfg(windows)]
+    let script_name = "analyzeHeadless.bat";
+
+    let script_path = support_dir.join(script_name);
+
+    if script_path.exists() {
+        Ok(script_path)
+    } else {
+        anyhow::bail!(
+            "analyzeHeadless not found at: {}",
+            support_dir.display()
+        )
     }
 }
 
@@ -480,29 +510,5 @@ impl ChildExt for Child {
                 }
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_bridge_request_serialization() {
-        let req = BridgeRequest {
-            command: "list_functions".to_string(),
-            args: Some(serde_json::json!({"limit": 100})),
-        };
-        let json = serde_json::to_string(&req).unwrap();
-        assert!(json.contains("list_functions"));
-        assert!(json.contains("100"));
-    }
-
-    #[test]
-    fn test_bridge_response_deserialization() {
-        let json = r#"{"status": "success", "data": {"count": 42}}"#;
-        let resp: BridgeResponse<serde_json::Value> = serde_json::from_str(json).unwrap();
-        assert_eq!(resp.status, "success");
-        assert!(resp.data.is_some());
     }
 }

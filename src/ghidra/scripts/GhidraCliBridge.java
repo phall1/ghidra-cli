@@ -1,0 +1,2528 @@
+// Ghidra CLI Bridge - TCP socket server for CLI commands
+// @category Bridge
+// @keybinding
+// @menupath Tools.Start CLI Bridge
+// @toolbar
+//
+// Single-file GhidraScript that runs a persistent TCP server inside Ghidra
+// to serve CLI commands. Replaces the Python bridge.py with a pure Java
+// implementation using Ghidra's bundled Gson for JSON serialization.
+
+import ghidra.app.script.GhidraScript;
+import ghidra.app.decompiler.DecompInterface;
+import ghidra.app.decompiler.DecompileResults;
+import ghidra.app.util.importer.AutoImporter;
+import ghidra.app.util.importer.MessageLog;
+import ghidra.framework.model.DomainFile;
+import ghidra.framework.model.DomainFolder;
+import ghidra.framework.model.DomainObject;
+import ghidra.framework.model.Project;
+import ghidra.framework.model.ProjectData;
+import ghidra.program.model.address.Address;
+import ghidra.program.model.address.AddressFactory;
+import ghidra.program.model.data.*;
+import ghidra.program.model.listing.*;
+import ghidra.program.model.mem.Memory;
+import ghidra.program.model.mem.MemoryBlock;
+import ghidra.program.model.symbol.*;
+import ghidra.util.task.ConsoleTaskMonitor;
+import ghidra.util.task.TaskMonitor;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonNull;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
+
+import java.io.*;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.util.Iterator;
+
+public class GhidraCliBridge extends GhidraScript {
+
+    private Gson gson = new GsonBuilder().serializeNulls().create();
+
+    @Override
+    public void run() throws Exception {
+        // Get port file path from script arguments
+        String[] scriptArgs = getScriptArgs();
+        if (scriptArgs.length < 1) {
+            printerr("Usage: GhidraCliBridge.java <port_file_path>");
+            return;
+        }
+        String portFilePath = scriptArgs[0];
+
+        // Bind to dynamic port on localhost only
+        ServerSocket serverSocket = new ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"));
+        int port = serverSocket.getLocalPort();
+
+        // Write port file
+        File portFile = new File(portFilePath);
+        portFile.getParentFile().mkdirs();
+        try (PrintWriter pw = new PrintWriter(new FileWriter(portFile))) {
+            pw.println(port);
+        }
+
+        // Write PID file
+        String pidFilePath = portFilePath.replaceAll("\\.port$", ".pid");
+        File pidFile = new File(pidFilePath);
+        try (PrintWriter pw = new PrintWriter(new FileWriter(pidFile))) {
+            pw.println(ProcessHandle.current().pid());
+        }
+
+        // Signal ready to parent process
+        println("---GHIDRA_CLI_START---");
+        JsonObject readyMsg = new JsonObject();
+        readyMsg.addProperty("status", "ready");
+        readyMsg.addProperty("port", port);
+        println(gson.toJson(readyMsg));
+        println("---GHIDRA_CLI_END---");
+        System.out.flush();
+
+        // Accept loop
+        boolean running = true;
+        while (running) {
+            try {
+                Socket client = serverSocket.accept();
+                try (
+                    BufferedReader in = new BufferedReader(new InputStreamReader(client.getInputStream()));
+                    PrintWriter out = new PrintWriter(new OutputStreamWriter(client.getOutputStream()), true)
+                ) {
+                    String line;
+                    while ((line = in.readLine()) != null) {
+                        line = line.trim();
+                        if (line.isEmpty()) continue;
+
+                        HandleResult result = handleRequest(line);
+                        out.println(gson.toJson(result.response));
+                        out.flush();
+
+                        if (result.shouldShutdown) {
+                            running = false;
+                            break;
+                        }
+                    }
+                } catch (IOException e) {
+                    printerr("Client error: " + e.getMessage());
+                } finally {
+                    client.close();
+                }
+            } catch (IOException e) {
+                if (running) {
+                    printerr("Accept error: " + e.getMessage());
+                }
+            }
+        }
+
+        // Cleanup
+        serverSocket.close();
+        portFile.delete();
+        pidFile.delete();
+    }
+
+    // --- Request Handling ---
+
+    private static class HandleResult {
+        JsonObject response;
+        boolean shouldShutdown;
+
+        HandleResult(JsonObject response, boolean shouldShutdown) {
+            this.response = response;
+            this.shouldShutdown = shouldShutdown;
+        }
+    }
+
+    private HandleResult handleRequest(String line) {
+        try {
+            JsonObject req = JsonParser.parseString(line).getAsJsonObject();
+            String command = req.has("command") ? req.get("command").getAsString() : null;
+            JsonObject args = req.has("args") && !req.get("args").isJsonNull()
+                ? req.getAsJsonObject("args") : new JsonObject();
+
+            if ("shutdown".equals(command)) {
+                JsonObject resp = new JsonObject();
+                resp.addProperty("status", "shutdown");
+                return new HandleResult(resp, true);
+            }
+
+            JsonObject result = dispatchCommand(command, args);
+            if (result == null) {
+                return new HandleResult(errorResponse("Unknown command: " + command), false);
+            }
+
+            // Check if the handler returned an error
+            if (result.has("error")) {
+                return new HandleResult(errorResponse(result.get("error").getAsString()), false);
+            }
+
+            return new HandleResult(successResponse(result), false);
+
+        } catch (Exception e) {
+            return new HandleResult(errorResponse(e.getMessage()), false);
+        }
+    }
+
+    private JsonObject dispatchCommand(String command, JsonObject args) {
+        if (command == null) return null;
+        switch (command) {
+            case "ping":            return handlePing();
+            case "program_info":    return handleProgramInfo();
+            case "list_functions":  return handleListFunctions(args);
+            case "decompile":       return handleDecompile(args);
+            case "list_strings":    return handleListStrings(args);
+            case "list_imports":    return handleListImports();
+            case "list_exports":    return handleListExports();
+            case "memory_map":      return handleMemoryMap();
+            case "xrefs_to":        return handleXrefsTo(args);
+            case "xrefs_from":      return handleXrefsFrom(args);
+            case "import":          return handleImport(args);
+            case "analyze":         return handleAnalyze(args);
+            case "list_programs":   return handleListPrograms();
+            case "open_program":    return handleOpenProgram(args);
+            case "program_close":   return handleProgramClose();
+            case "program_delete":  return handleProgramDelete(args);
+            case "program_export":  return handleProgramExport(args);
+            // Find commands
+            case "find_string":     return handleFindString(args);
+            case "find_bytes":      return handleFindBytes(args);
+            case "find_function":   return handleFindFunction(args);
+            case "find_calls":      return handleFindCalls(args);
+            case "find_crypto":     return handleFindCrypto();
+            case "find_interesting": return handleFindInteresting();
+            // Symbol commands
+            case "symbol_list":     return handleSymbolList(args);
+            case "symbol_get":      return handleSymbolGet(args);
+            case "symbol_create":   return handleSymbolCreate(args);
+            case "symbol_delete":   return handleSymbolDelete(args);
+            case "symbol_rename":   return handleSymbolRename(args);
+            // Type commands
+            case "type_list":       return handleTypeList();
+            case "type_get":        return handleTypeGet(args);
+            case "type_create":     return handleTypeCreate(args);
+            case "type_apply":      return handleTypeApply(args);
+            // Comment commands
+            case "comment_list":    return handleCommentList();
+            case "comment_get":     return handleCommentGet(args);
+            case "comment_set":     return handleCommentSet(args);
+            case "comment_delete":  return handleCommentDelete(args);
+            // Graph commands
+            case "graph_calls":     return handleGraphCalls(args);
+            case "graph_callers":   return handleGraphCallers(args);
+            case "graph_callees":   return handleGraphCallees(args);
+            case "graph_export":    return handleGraphExport(args);
+            // Diff commands
+            case "diff_programs":   return handleDiffPrograms(args);
+            case "diff_functions":  return handleDiffFunctions(args);
+            // Patch commands
+            case "patch_bytes":     return handlePatchBytes(args);
+            case "patch_nop":       return handlePatchNop(args);
+            case "patch_export":    return handlePatchExport(args);
+            // Other commands
+            case "disasm":          return handleDisasm(args);
+            case "stats":           return handleStats();
+            // Script commands
+            case "script_run":      return handleScriptRun(args);
+            case "script_java":     return handleScriptJava(args);
+            case "script_python":   return handleScriptPython(args);
+            case "script_list":     return handleScriptList();
+            // Batch
+            case "batch":           return handleBatch(args);
+            default:                return null;
+        }
+    }
+
+    // --- Response Helpers ---
+
+    private JsonObject successResponse(JsonObject data) {
+        JsonObject resp = new JsonObject();
+        resp.addProperty("status", "success");
+        resp.add("data", data);
+        return resp;
+    }
+
+    private JsonObject errorResponse(String message) {
+        JsonObject resp = new JsonObject();
+        resp.addProperty("status", "error");
+        resp.addProperty("message", message);
+        return resp;
+    }
+
+    private JsonObject errorResult(String message) {
+        JsonObject result = new JsonObject();
+        result.addProperty("error", message);
+        return result;
+    }
+
+    // --- Address Resolution ---
+
+    private Address resolveAddress(String addrStr) {
+        if (currentProgram == null || addrStr == null || addrStr.isEmpty()) {
+            return null;
+        }
+
+        // Try as hex address first
+        Address addr = currentProgram.getAddressFactory().getAddress(addrStr);
+        if (addr != null) {
+            return addr;
+        }
+
+        // Try as function name
+        FunctionManager fm = currentProgram.getFunctionManager();
+        FunctionIterator iter = fm.getFunctions(true);
+        while (iter.hasNext()) {
+            Function func = iter.next();
+            if (func.getName().equals(addrStr)) {
+                return func.getEntryPoint();
+            }
+        }
+
+        return null;
+    }
+
+    // --- Helper to safely get string from JsonObject ---
+
+    private String getArgString(JsonObject args, String key) {
+        if (args == null || !args.has(key) || args.get(key).isJsonNull()) return null;
+        return args.get(key).getAsString();
+    }
+
+    private int getArgInt(JsonObject args, String key, int defaultVal) {
+        if (args == null || !args.has(key) || args.get(key).isJsonNull()) return defaultVal;
+        return args.get(key).getAsInt();
+    }
+
+    private boolean getArgBool(JsonObject args, String key, boolean defaultVal) {
+        if (args == null || !args.has(key) || args.get(key).isJsonNull()) return defaultVal;
+        return args.get(key).getAsBoolean();
+    }
+
+    // --- Command Handlers (M1: Core) ---
+
+    private JsonObject handlePing() {
+        JsonObject result = new JsonObject();
+        result.addProperty("message", "pong");
+        return result;
+    }
+
+    private JsonObject handleProgramInfo() {
+        if (currentProgram == null) {
+            return errorResult("No program loaded");
+        }
+
+        JsonObject result = new JsonObject();
+        result.addProperty("name", currentProgram.getName());
+        result.addProperty("executable_path", currentProgram.getExecutablePath());
+        result.addProperty("executable_format", currentProgram.getExecutableFormat());
+        String compiler = currentProgram.getCompiler();
+        if (compiler != null && !compiler.isEmpty()) {
+            result.addProperty("compiler", compiler);
+        } else {
+            result.add("compiler", JsonNull.INSTANCE);
+        }
+        result.addProperty("language", currentProgram.getLanguage().toString());
+        result.addProperty("image_base", currentProgram.getImageBase().toString());
+        result.addProperty("min_address", currentProgram.getMinAddress().toString());
+        result.addProperty("max_address", currentProgram.getMaxAddress().toString());
+
+        FunctionManager fm = currentProgram.getFunctionManager();
+        result.addProperty("function_count", fm.getFunctionCount());
+
+        return result;
+    }
+
+    private JsonObject handleListFunctions(JsonObject args) {
+        if (currentProgram == null) {
+            return errorResult("No program loaded");
+        }
+
+        int limit = getArgInt(args, "limit", 0);
+        String nameFilter = getArgString(args, "filter");
+
+        JsonArray functions = new JsonArray();
+        FunctionManager fm = currentProgram.getFunctionManager();
+        int count = 0;
+
+        FunctionIterator iter = fm.getFunctions(true);
+        while (iter.hasNext()) {
+            if (limit > 0 && count >= limit) break;
+
+            Function func = iter.next();
+            String name = func.getName();
+
+            if (nameFilter != null && !name.toLowerCase().contains(nameFilter.toLowerCase())) {
+                continue;
+            }
+
+            JsonObject funcData = new JsonObject();
+            funcData.addProperty("name", name);
+            funcData.addProperty("address", func.getEntryPoint().toString());
+            funcData.addProperty("size", func.getBody().getNumAddresses());
+            funcData.addProperty("entry_point", func.getEntryPoint().toString());
+
+            String sig = null;
+            try {
+                sig = func.getPrototypeString(false, false);
+            } catch (Exception e) {
+                // ignore
+            }
+            if (sig != null) {
+                funcData.addProperty("signature", sig);
+            } else {
+                funcData.add("signature", JsonNull.INSTANCE);
+            }
+
+            funcData.addProperty("calling_convention", func.getCallingConventionName());
+
+            String comment = func.getComment();
+            if (comment != null) {
+                funcData.addProperty("comment", comment);
+            } else {
+                funcData.add("comment", JsonNull.INSTANCE);
+            }
+
+            functions.add(funcData);
+            count++;
+        }
+
+        JsonObject result = new JsonObject();
+        result.add("functions", functions);
+        result.addProperty("count", functions.size());
+        return result;
+    }
+
+    private JsonObject handleDecompile(JsonObject args) {
+        if (currentProgram == null) {
+            return errorResult("No program loaded");
+        }
+
+        String addrStr = getArgString(args, "address");
+        if (addrStr == null || addrStr.isEmpty()) {
+            return errorResult("No address provided");
+        }
+
+        Address addr = resolveAddress(addrStr);
+        if (addr == null) {
+            return errorResult("Cannot resolve address or function name: " + addrStr);
+        }
+
+        FunctionManager fm = currentProgram.getFunctionManager();
+        Function func = fm.getFunctionContaining(addr);
+        if (func == null) {
+            return errorResult("No function at address " + addrStr);
+        }
+
+        DecompInterface decompiler = new DecompInterface();
+        try {
+            decompiler.openProgram(currentProgram);
+
+            TaskMonitor mon = new ConsoleTaskMonitor();
+            DecompileResults results = decompiler.decompileFunction(func, 30, mon);
+
+            if (results.decompileCompleted()) {
+                String code = results.getDecompiledFunction().getC();
+                JsonObject result = new JsonObject();
+                result.addProperty("name", func.getName());
+                result.addProperty("address", func.getEntryPoint().toString());
+                String sig = null;
+                try {
+                    sig = func.getPrototypeString(false, false);
+                } catch (Exception e) {
+                    // ignore
+                }
+                if (sig != null) {
+                    result.addProperty("signature", sig);
+                } else {
+                    result.add("signature", JsonNull.INSTANCE);
+                }
+                result.addProperty("code", code);
+                return result;
+            } else {
+                return errorResult("Decompilation failed");
+            }
+        } finally {
+            decompiler.dispose();
+        }
+    }
+
+    private JsonObject handleListStrings(JsonObject args) {
+        if (currentProgram == null) {
+            return errorResult("No program loaded");
+        }
+
+        int limit = getArgInt(args, "limit", 0);
+
+        JsonArray strings = new JsonArray();
+        Listing listing = currentProgram.getListing();
+        DataIterator dataIter = listing.getDefinedData(true);
+        int count = 0;
+
+        while (dataIter.hasNext()) {
+            if (limit > 0 && count >= limit) break;
+
+            Data data = dataIter.next();
+            if (data.hasStringValue()) {
+                try {
+                    String val = data.getValue().toString();
+                    JsonObject strData = new JsonObject();
+                    strData.addProperty("address", data.getAddress().toString());
+                    strData.addProperty("value", val);
+                    strData.addProperty("length", val.length());
+                    strings.add(strData);
+                    count++;
+                } catch (Exception e) {
+                    // skip
+                }
+            }
+        }
+
+        JsonObject result = new JsonObject();
+        result.add("strings", strings);
+        result.addProperty("count", strings.size());
+        return result;
+    }
+
+    private JsonObject handleListImports() {
+        if (currentProgram == null) {
+            return errorResult("No program loaded");
+        }
+
+        JsonArray imports = new JsonArray();
+        SymbolTable symbolTable = currentProgram.getSymbolTable();
+        ExternalManager extMgr = currentProgram.getExternalManager();
+
+        SymbolIterator extSymbols = symbolTable.getExternalSymbols();
+        while (extSymbols.hasNext()) {
+            Symbol symbol = extSymbols.next();
+            ExternalLocation extLoc = extMgr.getExternalLocation(symbol);
+            if (extLoc != null) {
+                JsonObject importData = new JsonObject();
+                importData.addProperty("name", symbol.getName());
+                importData.addProperty("address", symbol.getAddress().toString());
+                importData.addProperty("library", extLoc.getLibraryName());
+                imports.add(importData);
+            }
+        }
+
+        JsonObject result = new JsonObject();
+        result.add("imports", imports);
+        result.addProperty("count", imports.size());
+        return result;
+    }
+
+    private JsonObject handleListExports() {
+        if (currentProgram == null) {
+            return errorResult("No program loaded");
+        }
+
+        JsonArray exports = new JsonArray();
+        SymbolTable symbolTable = currentProgram.getSymbolTable();
+
+        SymbolIterator symIter = symbolTable.getSymbolIterator();
+        while (symIter.hasNext()) {
+            Symbol symbol = symIter.next();
+            if (symbol.isExternalEntryPoint()) {
+                JsonObject exportData = new JsonObject();
+                exportData.addProperty("name", symbol.getName());
+                exportData.addProperty("address", symbol.getAddress().toString());
+                exports.add(exportData);
+            }
+        }
+
+        JsonObject result = new JsonObject();
+        result.add("exports", exports);
+        result.addProperty("count", exports.size());
+        return result;
+    }
+
+    private JsonObject handleMemoryMap() {
+        if (currentProgram == null) {
+            return errorResult("No program loaded");
+        }
+
+        JsonArray blocks = new JsonArray();
+        Memory memory = currentProgram.getMemory();
+
+        for (MemoryBlock block : memory.getBlocks()) {
+            StringBuilder perms = new StringBuilder();
+            if (block.isRead()) perms.append("r");
+            if (block.isWrite()) perms.append("w");
+            if (block.isExecute()) perms.append("x");
+
+            JsonObject blockData = new JsonObject();
+            blockData.addProperty("name", block.getName());
+            blockData.addProperty("start", block.getStart().toString());
+            blockData.addProperty("end", block.getEnd().toString());
+            blockData.addProperty("size", block.getSize());
+            blockData.addProperty("permissions", perms.toString());
+            blockData.addProperty("is_initialized", block.isInitialized());
+            blockData.addProperty("is_loaded", block.isLoaded());
+            blocks.add(blockData);
+        }
+
+        JsonObject result = new JsonObject();
+        result.add("blocks", blocks);
+        result.addProperty("count", blocks.size());
+        return result;
+    }
+
+    private JsonObject handleXrefsTo(JsonObject args) {
+        if (currentProgram == null) {
+            return errorResult("No program loaded");
+        }
+
+        String addrStr = getArgString(args, "address");
+        if (addrStr == null || addrStr.isEmpty()) {
+            return errorResult("No address provided");
+        }
+
+        Address addr = resolveAddress(addrStr);
+        if (addr == null) {
+            return errorResult("Cannot resolve address or function name: " + addrStr);
+        }
+
+        JsonArray xrefs = new JsonArray();
+        ReferenceManager refMgr = currentProgram.getReferenceManager();
+        FunctionManager fm = currentProgram.getFunctionManager();
+
+        Reference[] refs = refMgr.getReferencesTo(addr);
+        for (Reference ref : refs) {
+            Address fromAddr = ref.getFromAddress();
+            Function fromFunc = fm.getFunctionContaining(fromAddr);
+            Function toFunc = fm.getFunctionContaining(addr);
+
+            JsonObject xrefData = new JsonObject();
+            xrefData.addProperty("from", fromAddr.toString());
+            xrefData.addProperty("to", addr.toString());
+            xrefData.addProperty("ref_type", ref.getReferenceType().toString());
+            if (fromFunc != null) {
+                xrefData.addProperty("from_function", fromFunc.getName());
+            } else {
+                xrefData.add("from_function", JsonNull.INSTANCE);
+            }
+            if (toFunc != null) {
+                xrefData.addProperty("to_function", toFunc.getName());
+            } else {
+                xrefData.add("to_function", JsonNull.INSTANCE);
+            }
+            xrefs.add(xrefData);
+        }
+
+        JsonObject result = new JsonObject();
+        result.add("xrefs", xrefs);
+        result.addProperty("count", xrefs.size());
+        return result;
+    }
+
+    private JsonObject handleXrefsFrom(JsonObject args) {
+        if (currentProgram == null) {
+            return errorResult("No program loaded");
+        }
+
+        String addrStr = getArgString(args, "address");
+        if (addrStr == null || addrStr.isEmpty()) {
+            return errorResult("No address provided");
+        }
+
+        Address addr = resolveAddress(addrStr);
+        if (addr == null) {
+            return errorResult("Cannot resolve address or function name: " + addrStr);
+        }
+
+        JsonArray xrefs = new JsonArray();
+        ReferenceManager refMgr = currentProgram.getReferenceManager();
+        FunctionManager fm = currentProgram.getFunctionManager();
+
+        Reference[] refs = refMgr.getReferencesFrom(addr);
+        for (Reference ref : refs) {
+            Address toAddr = ref.getToAddress();
+            Function fromFunc = fm.getFunctionContaining(addr);
+            Function toFunc = fm.getFunctionContaining(toAddr);
+
+            JsonObject xrefData = new JsonObject();
+            xrefData.addProperty("from", addr.toString());
+            xrefData.addProperty("to", toAddr.toString());
+            xrefData.addProperty("ref_type", ref.getReferenceType().toString());
+            if (fromFunc != null) {
+                xrefData.addProperty("from_function", fromFunc.getName());
+            } else {
+                xrefData.add("from_function", JsonNull.INSTANCE);
+            }
+            if (toFunc != null) {
+                xrefData.addProperty("to_function", toFunc.getName());
+            } else {
+                xrefData.add("to_function", JsonNull.INSTANCE);
+            }
+            xrefs.add(xrefData);
+        }
+
+        JsonObject result = new JsonObject();
+        result.add("xrefs", xrefs);
+        result.addProperty("count", xrefs.size());
+        return result;
+    }
+
+    private JsonObject handleImport(JsonObject args) {
+        String binaryPath = getArgString(args, "binary_path");
+        if (binaryPath == null || binaryPath.isEmpty()) {
+            return errorResult("No binary_path provided");
+        }
+
+        String programName = getArgString(args, "program");
+        File binaryFile = new File(binaryPath);
+        if (programName == null || programName.isEmpty()) {
+            programName = binaryFile.getName();
+        }
+
+        Project project = state.getProject();
+        if (project == null) {
+            return errorResult("No project open");
+        }
+
+        if (!binaryFile.exists()) {
+            return errorResult("Binary file not found: " + binaryPath);
+        }
+
+        try {
+            TaskMonitor mon = new ConsoleTaskMonitor();
+            MessageLog log = new MessageLog();
+            Object consumer = project;
+
+            // Ghidra 12+ API: importByUsingBestGuess(File, Project, String, Object, MessageLog, TaskMonitor)
+            Object loadResults = AutoImporter.importByUsingBestGuess(
+                binaryFile, project, "/", consumer, log, mon
+            );
+
+            if (loadResults == null) {
+                return errorResult("Failed to import binary");
+            }
+
+            // Save and release - loadResults is a LoadResults<Program>
+            // Use reflection to handle API differences across Ghidra versions
+            try {
+                java.lang.reflect.Method saveMethod = loadResults.getClass().getMethod("save", TaskMonitor.class);
+                // Actually it's per-loaded item; iterate
+                // LoadResults implements Iterable<Loaded<DomainObject>>
+                if (loadResults instanceof Iterable) {
+                    for (Object loaded : (Iterable<?>) loadResults) {
+                        java.lang.reflect.Method saveMeth = loaded.getClass().getMethod("save", TaskMonitor.class);
+                        saveMeth.invoke(loaded, mon);
+                    }
+                }
+                java.lang.reflect.Method releaseMethod = loadResults.getClass().getMethod("release", Object.class);
+                releaseMethod.invoke(loadResults, consumer);
+            } catch (Exception reflectEx) {
+                // Fallback: try direct cast for older APIs
+                printerr("Import save warning: " + reflectEx.getMessage());
+            }
+
+            JsonObject result = new JsonObject();
+            result.addProperty("status", "success");
+            result.addProperty("program", programName);
+            return result;
+
+        } catch (Exception e) {
+            return errorResult("Import failed: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleAnalyze(JsonObject args) {
+        String programName = getArgString(args, "program");
+        if (programName == null || programName.isEmpty()) {
+            return errorResult("No program name provided");
+        }
+
+        if (currentProgram == null) {
+            return errorResult("No program currently loaded");
+        }
+
+        // If requested program differs from current, switch to it
+        if (!currentProgram.getName().equals(programName)) {
+            JsonObject switchArgs = new JsonObject();
+            switchArgs.addProperty("program", programName);
+            JsonObject switchResult = handleOpenProgram(switchArgs);
+            if (switchResult.has("error")) {
+                return switchResult;
+            }
+        }
+
+        try {
+            // Try Ghidra 12+ import path first, fall back to older path
+            Class<?> aamClass;
+            try {
+                aamClass = Class.forName("ghidra.app.plugin.core.analysis.AutoAnalysisManager");
+            } catch (ClassNotFoundException e) {
+                aamClass = Class.forName("ghidra.app.cmd.analysis.AutoAnalysisManager");
+            }
+
+            java.lang.reflect.Method getManager = aamClass.getMethod("getAnalysisManager", ghidra.program.model.listing.Program.class);
+            Object autoMgr = getManager.invoke(null, currentProgram);
+
+            if (autoMgr == null) {
+                return errorResult("Could not get AutoAnalysisManager");
+            }
+
+            TaskMonitor mon = new ConsoleTaskMonitor();
+
+            // Schedule full re-analysis
+            java.lang.reflect.Method reAnalyze = aamClass.getMethod("reAnalyzeAll", Address.class);
+            reAnalyze.invoke(autoMgr, (Address) null);
+
+            java.lang.reflect.Method startAnalysis = aamClass.getMethod("startAnalysis", TaskMonitor.class);
+            startAnalysis.invoke(autoMgr, mon);
+
+            // Poll until analysis completes
+            java.lang.reflect.Method isAnalyzing = aamClass.getMethod("isAnalyzing");
+            while ((Boolean) isAnalyzing.invoke(autoMgr)) {
+                Thread.sleep(1000);
+            }
+
+            // Save the program
+            try {
+                currentProgram.save("Analysis complete", mon);
+            } catch (Exception saveErr) {
+                // Best effort
+            }
+
+            JsonObject result = new JsonObject();
+            result.addProperty("status", "success");
+            result.addProperty("program", programName);
+            return result;
+
+        } catch (Exception e) {
+            return errorResult("Analysis failed: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleListPrograms() {
+        Project project = state.getProject();
+        if (project == null) {
+            return errorResult("No project open");
+        }
+
+        try {
+            ProjectData projectData = project.getProjectData();
+            DomainFolder rootFolder = projectData.getRootFolder();
+            JsonArray programs = new JsonArray();
+
+            for (DomainFile domainFile : rootFolder.getFiles()) {
+                boolean isCurrent = (currentProgram != null &&
+                    domainFile.getName().equals(currentProgram.getName()));
+
+                JsonObject prog = new JsonObject();
+                prog.addProperty("name", domainFile.getName());
+                prog.addProperty("path", domainFile.getPathname());
+                prog.addProperty("type", domainFile.getContentType());
+                prog.addProperty("version", domainFile.getVersion());
+                prog.addProperty("current", isCurrent);
+                programs.add(prog);
+            }
+
+            JsonObject result = new JsonObject();
+            result.add("programs", programs);
+            result.addProperty("count", programs.size());
+            return result;
+
+        } catch (Exception e) {
+            return errorResult("Failed to list programs: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleOpenProgram(JsonObject args) {
+        String programName = getArgString(args, "program");
+        if (programName == null || programName.isEmpty()) {
+            return errorResult("Program name required");
+        }
+
+        // Already the current program? No-op.
+        if (currentProgram != null && currentProgram.getName().equals(programName)) {
+            JsonObject result = new JsonObject();
+            result.addProperty("status", "success");
+            result.addProperty("program", programName);
+            return result;
+        }
+
+        Project project = state.getProject();
+        if (project == null) {
+            return errorResult("No project open");
+        }
+
+        try {
+            ProjectData projectData = project.getProjectData();
+            DomainFolder rootFolder = projectData.getRootFolder();
+
+            // Find the domain file by name
+            DomainFile domainFile = null;
+            for (DomainFile f : rootFolder.getFiles()) {
+                if (f.getName().equals(programName)) {
+                    domainFile = f;
+                    break;
+                }
+            }
+
+            if (domainFile == null) {
+                // Try as a path
+                String path = programName.startsWith("/") ? programName : "/" + programName;
+                domainFile = projectData.getFile(path);
+            }
+
+            if (domainFile == null) {
+                // Build list of available programs for error message
+                StringBuilder available = new StringBuilder();
+                for (DomainFile f : rootFolder.getFiles()) {
+                    if (available.length() > 0) available.append(", ");
+                    available.append(f.getName());
+                }
+                return errorResult("Program not found: " + programName +
+                    ". Available: " + available.toString());
+            }
+
+            Object consumer = project;
+            TaskMonitor mon = new ConsoleTaskMonitor();
+
+            // Release current program if one is open
+            if (currentProgram != null) {
+                try {
+                    currentProgram.save("Auto-save before switch", mon);
+                } catch (Exception e) {
+                    // Best effort save
+                }
+                try {
+                    currentProgram.release(consumer);
+                } catch (Exception e) {
+                    // Best effort release
+                }
+            }
+
+            // Open the requested program
+            DomainObject domObj = domainFile.getDomainObject(consumer, true, false, mon);
+            if (domObj instanceof ghidra.program.model.listing.Program) {
+                currentProgram = (ghidra.program.model.listing.Program) domObj;
+            }
+
+            JsonObject result = new JsonObject();
+            result.addProperty("status", "success");
+            result.addProperty("program", currentProgram.getName());
+            return result;
+
+        } catch (Exception e) {
+            return errorResult("Failed to open program: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleProgramClose() {
+        if (currentProgram == null) {
+            return errorResult("No program loaded");
+        }
+
+        String programName = currentProgram.getName();
+
+        // In headless mode, we release the program
+        try {
+            Project project = state.getProject();
+            if (project != null) {
+                currentProgram.release(project);
+            }
+        } catch (Exception e) {
+            // Best effort
+        }
+
+        currentProgram = null;
+
+        JsonObject result = new JsonObject();
+        result.addProperty("status", "closed");
+        result.addProperty("program", programName);
+        return result;
+    }
+
+    private JsonObject handleProgramDelete(JsonObject args) {
+        String programName = getArgString(args, "program");
+        if (programName == null || programName.isEmpty()) {
+            return errorResult("Program name required");
+        }
+
+        Project project = state.getProject();
+        if (project == null) {
+            return errorResult("No project open");
+        }
+
+        try {
+            ProjectData projectData = project.getProjectData();
+            String path = programName.startsWith("/") ? programName : "/" + programName;
+            DomainFile programFile = projectData.getFile(path);
+
+            if (programFile == null) {
+                return errorResult("Program not found: " + programName);
+            }
+
+            programFile.delete();
+
+            JsonObject result = new JsonObject();
+            result.addProperty("status", "deleted");
+            result.addProperty("program", programName);
+            return result;
+
+        } catch (Exception e) {
+            return errorResult("Failed to delete program: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleProgramExport(JsonObject args) {
+        if (currentProgram == null) {
+            return errorResult("No program loaded");
+        }
+
+        String exportFormat = getArgString(args, "format");
+        if (exportFormat == null) exportFormat = "json";
+        String outputPath = getArgString(args, "output");
+
+        if ("json".equals(exportFormat)) {
+            // Get program info as base
+            JsonObject data = handleProgramInfo();
+            if (data.has("error")) {
+                return data;
+            }
+
+            // Add function list
+            FunctionManager fm = currentProgram.getFunctionManager();
+            JsonArray functions = new JsonArray();
+            FunctionIterator iter = fm.getFunctions(true);
+            while (iter.hasNext()) {
+                Function func = iter.next();
+                JsonObject funcObj = new JsonObject();
+                funcObj.addProperty("name", func.getName());
+                funcObj.addProperty("address", func.getEntryPoint().toString());
+                funcObj.addProperty("size", func.getBody().getNumAddresses());
+                functions.add(funcObj);
+            }
+            data.add("functions", functions);
+
+            if (outputPath != null && !outputPath.isEmpty()) {
+                try (PrintWriter pw = new PrintWriter(new FileWriter(outputPath))) {
+                    Gson prettyGson = new GsonBuilder().setPrettyPrinting().create();
+                    pw.println(prettyGson.toJson(data));
+
+                    JsonObject result = new JsonObject();
+                    result.addProperty("status", "exported");
+                    result.addProperty("format", "json");
+                    result.addProperty("output", outputPath);
+                    return result;
+                } catch (IOException e) {
+                    return errorResult("Failed to write file: " + e.getMessage());
+                }
+            } else {
+                return data;
+            }
+        } else {
+            return errorResult("Unsupported export format: " + exportFormat);
+        }
+    }
+
+    // ================================================================
+    // M2: Extended Command Handlers
+    // ================================================================
+
+    // --- Find Handlers ---
+
+    private JsonObject handleFindString(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String pattern = getArgString(args, "pattern");
+        if (pattern == null) pattern = "";
+
+        try {
+            JsonArray results = new JsonArray();
+            Listing listing = currentProgram.getListing();
+            DataIterator dataIter = listing.getDefinedData(true);
+
+            while (dataIter.hasNext()) {
+                Data data = dataIter.next();
+                if (data.hasStringValue()) {
+                    try {
+                        String val = data.getValue().toString();
+                        if (pattern.isEmpty() || val.toLowerCase().contains(pattern.toLowerCase())) {
+                            JsonObject item = new JsonObject();
+                            item.addProperty("address", data.getAddress().toString());
+                            item.addProperty("value", val);
+                            item.addProperty("length", data.getLength());
+                            results.add(item);
+                        }
+                    } catch (Exception e) { /* skip */ }
+                }
+            }
+
+            JsonObject result = new JsonObject();
+            result.add("results", results);
+            result.addProperty("count", results.size());
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to find strings: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleFindBytes(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String hexPattern = getArgString(args, "hex");
+        if (hexPattern == null || hexPattern.isEmpty()) {
+            return errorResult("No hex pattern provided");
+        }
+
+        try {
+            String hexClean = hexPattern.replace("0x", "").replace(" ", "");
+            byte[] searchBytes = new byte[hexClean.length() / 2];
+            for (int i = 0; i < searchBytes.length; i++) {
+                searchBytes[i] = (byte) Integer.parseInt(hexClean.substring(i * 2, i * 2 + 2), 16);
+            }
+
+            Memory memory = currentProgram.getMemory();
+            JsonArray results = new JsonArray();
+
+            Address addr = memory.getMinAddress();
+            while (addr != null && results.size() < 100) {
+                Address found = memory.findBytes(addr, searchBytes, null, true, monitor);
+                if (found == null) break;
+                JsonObject item = new JsonObject();
+                item.addProperty("address", found.toString());
+                results.add(item);
+                addr = found.add(1);
+            }
+
+            JsonObject result = new JsonObject();
+            result.add("results", results);
+            result.addProperty("count", results.size());
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to find bytes: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleFindFunction(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String pattern = getArgString(args, "pattern");
+        if (pattern == null) pattern = "";
+
+        try {
+            FunctionManager fm = currentProgram.getFunctionManager();
+            JsonArray results = new JsonArray();
+            boolean isWildcard = pattern.contains("*");
+
+            FunctionIterator iter = fm.getFunctions(true);
+            while (iter.hasNext()) {
+                Function func = iter.next();
+                String name = func.getName();
+                boolean matches;
+
+                if (isWildcard) {
+                    // Simple wildcard matching: convert * to regex .*
+                    String regex = pattern.replace(".", "\\.").replace("*", ".*");
+                    matches = name.matches(regex);
+                } else {
+                    matches = name.toLowerCase().contains(pattern.toLowerCase());
+                }
+
+                if (matches) {
+                    JsonObject item = new JsonObject();
+                    item.addProperty("name", name);
+                    item.addProperty("address", func.getEntryPoint().toString());
+                    item.addProperty("size", func.getBody().getNumAddresses());
+                    results.add(item);
+                }
+            }
+
+            JsonObject result = new JsonObject();
+            result.add("results", results);
+            result.addProperty("count", results.size());
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to find functions: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleFindCalls(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String funcName = getArgString(args, "function");
+        if (funcName == null || funcName.isEmpty()) {
+            return errorResult("No function name provided");
+        }
+
+        try {
+            FunctionManager fm = currentProgram.getFunctionManager();
+            Function targetFunc = null;
+
+            FunctionIterator iter = fm.getFunctions(true);
+            while (iter.hasNext()) {
+                Function func = iter.next();
+                if (func.getName().equals(funcName)) {
+                    targetFunc = func;
+                    break;
+                }
+            }
+
+            if (targetFunc == null) {
+                return errorResult("Function not found: " + funcName);
+            }
+
+            ReferenceManager refMgr = currentProgram.getReferenceManager();
+            Address targetAddr = targetFunc.getEntryPoint();
+            Reference[] refs = refMgr.getReferencesTo(targetAddr);
+            JsonArray results = new JsonArray();
+
+            for (Reference ref : refs) {
+                if (ref.getReferenceType().isCall()) {
+                    Address fromAddr = ref.getFromAddress();
+                    Function callerFunc = fm.getFunctionContaining(fromAddr);
+                    JsonObject item = new JsonObject();
+                    item.addProperty("address", fromAddr.toString());
+                    item.addProperty("caller", callerFunc != null ? callerFunc.getName() : "unknown");
+                    item.addProperty("type", ref.getReferenceType().toString());
+                    results.add(item);
+                }
+            }
+
+            JsonObject result = new JsonObject();
+            result.add("results", results);
+            result.addProperty("count", results.size());
+            result.addProperty("target", funcName);
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to find calls: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleFindCrypto() {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        try {
+            Memory memory = currentProgram.getMemory();
+            JsonArray results = new JsonArray();
+
+            String[][] cryptoPatterns = {
+                {"AES S-box", "637c777bf26b6fc53001672bfed7ab76"},
+                {"SHA-256", "428a2f98d728ae227137449123ef65cd"},
+                {"MD5", "d76aa478e8c7b756242070db01234567"}
+            };
+
+            for (String[] cp : cryptoPatterns) {
+                String name = cp[0];
+                String hexPattern = cp[1];
+                byte[] searchBytes = new byte[hexPattern.length() / 2];
+                for (int i = 0; i < searchBytes.length; i++) {
+                    searchBytes[i] = (byte) Integer.parseInt(hexPattern.substring(i * 2, i * 2 + 2), 16);
+                }
+
+                Address addr = memory.getMinAddress();
+                Address found = memory.findBytes(addr, searchBytes, null, true, monitor);
+                if (found != null) {
+                    JsonObject item = new JsonObject();
+                    item.addProperty("type", name);
+                    item.addProperty("address", found.toString());
+                    item.addProperty("pattern", hexPattern);
+                    results.add(item);
+                }
+            }
+
+            JsonObject result = new JsonObject();
+            result.add("results", results);
+            result.addProperty("count", results.size());
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to find crypto: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleFindInteresting() {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        try {
+            FunctionManager fm = currentProgram.getFunctionManager();
+            ReferenceManager refMgr = currentProgram.getReferenceManager();
+            List<JsonObject> resultsList = new ArrayList<>();
+
+            String[] suspiciousNames = {"password", "key", "encrypt", "decrypt", "crypt",
+                "auth", "login", "admin", "secret"};
+
+            FunctionIterator iter = fm.getFunctions(true);
+            while (iter.hasNext()) {
+                Function func = iter.next();
+                String funcName = func.getName();
+                Address funcAddr = func.getEntryPoint();
+                long funcSize = func.getBody().getNumAddresses();
+
+                Reference[] refs = refMgr.getReferencesTo(funcAddr);
+                int xrefCount = refs.length;
+
+                JsonArray reasons = new JsonArray();
+
+                if (funcSize > 1000) {
+                    reasons.add(new JsonPrimitive("large function (" + funcSize + " bytes)"));
+                }
+                if (xrefCount > 50) {
+                    reasons.add(new JsonPrimitive("many xrefs (" + xrefCount + ")"));
+                }
+                for (String sus : suspiciousNames) {
+                    if (funcName.toLowerCase().contains(sus)) {
+                        reasons.add(new JsonPrimitive("suspicious name"));
+                        break;
+                    }
+                }
+
+                if (reasons.size() > 0) {
+                    JsonObject item = new JsonObject();
+                    item.addProperty("name", funcName);
+                    item.addProperty("address", funcAddr.toString());
+                    item.addProperty("size", funcSize);
+                    item.addProperty("xrefs", xrefCount);
+                    item.add("reasons", reasons);
+                    resultsList.add(item);
+                }
+            }
+
+            // Sort by number of reasons (descending)
+            resultsList.sort((a, b) -> b.getAsJsonArray("reasons").size() - a.getAsJsonArray("reasons").size());
+
+            JsonArray results = new JsonArray();
+            int limit = Math.min(50, resultsList.size());
+            for (int i = 0; i < limit; i++) {
+                results.add(resultsList.get(i));
+            }
+
+            JsonObject result = new JsonObject();
+            result.add("results", results);
+            result.addProperty("count", resultsList.size());
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to find interesting functions: " + e.getMessage());
+        }
+    }
+
+    // --- Symbol Handlers ---
+
+    private JsonObject handleSymbolList(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String nameFilter = getArgString(args, "filter");
+
+        SymbolTable symbolTable = currentProgram.getSymbolTable();
+        JsonArray symbols = new JsonArray();
+
+        SymbolIterator symIter = symbolTable.getAllSymbols(true);
+        while (symIter.hasNext()) {
+            Symbol symbol = symIter.next();
+            String name = symbol.getName();
+
+            if (nameFilter != null && !name.toLowerCase().contains(nameFilter.toLowerCase())) {
+                continue;
+            }
+
+            JsonObject symData = new JsonObject();
+            symData.addProperty("name", name);
+            symData.addProperty("address", symbol.getAddress().toString());
+            symData.addProperty("type", symbol.getSymbolType().toString());
+            symData.addProperty("source", symbol.getSource().toString());
+            symData.addProperty("is_primary", symbol.isPrimary());
+            symbols.add(symData);
+        }
+
+        JsonObject result = new JsonObject();
+        result.add("symbols", symbols);
+        result.addProperty("count", symbols.size());
+        return result;
+    }
+
+    private JsonObject handleSymbolGet(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String addressOrName = getArgString(args, "name");
+        if (addressOrName == null || addressOrName.isEmpty()) {
+            return errorResult("No symbol name or address provided");
+        }
+
+        SymbolTable symbolTable = currentProgram.getSymbolTable();
+
+        // Try as address first
+        boolean looksLikeAddress = addressOrName.startsWith("0x") ||
+            addressOrName.chars().allMatch(c -> "0123456789abcdefABCDEF".indexOf(c) >= 0);
+
+        if (looksLikeAddress) {
+            try {
+                Address addr = currentProgram.getAddressFactory().getAddress(addressOrName);
+                if (addr != null) {
+                    Symbol[] symbolsAtAddr = symbolTable.getSymbols(addr);
+                    if (symbolsAtAddr.length == 0) {
+                        return errorResult("No symbol at address: " + addressOrName);
+                    }
+                    JsonArray syms = new JsonArray();
+                    for (Symbol s : symbolsAtAddr) {
+                        JsonObject symData = new JsonObject();
+                        symData.addProperty("name", s.getName());
+                        symData.addProperty("address", s.getAddress().toString());
+                        symData.addProperty("type", s.getSymbolType().toString());
+                        symData.addProperty("source", s.getSource().toString());
+                        syms.add(symData);
+                    }
+                    JsonObject result = new JsonObject();
+                    result.add("symbols", syms);
+                    return result;
+                }
+            } catch (Exception e) {
+                // fall through to name lookup
+            }
+        }
+
+        // Try as name
+        SymbolIterator symsByName = symbolTable.getSymbols(addressOrName);
+        JsonArray syms = new JsonArray();
+        while (symsByName.hasNext()) {
+            Symbol s = symsByName.next();
+            JsonObject symData = new JsonObject();
+            symData.addProperty("name", s.getName());
+            symData.addProperty("address", s.getAddress().toString());
+            symData.addProperty("type", s.getSymbolType().toString());
+            symData.addProperty("source", s.getSource().toString());
+            syms.add(symData);
+        }
+
+        if (syms.size() == 0) {
+            return errorResult("Symbol not found: " + addressOrName);
+        }
+
+        JsonObject result = new JsonObject();
+        result.add("symbols", syms);
+        return result;
+    }
+
+    private JsonObject handleSymbolCreate(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String addressStr = getArgString(args, "address");
+        String name = getArgString(args, "name");
+        if (addressStr == null || name == null) {
+            return errorResult("Address and name required");
+        }
+
+        try {
+            Address addr = currentProgram.getAddressFactory().getAddress(addressStr);
+            if (addr == null) return errorResult("Invalid address: " + addressStr);
+
+            int txId = currentProgram.startTransaction("Create symbol");
+            try {
+                SymbolTable symbolTable = currentProgram.getSymbolTable();
+                symbolTable.createLabel(addr, name, SourceType.USER_DEFINED);
+                currentProgram.endTransaction(txId, true);
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+
+            JsonObject result = new JsonObject();
+            result.addProperty("status", "created");
+            result.addProperty("address", addressStr);
+            result.addProperty("name", name);
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to create symbol: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleSymbolDelete(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String name = getArgString(args, "name");
+        if (name == null) return errorResult("Symbol name required");
+
+        try {
+            SymbolTable symbolTable = currentProgram.getSymbolTable();
+            SymbolIterator syms = symbolTable.getSymbols(name);
+            List<Symbol> toDelete = new ArrayList<>();
+            while (syms.hasNext()) {
+                toDelete.add(syms.next());
+            }
+
+            if (toDelete.isEmpty()) {
+                return errorResult("Symbol not found: " + name);
+            }
+
+            int txId = currentProgram.startTransaction("Delete symbol");
+            try {
+                for (Symbol s : toDelete) {
+                    s.delete();
+                }
+                currentProgram.endTransaction(txId, true);
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+
+            JsonObject result = new JsonObject();
+            result.addProperty("status", "deleted");
+            result.addProperty("name", name);
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to delete symbol: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleSymbolRename(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String oldName = getArgString(args, "old_name");
+        String newName = getArgString(args, "new_name");
+        if (oldName == null || newName == null) {
+            return errorResult("old_name and new_name required");
+        }
+
+        try {
+            SymbolTable symbolTable = currentProgram.getSymbolTable();
+            SymbolIterator syms = symbolTable.getSymbols(oldName);
+            List<Symbol> toRename = new ArrayList<>();
+            while (syms.hasNext()) {
+                toRename.add(syms.next());
+            }
+
+            if (toRename.isEmpty()) {
+                return errorResult("Symbol not found: " + oldName);
+            }
+
+            int txId = currentProgram.startTransaction("Rename symbol");
+            try {
+                for (Symbol s : toRename) {
+                    s.setName(newName, SourceType.USER_DEFINED);
+                }
+                currentProgram.endTransaction(txId, true);
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+
+            JsonObject result = new JsonObject();
+            result.addProperty("status", "renamed");
+            result.addProperty("old_name", oldName);
+            result.addProperty("new_name", newName);
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to rename symbol: " + e.getMessage());
+        }
+    }
+
+    // --- Type Handlers ---
+
+    private JsonObject handleTypeList() {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        DataTypeManager dtm = currentProgram.getDataTypeManager();
+        JsonArray types = new JsonArray();
+
+        Iterator<DataType> dtIter = dtm.getAllDataTypes();
+        while (dtIter.hasNext()) {
+            DataType dt = dtIter.next();
+            JsonObject typeData = new JsonObject();
+            typeData.addProperty("name", dt.getName());
+            typeData.addProperty("path", dt.getPathName());
+            typeData.addProperty("category", dt.getCategoryPath().toString());
+            typeData.addProperty("size", dt.getLength());
+            types.add(typeData);
+        }
+
+        JsonObject result = new JsonObject();
+        result.add("types", types);
+        result.addProperty("count", types.size());
+        return result;
+    }
+
+    private JsonObject handleTypeGet(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String typeName = getArgString(args, "name");
+        if (typeName == null) return errorResult("Type name required");
+
+        DataTypeManager dtm = currentProgram.getDataTypeManager();
+
+        // Try by path first, then by name
+        DataType dataType = dtm.getDataType(typeName);
+        if (dataType == null) {
+            Iterator<DataType> dtIter = dtm.getAllDataTypes();
+            while (dtIter.hasNext()) {
+                DataType dt = dtIter.next();
+                if (dt.getName().equals(typeName)) {
+                    dataType = dt;
+                    break;
+                }
+            }
+        }
+
+        if (dataType == null) {
+            return errorResult("Type not found: " + typeName);
+        }
+
+        JsonObject typeInfo = new JsonObject();
+        typeInfo.addProperty("name", dataType.getName());
+        typeInfo.addProperty("path", dataType.getPathName());
+        typeInfo.addProperty("category", dataType.getCategoryPath().toString());
+        typeInfo.addProperty("size", dataType.getLength());
+        typeInfo.addProperty("description", dataType.getDescription());
+
+        if (dataType instanceof Structure) {
+            Structure struct = (Structure) dataType;
+            JsonArray components = new JsonArray();
+            for (DataTypeComponent comp : struct.getComponents()) {
+                JsonObject compObj = new JsonObject();
+                compObj.addProperty("name", comp.getFieldName());
+                compObj.addProperty("type", comp.getDataType().getName());
+                compObj.addProperty("offset", comp.getOffset());
+                compObj.addProperty("size", comp.getLength());
+                components.add(compObj);
+            }
+            typeInfo.add("components", components);
+        } else if (dataType instanceof Union) {
+            Union union = (Union) dataType;
+            JsonArray components = new JsonArray();
+            for (DataTypeComponent comp : union.getComponents()) {
+                JsonObject compObj = new JsonObject();
+                compObj.addProperty("name", comp.getFieldName());
+                compObj.addProperty("type", comp.getDataType().getName());
+                compObj.addProperty("offset", comp.getOffset());
+                compObj.addProperty("size", comp.getLength());
+                components.add(compObj);
+            }
+            typeInfo.add("components", components);
+        }
+
+        return typeInfo;
+    }
+
+    private JsonObject handleTypeCreate(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String typeName = getArgString(args, "definition");
+        if (typeName == null) typeName = getArgString(args, "name");
+        if (typeName == null) return errorResult("Type name required");
+
+        try {
+            DataTypeManager dtm = currentProgram.getDataTypeManager();
+            int txId = currentProgram.startTransaction("Create type");
+            try {
+                StructureDataType newStruct = new StructureDataType(typeName, 0);
+                dtm.addDataType(newStruct, null);
+                currentProgram.endTransaction(txId, true);
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+
+            JsonObject result = new JsonObject();
+            result.addProperty("status", "created");
+            result.addProperty("name", typeName);
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to create type: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleTypeApply(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String addressStr = getArgString(args, "address");
+        String typeName = getArgString(args, "type_name");
+        if (addressStr == null || typeName == null) {
+            return errorResult("Address and type_name required");
+        }
+
+        try {
+            Address addr = currentProgram.getAddressFactory().getAddress(addressStr);
+            if (addr == null) return errorResult("Invalid address: " + addressStr);
+
+            DataTypeManager dtm = currentProgram.getDataTypeManager();
+            DataType dataType = dtm.getDataType(typeName);
+            if (dataType == null) {
+                Iterator<DataType> dtIter = dtm.getAllDataTypes();
+                while (dtIter.hasNext()) {
+                    DataType dt = dtIter.next();
+                    if (dt.getName().equals(typeName)) {
+                        dataType = dt;
+                        break;
+                    }
+                }
+            }
+            if (dataType == null) {
+                return errorResult("Type not found: " + typeName);
+            }
+
+            int txId = currentProgram.startTransaction("Apply type");
+            try {
+                Listing listing = currentProgram.getListing();
+                listing.createData(addr, dataType);
+                currentProgram.endTransaction(txId, true);
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+
+            JsonObject result = new JsonObject();
+            result.addProperty("status", "applied");
+            result.addProperty("address", addressStr);
+            result.addProperty("type", typeName);
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to apply type: " + e.getMessage());
+        }
+    }
+
+    // --- Comment Handlers ---
+
+    private int resolveCommentType(String typeStr) {
+        if (typeStr == null) return CodeUnit.EOL_COMMENT;
+        switch (typeStr.toUpperCase()) {
+            case "PRE":   return CodeUnit.PRE_COMMENT;
+            case "POST":  return CodeUnit.POST_COMMENT;
+            case "PLATE": return CodeUnit.PLATE_COMMENT;
+            default:      return CodeUnit.EOL_COMMENT;
+        }
+    }
+
+    private JsonObject handleCommentList() {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        Listing listing = currentProgram.getListing();
+        Memory memory = currentProgram.getMemory();
+        JsonArray comments = new JsonArray();
+
+        int[][] commentTypes = {
+            {CodeUnit.EOL_COMMENT},
+            {CodeUnit.PRE_COMMENT},
+            {CodeUnit.POST_COMMENT},
+            {CodeUnit.PLATE_COMMENT}
+        };
+        String[] commentNames = {"EOL", "PRE", "POST", "PLATE"};
+
+        for (MemoryBlock block : memory.getBlocks()) {
+            ghidra.program.model.address.AddressSet addrSet =
+                new ghidra.program.model.address.AddressSet(block.getStart(), block.getEnd());
+
+            ghidra.program.model.address.AddressIterator addrIter =
+                listing.getCommentAddressIterator(addrSet, true);
+
+            while (addrIter.hasNext()) {
+                Address addr = addrIter.next();
+                CodeUnit cu = listing.getCodeUnitAt(addr);
+                if (cu == null) continue;
+
+                for (int i = 0; i < commentNames.length; i++) {
+                    String text = cu.getComment(commentTypes[i][0]);
+                    if (text != null) {
+                        JsonObject commentObj = new JsonObject();
+                        commentObj.addProperty("address", addr.toString());
+                        commentObj.addProperty("type", commentNames[i]);
+                        commentObj.addProperty("text", text);
+                        comments.add(commentObj);
+                    }
+                }
+            }
+        }
+
+        JsonObject result = new JsonObject();
+        result.add("comments", comments);
+        result.addProperty("count", comments.size());
+        return result;
+    }
+
+    private JsonObject handleCommentGet(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String addressStr = getArgString(args, "address");
+        if (addressStr == null) return errorResult("Address required");
+
+        try {
+            Address addr = currentProgram.getAddressFactory().getAddress(addressStr);
+            if (addr == null) return errorResult("Invalid address: " + addressStr);
+
+            Listing listing = currentProgram.getListing();
+            CodeUnit cu = listing.getCodeUnitAt(addr);
+            if (cu == null) return errorResult("No code unit at address: " + addressStr);
+
+            int[] types = {CodeUnit.EOL_COMMENT, CodeUnit.PRE_COMMENT, CodeUnit.POST_COMMENT, CodeUnit.PLATE_COMMENT};
+            String[] names = {"EOL", "PRE", "POST", "PLATE"};
+
+            JsonArray comments = new JsonArray();
+            for (int i = 0; i < types.length; i++) {
+                String text = cu.getComment(types[i]);
+                if (text != null) {
+                    JsonObject commentObj = new JsonObject();
+                    commentObj.addProperty("type", names[i]);
+                    commentObj.addProperty("text", text);
+                    comments.add(commentObj);
+                }
+            }
+
+            JsonObject result = new JsonObject();
+            result.addProperty("address", addressStr);
+            result.add("comments", comments);
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to get comments: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleCommentSet(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String addressStr = getArgString(args, "address");
+        String text = getArgString(args, "text");
+        String commentTypeStr = getArgString(args, "comment_type");
+        if (commentTypeStr == null) commentTypeStr = "EOL";
+
+        if (addressStr == null) return errorResult("Address required");
+
+        try {
+            Address addr = currentProgram.getAddressFactory().getAddress(addressStr);
+            if (addr == null) return errorResult("Invalid address: " + addressStr);
+
+            Set<String> validTypes = new HashSet<>(Arrays.asList("EOL", "PRE", "POST", "PLATE"));
+            if (!validTypes.contains(commentTypeStr.toUpperCase())) {
+                return errorResult("Invalid comment type: " + commentTypeStr + ". Must be one of: EOL, PRE, POST, PLATE");
+            }
+
+            int commentType = resolveCommentType(commentTypeStr);
+            Listing listing = currentProgram.getListing();
+
+            int txId = currentProgram.startTransaction("Set comment");
+            try {
+                listing.setComment(addr, commentType, text);
+                currentProgram.endTransaction(txId, true);
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+
+            JsonObject result = new JsonObject();
+            result.addProperty("status", "set");
+            result.addProperty("address", addressStr);
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to set comment: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleCommentDelete(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String addressStr = getArgString(args, "address");
+        if (addressStr == null) return errorResult("Address required");
+
+        try {
+            Address addr = currentProgram.getAddressFactory().getAddress(addressStr);
+            if (addr == null) return errorResult("Invalid address: " + addressStr);
+
+            Listing listing = currentProgram.getListing();
+
+            int txId = currentProgram.startTransaction("Delete comments");
+            try {
+                listing.setComment(addr, CodeUnit.EOL_COMMENT, null);
+                listing.setComment(addr, CodeUnit.PRE_COMMENT, null);
+                listing.setComment(addr, CodeUnit.POST_COMMENT, null);
+                listing.setComment(addr, CodeUnit.PLATE_COMMENT, null);
+                currentProgram.endTransaction(txId, true);
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+
+            JsonObject result = new JsonObject();
+            result.addProperty("status", "deleted");
+            result.addProperty("address", addressStr);
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to delete comment: " + e.getMessage());
+        }
+    }
+
+    // --- Graph Handlers ---
+
+    private JsonObject handleGraphCalls(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        int limit = getArgInt(args, "limit", 0);
+
+        FunctionManager fm = currentProgram.getFunctionManager();
+        ReferenceManager refMgr = currentProgram.getReferenceManager();
+        JsonArray nodes = new JsonArray();
+        JsonArray edges = new JsonArray();
+        int count = 0;
+
+        FunctionIterator iter = fm.getFunctions(true);
+        while (iter.hasNext()) {
+            if (limit > 0 && count >= limit) break;
+            Function func = iter.next();
+            String funcAddr = func.getEntryPoint().toString();
+
+            JsonObject node = new JsonObject();
+            node.addProperty("id", funcAddr);
+            node.addProperty("name", func.getName());
+            node.addProperty("address", funcAddr);
+            nodes.add(node);
+
+            Reference[] refs = refMgr.getReferencesFrom(func.getEntryPoint());
+            for (Reference ref : refs) {
+                if (ref.getReferenceType().isCall()) {
+                    Address targetAddr = ref.getToAddress();
+                    Function targetFunc = fm.getFunctionAt(targetAddr);
+                    if (targetFunc != null) {
+                        JsonObject edge = new JsonObject();
+                        edge.addProperty("from", funcAddr);
+                        edge.addProperty("to", targetAddr.toString());
+                        edge.addProperty("type", "call");
+                        edges.add(edge);
+                    }
+                }
+            }
+            count++;
+        }
+
+        JsonObject result = new JsonObject();
+        result.add("nodes", nodes);
+        result.add("edges", edges);
+        result.addProperty("node_count", nodes.size());
+        result.addProperty("edge_count", edges.size());
+        return result;
+    }
+
+    private Function findFunctionByNameOrAddress(String nameOrAddr) {
+        FunctionManager fm = currentProgram.getFunctionManager();
+
+        // Try as address
+        boolean looksLikeAddr = nameOrAddr.startsWith("0x") ||
+            nameOrAddr.chars().allMatch(c -> "0123456789abcdefABCDEF".indexOf(c) >= 0);
+        if (looksLikeAddr) {
+            Address addr = currentProgram.getAddressFactory().getAddress(nameOrAddr);
+            if (addr != null) {
+                Function f = fm.getFunctionAt(addr);
+                if (f != null) return f;
+            }
+        }
+
+        // Try as name
+        FunctionIterator iter = fm.getFunctions(true);
+        while (iter.hasNext()) {
+            Function func = iter.next();
+            if (func.getName().equals(nameOrAddr)) return func;
+        }
+        return null;
+    }
+
+    private JsonObject handleGraphCallers(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String funcName = getArgString(args, "function");
+        if (funcName == null) return errorResult("Function name required");
+        int depth = getArgInt(args, "depth", 1);
+
+        Function targetFunc = findFunctionByNameOrAddress(funcName);
+        if (targetFunc == null) return errorResult("Function not found: " + funcName);
+
+        ReferenceManager refMgr = currentProgram.getReferenceManager();
+        FunctionManager fm = currentProgram.getFunctionManager();
+        JsonArray callers = new JsonArray();
+        Set<String> visited = new HashSet<>();
+
+        findCallersRecursive(targetFunc, 0, depth, callers, visited, refMgr, fm);
+
+        JsonObject result = new JsonObject();
+        result.addProperty("function", funcName);
+        result.add("callers", callers);
+        result.addProperty("count", callers.size());
+        return result;
+    }
+
+    private void findCallersRecursive(Function func, int currentDepth, int maxDepth,
+            JsonArray callers, Set<String> visited, ReferenceManager refMgr, FunctionManager fm) {
+        if (maxDepth > 0 && currentDepth >= maxDepth) return;
+        String funcAddrStr = func.getEntryPoint().toString();
+        if (visited.contains(funcAddrStr)) return;
+        visited.add(funcAddrStr);
+
+        Reference[] refs = refMgr.getReferencesTo(func.getEntryPoint());
+        for (Reference ref : refs) {
+            if (ref.getReferenceType().isCall()) {
+                Address fromAddr = ref.getFromAddress();
+                Function callerFunc = fm.getFunctionContaining(fromAddr);
+                if (callerFunc != null) {
+                    JsonObject callerInfo = new JsonObject();
+                    callerInfo.addProperty("name", callerFunc.getName());
+                    callerInfo.addProperty("address", callerFunc.getEntryPoint().toString());
+                    callerInfo.addProperty("call_site", fromAddr.toString());
+                    callerInfo.addProperty("depth", currentDepth);
+                    callers.add(callerInfo);
+
+                    if (maxDepth == 0 || currentDepth + 1 < maxDepth) {
+                        findCallersRecursive(callerFunc, currentDepth + 1, maxDepth, callers, visited, refMgr, fm);
+                    }
+                }
+            }
+        }
+    }
+
+    private JsonObject handleGraphCallees(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String funcName = getArgString(args, "function");
+        if (funcName == null) return errorResult("Function name required");
+        int depth = getArgInt(args, "depth", 1);
+
+        Function targetFunc = findFunctionByNameOrAddress(funcName);
+        if (targetFunc == null) return errorResult("Function not found: " + funcName);
+
+        ReferenceManager refMgr = currentProgram.getReferenceManager();
+        FunctionManager fm = currentProgram.getFunctionManager();
+        JsonArray callees = new JsonArray();
+        Set<String> visited = new HashSet<>();
+
+        findCalleesRecursive(targetFunc, 0, depth, callees, visited, refMgr, fm);
+
+        JsonObject result = new JsonObject();
+        result.addProperty("function", funcName);
+        result.add("callees", callees);
+        result.addProperty("count", callees.size());
+        return result;
+    }
+
+    private void findCalleesRecursive(Function func, int currentDepth, int maxDepth,
+            JsonArray callees, Set<String> visited, ReferenceManager refMgr, FunctionManager fm) {
+        if (maxDepth > 0 && currentDepth >= maxDepth) return;
+        String funcAddrStr = func.getEntryPoint().toString();
+        if (visited.contains(funcAddrStr)) return;
+        visited.add(funcAddrStr);
+
+        Reference[] refs = refMgr.getReferencesFrom(func.getEntryPoint());
+        for (Reference ref : refs) {
+            if (ref.getReferenceType().isCall()) {
+                Address toAddr = ref.getToAddress();
+                Function calleeFunc = fm.getFunctionAt(toAddr);
+                if (calleeFunc != null) {
+                    JsonObject calleeInfo = new JsonObject();
+                    calleeInfo.addProperty("name", calleeFunc.getName());
+                    calleeInfo.addProperty("address", calleeFunc.getEntryPoint().toString());
+                    calleeInfo.addProperty("call_site", ref.getFromAddress().toString());
+                    calleeInfo.addProperty("depth", currentDepth);
+                    callees.add(calleeInfo);
+
+                    if (maxDepth == 0 || currentDepth + 1 < maxDepth) {
+                        findCalleesRecursive(calleeFunc, currentDepth + 1, maxDepth, callees, visited, refMgr, fm);
+                    }
+                }
+            }
+        }
+    }
+
+    private JsonObject handleGraphExport(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String format = getArgString(args, "format");
+        if (format == null) format = "json";
+
+        // Build graph first
+        JsonObject graphData = handleGraphCalls(new JsonObject());
+        if (graphData.has("error")) return graphData;
+
+        if ("json".equals(format)) {
+            return graphData;
+        } else if ("dot".equals(format)) {
+            StringBuilder sb = new StringBuilder();
+            sb.append("digraph CallGraph {\n");
+            sb.append("  rankdir=LR;\n");
+            sb.append("  node [shape=box];\n");
+
+            JsonArray nodes = graphData.getAsJsonArray("nodes");
+            for (int i = 0; i < nodes.size(); i++) {
+                JsonObject node = nodes.get(i).getAsJsonObject();
+                String nodeId = node.get("id").getAsString().replace(":", "_");
+                String label = node.get("name").getAsString();
+                sb.append("  \"").append(nodeId).append("\" [label=\"").append(label).append("\"];\n");
+            }
+
+            JsonArray edges = graphData.getAsJsonArray("edges");
+            for (int i = 0; i < edges.size(); i++) {
+                JsonObject edge = edges.get(i).getAsJsonObject();
+                String fromId = edge.get("from").getAsString().replace(":", "_");
+                String toId = edge.get("to").getAsString().replace(":", "_");
+                sb.append("  \"").append(fromId).append("\" -> \"").append(toId).append("\";\n");
+            }
+
+            sb.append("}");
+
+            JsonObject result = new JsonObject();
+            result.addProperty("format", "dot");
+            result.addProperty("output", sb.toString());
+            return result;
+        } else {
+            return errorResult("Unsupported format: " + format);
+        }
+    }
+
+    // --- Diff Handlers ---
+
+    private JsonObject handleDiffPrograms(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String prog1 = getArgString(args, "program1");
+        String prog2 = getArgString(args, "program2");
+        if (prog1 == null) prog1 = "";
+        if (prog2 == null) prog2 = "";
+
+        try {
+            FunctionManager fm = currentProgram.getFunctionManager();
+            Memory memory = currentProgram.getMemory();
+            SymbolTable symbolTable = currentProgram.getSymbolTable();
+
+            JsonObject prog1Stats = new JsonObject();
+            prog1Stats.addProperty("name", prog1);
+            prog1Stats.addProperty("function_count", fm.getFunctionCount());
+            prog1Stats.addProperty("memory_size", memory.getSize());
+            prog1Stats.addProperty("symbol_count", symbolTable.getNumSymbols());
+
+            JsonArray memBlocks = new JsonArray();
+            for (MemoryBlock block : memory.getBlocks()) {
+                JsonObject blockObj = new JsonObject();
+                blockObj.addProperty("name", block.getName());
+                blockObj.addProperty("start", block.getStart().toString());
+                blockObj.addProperty("end", block.getEnd().toString());
+                blockObj.addProperty("size", block.getSize());
+                memBlocks.add(blockObj);
+            }
+            prog1Stats.add("memory_blocks", memBlocks);
+
+            JsonObject prog2Stats = new JsonObject();
+            prog2Stats.addProperty("name", prog2);
+            prog2Stats.addProperty("note", "Comparison requires loading second program");
+
+            JsonObject result = new JsonObject();
+            result.add("program1", prog1Stats);
+            result.add("program2", prog2Stats);
+            result.addProperty("status", "partial");
+            result.addProperty("message", "Single program stats returned (multi-program comparison not implemented)");
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to diff programs: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleDiffFunctions(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String func1Name = getArgString(args, "func1");
+        String func2Name = getArgString(args, "func2");
+        if (func1Name == null || func2Name == null) {
+            return errorResult("func1 and func2 required");
+        }
+
+        try {
+            FunctionManager fm = currentProgram.getFunctionManager();
+            Function func1 = null, func2 = null;
+
+            FunctionIterator iter = fm.getFunctions(true);
+            while (iter.hasNext()) {
+                Function f = iter.next();
+                if (f.getName().equals(func1Name)) func1 = f;
+                if (f.getName().equals(func2Name)) func2 = f;
+            }
+
+            if (func1 == null) return errorResult("Function not found: " + func1Name);
+            if (func2 == null) return errorResult("Function not found: " + func2Name);
+
+            DecompInterface decompiler = new DecompInterface();
+            try {
+                decompiler.openProgram(currentProgram);
+                TaskMonitor mon = new ConsoleTaskMonitor();
+
+                DecompileResults res1 = decompiler.decompileFunction(func1, 30, mon);
+                DecompileResults res2 = decompiler.decompileFunction(func2, 30, mon);
+
+                if (!res1.decompileCompleted()) return errorResult("Failed to decompile " + func1Name);
+                if (!res2.decompileCompleted()) return errorResult("Failed to decompile " + func2Name);
+
+                String code1 = res1.getDecompiledFunction().getC();
+                String code2 = res2.getDecompiledFunction().getC();
+
+                String[] lines1 = code1.split("\n");
+                String[] lines2 = code2.split("\n");
+
+                JsonArray diffLines = new JsonArray();
+                int maxLines = Math.max(lines1.length, lines2.length);
+                for (int i = 0; i < maxLines; i++) {
+                    String l1 = i < lines1.length ? lines1[i] : "";
+                    String l2 = i < lines2.length ? lines2[i] : "";
+                    if (!l1.equals(l2)) {
+                        JsonObject diff = new JsonObject();
+                        diff.addProperty("line", i + 1);
+                        diff.addProperty("func1", l1);
+                        diff.addProperty("func2", l2);
+                        diff.addProperty("status", "changed");
+                        diffLines.add(diff);
+                    }
+                }
+
+                JsonObject f1Info = new JsonObject();
+                f1Info.addProperty("name", func1Name);
+                f1Info.addProperty("lines", lines1.length);
+                f1Info.addProperty("code", code1);
+
+                JsonObject f2Info = new JsonObject();
+                f2Info.addProperty("name", func2Name);
+                f2Info.addProperty("lines", lines2.length);
+                f2Info.addProperty("code", code2);
+
+                JsonObject result = new JsonObject();
+                result.add("func1", f1Info);
+                result.add("func2", f2Info);
+                result.add("differences", diffLines);
+                result.addProperty("diff_count", diffLines.size());
+                return result;
+            } finally {
+                decompiler.dispose();
+            }
+        } catch (Exception e) {
+            return errorResult("Failed to diff functions: " + e.getMessage());
+        }
+    }
+
+    // --- Patch Handlers ---
+
+    private JsonObject handlePatchBytes(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String addressStr = getArgString(args, "address");
+        String hexData = getArgString(args, "hex");
+        if (addressStr == null || hexData == null) {
+            return errorResult("Address and hex data required");
+        }
+
+        try {
+            Address addr = currentProgram.getAddressFactory().getAddress(addressStr);
+            if (addr == null) return errorResult("Invalid address: " + addressStr);
+
+            String hexClean = hexData.replace("0x", "").replace(" ", "");
+            byte[] patchData = new byte[hexClean.length() / 2];
+            for (int i = 0; i < patchData.length; i++) {
+                patchData[i] = (byte) Integer.parseInt(hexClean.substring(i * 2, i * 2 + 2), 16);
+            }
+
+            Memory memory = currentProgram.getMemory();
+            int txId = currentProgram.startTransaction("Patch bytes");
+            try {
+                memory.setBytes(addr, patchData);
+                currentProgram.endTransaction(txId, true);
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+
+            JsonObject result = new JsonObject();
+            result.addProperty("status", "patched");
+            result.addProperty("address", addr.toString());
+            result.addProperty("bytes", patchData.length);
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to patch bytes: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handlePatchNop(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String addressStr = getArgString(args, "address");
+        if (addressStr == null) return errorResult("Address required");
+
+        try {
+            Address addr = currentProgram.getAddressFactory().getAddress(addressStr);
+            if (addr == null) return errorResult("Invalid address: " + addressStr);
+
+            Listing listing = currentProgram.getListing();
+            Instruction instruction = listing.getInstructionAt(addr);
+            if (instruction == null) {
+                return errorResult("No instruction at address: " + addressStr);
+            }
+
+            int instrLength = instruction.getLength();
+            String processor = currentProgram.getLanguage().getProcessor().toString();
+
+            byte nopByte;
+            if (processor.toLowerCase().contains("x86")) {
+                nopByte = (byte) 0x90;
+            } else {
+                nopByte = (byte) 0x00;
+            }
+
+            byte[] nopBytes = new byte[instrLength];
+            Arrays.fill(nopBytes, nopByte);
+
+            Memory memory = currentProgram.getMemory();
+            int txId = currentProgram.startTransaction("NOP instruction");
+            try {
+                memory.setBytes(addr, nopBytes);
+                currentProgram.endTransaction(txId, true);
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+
+            JsonObject result = new JsonObject();
+            result.addProperty("status", "nopped");
+            result.addProperty("address", addr.toString());
+            result.addProperty("bytes", instrLength);
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to NOP instruction: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handlePatchExport(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String outputPath = getArgString(args, "output");
+        if (outputPath == null || outputPath.isEmpty()) {
+            return errorResult("Output path required");
+        }
+
+        try {
+            // Use reflection to access BinaryExporter which may not always be available
+            Class<?> exporterClass = Class.forName("ghidra.app.util.exporter.BinaryExporter");
+            Object exporter = exporterClass.getDeclaredConstructor().newInstance();
+
+            java.lang.reflect.Method exportMethod = exporterClass.getMethod("export",
+                File.class, ghidra.program.model.listing.Program.class,
+                ghidra.program.model.address.AddressSetView.class, TaskMonitor.class);
+
+            File outputFile = new File(outputPath);
+            TaskMonitor mon = new ConsoleTaskMonitor();
+            exportMethod.invoke(exporter, outputFile, currentProgram, null, mon);
+
+            JsonObject result = new JsonObject();
+            result.addProperty("status", "exported");
+            result.addProperty("output", outputPath);
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to export binary: " + e.getMessage());
+        }
+    }
+
+    // --- Disasm Handler ---
+
+    private JsonObject handleDisasm(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String addressStr = getArgString(args, "address");
+        int count = getArgInt(args, "count", 10);
+
+        if (addressStr == null || addressStr.isEmpty()) {
+            return errorResult("Address required");
+        }
+
+        try {
+            // Strip 0x prefix if present
+            String cleanAddr = addressStr;
+            if (cleanAddr.startsWith("0x") || cleanAddr.startsWith("0X")) {
+                cleanAddr = cleanAddr.substring(2);
+            }
+
+            Address addr = currentProgram.getAddressFactory().getAddress(cleanAddr);
+            if (addr == null) {
+                // Try with the original string (might be a function name)
+                addr = resolveAddress(addressStr);
+            }
+            if (addr == null) return errorResult("Invalid address: " + addressStr);
+
+            Listing listing = currentProgram.getListing();
+            Instruction instruction = listing.getInstructionAt(addr);
+            if (instruction == null) {
+                return errorResult("No instruction at address: " + addressStr);
+            }
+
+            JsonArray results = new JsonArray();
+            Instruction current = instruction;
+
+            for (int i = 0; i < count && current != null; i++) {
+                Address instrAddr = current.getAddress();
+                byte[] byteArray = current.getBytes();
+                StringBuilder bytesHex = new StringBuilder();
+                for (byte b : byteArray) {
+                    bytesHex.append(String.format("%02x", b & 0xff));
+                }
+
+                String mnemonic = current.getMnemonicString();
+                JsonArray operands = new JsonArray();
+                int numOperands = current.getNumOperands();
+                for (int j = 0; j < numOperands; j++) {
+                    operands.add(new JsonPrimitive(current.getDefaultOperandRepresentation(j)));
+                }
+
+                JsonObject instrData = new JsonObject();
+                instrData.addProperty("address", instrAddr.toString());
+                instrData.addProperty("bytes", bytesHex.toString());
+                instrData.addProperty("mnemonic", mnemonic);
+                instrData.add("operands", operands);
+                results.add(instrData);
+
+                current = current.getNext();
+            }
+
+            JsonObject result = new JsonObject();
+            result.add("results", results);
+            result.addProperty("count", results.size());
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to disassemble: " + e.getMessage());
+        }
+    }
+
+    // --- Stats Handler ---
+
+    private JsonObject handleStats() {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        try {
+            FunctionManager fm = currentProgram.getFunctionManager();
+            SymbolTable symbolTable = currentProgram.getSymbolTable();
+            Memory memory = currentProgram.getMemory();
+            DataTypeManager dtm = currentProgram.getDataTypeManager();
+            Listing listing = currentProgram.getListing();
+
+            int functionCount = fm.getFunctionCount();
+
+            int symbolCount = 0;
+            SymbolIterator symIter = symbolTable.getAllSymbols(true);
+            while (symIter.hasNext()) { symIter.next(); symbolCount++; }
+
+            int stringCount = 0;
+            DataIterator dataIter = listing.getDefinedData(true);
+            while (dataIter.hasNext()) {
+                if (dataIter.next().hasStringValue()) stringCount++;
+            }
+
+            long memorySize = 0;
+            int sectionCount = 0;
+            for (MemoryBlock block : memory.getBlocks()) {
+                memorySize += block.getSize();
+                sectionCount++;
+            }
+
+            int importCount = 0;
+            SymbolIterator extSyms = symbolTable.getExternalSymbols();
+            while (extSyms.hasNext()) { extSyms.next(); importCount++; }
+
+            int exportCount = 0;
+            ghidra.program.model.address.AddressIterator epIter = symbolTable.getExternalEntryPointIterator();
+            while (epIter.hasNext()) { epIter.next(); exportCount++; }
+
+            int dataTypeCount = dtm.getDataTypeCount(false);
+
+            int instructionCount = 0;
+            InstructionIterator instrIter = listing.getInstructions(true);
+            while (instrIter.hasNext()) { instrIter.next(); instructionCount++; }
+
+            JsonObject stats = new JsonObject();
+            stats.addProperty("functions", functionCount);
+            stats.addProperty("symbols", symbolCount);
+            stats.addProperty("strings", stringCount);
+            stats.addProperty("imports", importCount);
+            stats.addProperty("exports", exportCount);
+            stats.addProperty("memory_size", memorySize);
+            stats.addProperty("sections", sectionCount);
+            stats.addProperty("data_types", dataTypeCount);
+            stats.addProperty("instructions", instructionCount);
+            stats.addProperty("program_name", currentProgram.getName());
+            stats.addProperty("executable_format", currentProgram.getExecutableFormat());
+            String compiler = currentProgram.getCompiler();
+            stats.addProperty("compiler", (compiler != null && !compiler.isEmpty()) ? compiler : "Unknown");
+
+            JsonObject result = new JsonObject();
+            result.add("stats", stats);
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to gather statistics: " + e.getMessage());
+        }
+    }
+
+    // --- Script Handlers ---
+
+    private JsonObject handleScriptRun(JsonObject args) {
+        String scriptPath = getArgString(args, "path");
+        if (scriptPath == null) return errorResult("Script path required");
+
+        try {
+            File scriptFile = new File(scriptPath);
+            if (!scriptFile.exists()) return errorResult("Script not found: " + scriptPath);
+
+            // Use GhidraScript's runScript method
+            runScript(scriptPath);
+
+            JsonObject result = new JsonObject();
+            result.addProperty("status", "executed");
+            result.addProperty("script", scriptPath);
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to run script: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleScriptJava(JsonObject args) {
+        return errorResult("Inline Java execution not supported in bridge mode");
+    }
+
+    private JsonObject handleScriptPython(JsonObject args) {
+        return errorResult("Python execution not available (Java bridge replaces Python bridge)");
+    }
+
+    private JsonObject handleScriptList() {
+        try {
+            JsonArray scripts = new JsonArray();
+
+            // List scripts from Ghidra's script directories
+            Class<?> utilClass = Class.forName("ghidra.app.script.GhidraScriptUtil");
+            java.lang.reflect.Method getDirs = utilClass.getMethod("getScriptSourceDirectories");
+            Object dirs = getDirs.invoke(null);
+
+            if (dirs instanceof Iterable) {
+                for (Object dirObj : (Iterable<?>) dirs) {
+                    File dir = new File(dirObj.toString());
+                    if (dir.exists() && dir.isDirectory()) {
+                        for (File f : dir.listFiles()) {
+                            if (f.getName().endsWith(".py") || f.getName().endsWith(".java")) {
+                                JsonObject scriptObj = new JsonObject();
+                                scriptObj.addProperty("name", f.getName());
+                                scriptObj.addProperty("path", f.getAbsolutePath());
+                                scriptObj.addProperty("type", f.getName().endsWith(".py") ? "python" : "java");
+                                scripts.add(scriptObj);
+                            }
+                        }
+                    }
+                }
+            }
+
+            JsonObject result = new JsonObject();
+            result.add("scripts", scripts);
+            result.addProperty("count", scripts.size());
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to list scripts: " + e.getMessage());
+        }
+    }
+
+    // --- Batch Handler ---
+
+    private JsonObject handleBatch(JsonObject args) {
+        // Batch operations are handled by the Rust side, not the bridge directly
+        return errorResult("Batch operations are handled by the CLI, not via bridge script");
+    }
+}
