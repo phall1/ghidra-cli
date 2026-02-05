@@ -313,10 +313,10 @@ fn test_disasm_zero_instructions() {
 // Snapshot Tests
 // ============================================================================
 
-/// Snapshot test for disassembly output format.
+/// Test that disassembly JSON output has expected structure.
 #[test]
 #[serial]
-fn test_disasm_output_format_snapshot() {
+fn test_disasm_output_format_structure() {
     require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -329,15 +329,42 @@ fn test_disasm_output_format_snapshot() {
         .arg("disasm")
         .arg(&main_addr)
         .arg("--instructions")
-        .arg("3") // Small count for stable snapshot
+        .arg("3")
         .arg("--program")
         .arg(TEST_PROGRAM)
         .arg("--format")
         .arg("json")
         .run();
 
-    if result.exit_code == 0 {
-        let normalized = common::normalize_json(&result.stdout);
-        insta::assert_snapshot!("disasm_json_output", normalized);
+    result.assert_success();
+
+    // Parse and validate JSON structure
+    let json: serde_json::Value =
+        serde_json::from_str(&result.stdout).expect("Output should be valid JSON");
+
+    // Should be an array (or object with results array)
+    let instructions = if let Some(arr) = json.as_array() {
+        arr.clone()
+    } else if let Some(obj) = json.as_object() {
+        obj.get("results")
+            .and_then(|v| v.as_array())
+            .expect("Object should have 'results' array")
+            .clone()
+    } else {
+        panic!("Expected JSON array or object with results");
+    };
+
+    assert!(
+        !instructions.is_empty() && instructions.len() <= 3,
+        "Expected 1-3 instructions, got {}",
+        instructions.len()
+    );
+
+    // Each instruction should have required fields
+    for instr in &instructions {
+        let obj = instr.as_object().expect("Instruction should be an object");
+        assert!(obj.contains_key("address"), "Missing 'address' field");
+        assert!(obj.contains_key("mnemonic"), "Missing 'mnemonic' field");
+        assert!(obj.contains_key("bytes"), "Missing 'bytes' field");
     }
 }

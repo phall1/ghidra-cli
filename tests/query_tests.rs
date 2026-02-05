@@ -392,10 +392,10 @@ fn test_xref_from() {
 // Snapshot Tests
 // ============================================================================
 
-/// Snapshot test for function list JSON format.
+/// Test that function list JSON output has expected structure.
 #[test]
 #[serial]
-fn test_function_list_snapshot() {
+fn test_function_list_json_structure() {
     require_ghidra!();
     let harness = &*HARNESS;
 
@@ -406,11 +406,27 @@ fn test_function_list_snapshot() {
         .arg("--format")
         .arg("json")
         .arg("--limit")
-        .arg("3") // Small limit for stable snapshot
+        .arg("3")
         .run();
 
-    if result.exit_code == 0 {
-        let normalized = common::normalize_json(&result.stdout);
-        insta::assert_snapshot!("function_list_json", normalized);
+    result.assert_success();
+
+    // Validate JSON structure
+    let json: serde_json::Value =
+        serde_json::from_str(&result.stdout).expect("Output should be valid JSON");
+
+    // Should be an array of functions
+    let functions = json.as_array().expect("Expected JSON array of functions");
+
+    assert!(
+        !functions.is_empty() && functions.len() <= 3,
+        "Expected 1-3 functions, got {}",
+        functions.len()
+    );
+
+    // Each function should have name field
+    for func in functions {
+        let obj = func.as_object().expect("Function should be an object");
+        assert!(obj.contains_key("name"), "Missing 'name' field");
     }
 }

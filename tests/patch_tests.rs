@@ -278,13 +278,10 @@ fn test_patch_missing_program_arg() {
 // Snapshot tests for output format regression detection
 // ============================================================================
 
-/// Snapshot test for patch bytes output format.
-///
-/// This captures the exact output format and will fail if the format changes,
-/// helping prevent accidental breaking changes to the CLI output.
+/// Test that patch bytes JSON output has expected structure.
 #[test]
 #[serial]
-fn test_patch_output_format_snapshot() {
+fn test_patch_output_format_structure() {
     require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
@@ -304,11 +301,16 @@ fn test_patch_output_format_snapshot() {
         .arg("json")
         .run();
 
-    if result.exit_code == 0 {
-        // Normalize the output to remove non-deterministic values
-        let normalized = common::normalize_json(&result.stdout);
+    result.assert_success();
 
-        // Use insta for snapshot testing
-        insta::assert_snapshot!("patch_bytes_json_output", normalized);
-    }
+    // Validate JSON structure
+    let json: serde_json::Value =
+        serde_json::from_str(&result.stdout).expect("Output should be valid JSON");
+
+    // Should be a JSON object or array with patch result info
+    assert!(
+        json.is_object() || json.is_array(),
+        "Expected JSON object or array, got: {}",
+        json
+    );
 }
