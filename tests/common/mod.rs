@@ -122,7 +122,6 @@ impl DaemonTestHarness {
         let mut cmd =
             assert_cmd::Command::cargo_bin("ghidra").expect("Failed to find ghidra binary");
         let result = cmd
-            .arg("daemon")
             .arg("start")
             .arg("--project")
             .arg(project)

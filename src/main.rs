@@ -9,14 +9,14 @@ mod ipc;
 mod query;
 
 use clap::Parser;
-use cli::{Cli, Commands, DaemonCommands};
+use cli::{Cli, Commands};
 use config::Config;
 use error::GhidraError;
 use format::{auto_detect_format, DefaultFormatter, Formatter, OutputFormat};
 use ghidra::bridge::{self, BridgeStartMode, BridgeStatus};
 use ghidra::GhidraClient;
 use ipc::client::BridgeClient;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::Layer;
@@ -66,7 +66,11 @@ fn main() {
                 .unwrap();
             rt.block_on(run_setup(cli))
         }
-        Commands::Daemon(_) => handle_daemon_command_dispatch(cli),
+        Commands::Start { .. }
+        | Commands::Stop { .. }
+        | Commands::Restart { .. }
+        | Commands::Status { .. }
+        | Commands::Ping { .. } => handle_bridge_command(cli),
         _ => run_command(cli),
     };
 
@@ -101,7 +105,6 @@ fn requires_bridge(command: &Commands) -> bool {
         command,
         Commands::Import(_)
             | Commands::Analyze(_)
-            | Commands::Quick(_)
             | Commands::Query(_)
             | Commands::Decompile(_)
             | Commands::Function(_)
@@ -130,7 +133,6 @@ fn extract_project_from_command(command: &Commands) -> Option<String> {
     match command {
         Commands::Import(args) => args.project.clone(),
         Commands::Analyze(args) => args.project.clone(),
-        Commands::Quick(args) => args.project.clone(),
         Commands::Query(args) => args.project.clone(),
         Commands::Summary(args) => args.options.project.clone(),
         Commands::Decompile(args) => args.options.project.clone(),
@@ -403,96 +405,37 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
             }
         }
 
-        Commands::Quick(args) => {
-            let binary_path = PathBuf::from(&args.binary);
-            if !binary_path.exists() {
-                anyhow::bail!("Binary not found: {}", args.binary);
-            }
-
-            eprintln!("Quick analysis of {}...", args.binary);
-
-            // Reuse running bridge instead of re-importing in a fresh one
-            let (client, port) = if let Some(port) = bridge::is_bridge_running(&project_path) {
+        _ => {
+            // For all bridge commands (including Analyze), ensure bridge is running
+            let client = if let Some(port) = bridge::is_bridge_running(&project_path) {
                 let client = BridgeClient::new(port);
                 verify_bridge(&client)?;
-                eprintln!("[1/3] Importing binary...");
-                let result = client.import_binary(&args.binary, None)?;
-                // import result has the newly-imported program name
-                let program_name = result
-                    .get("program")
-                    .and_then(|p| p.as_str())
-                    .unwrap_or("unknown")
-                    .to_string();
-                client.open_program(&program_name)?;
-                (client, port)
+                client
             } else {
-                eprintln!("[1/3] Importing binary...");
-                let port = bridge::ensure_bridge_running(
-                    &project_path,
-                    &ghidra_install_dir,
-                    BridgeStartMode::Import {
-                        binary_path: args.binary.clone(),
-                    },
-                )?;
-                let client = BridgeClient::new(port);
-                client.program_info()?;
-                (client, port)
-            };
-
-            eprintln!("[2/3] Running analysis...");
-            client.analyze()?;
-            eprintln!("[3/3] Done!");
-            eprintln!("Analysis complete. The bridge is running on port {}.", port);
-            eprintln!();
-            eprintln!("Run queries like:");
-            eprintln!("  ghidra function list");
-            eprintln!("  ghidra decompile main");
-            eprintln!("  ghidra summary");
-
-            let info = client.program_info()?;
-            json!({
-                "command": "quick",
-                "program": info.get("name").and_then(|n| n.as_str()).unwrap_or("unknown"),
-                "status": "success",
-                "port": port,
-                "data": info
-            })
-        }
-
-        // Analyze uses the generic dispatch path via execute_via_bridge
-
-        _ => {
-            // For query commands (including Analyze), ensure bridge is running
-            if bridge::is_bridge_running(&project_path).is_none() {
-                // Need a program name to start the bridge
-                let program = extract_program_from_command(&cli.command)
+                // Auto-start bridge - use specific program if available, otherwise project mode
+                let mode = if let Some(program) = extract_program_from_command(&cli.command)
                     .or_else(|| config.get_default_program())
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "No bridge running and no default program configured.\n\
-                             Import a binary first: ghidra import <binary>\n\
-                             Or set a default: ghidra set-default program <name>"
-                        )
-                    })?;
+                {
+                    BridgeStartMode::Process {
+                        program_name: program,
+                    }
+                } else {
+                    BridgeStartMode::Project
+                };
 
                 eprintln!("Starting Ghidra bridge...");
                 let port = bridge::ensure_bridge_running(
                     &project_path,
                     &ghidra_install_dir,
-                    BridgeStartMode::Process {
-                        program_name: program,
-                    },
+                    mode,
                 )?;
                 eprintln!("Bridge ready.");
-                let client = BridgeClient::new(port);
-                execute_via_bridge(&client, &cli.command)?
-            } else {
-                let client = connect_to_bridge(&project_path)?;
-                verify_bridge(&client)?;
+                BridgeClient::new(port)
+            };
 
-                // Switch to requested program if it differs from the bridge's current program
-                if let Some(requested_program) = extract_program_from_command(&cli.command) {
-                    let info = client.program_info()?;
+            // Switch to requested program if it differs from the bridge's current program
+            if let Some(requested_program) = extract_program_from_command(&cli.command) {
+                if let Ok(info) = client.program_info() {
                     let current = info
                         .get("name")
                         .and_then(|n| n.as_str())
@@ -500,10 +443,12 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
                     if current != requested_program {
                         client.open_program(&requested_program)?;
                     }
+                } else {
+                    client.open_program(&requested_program)?;
                 }
-
-                execute_via_bridge(&client, &cli.command)?
             }
+
+            execute_via_bridge(&client, &cli.command)?
         }
     };
 
@@ -765,33 +710,18 @@ fn execute_via_bridge(
     }
 }
 
-/// Dispatch daemon (bridge management) commands.
-fn handle_daemon_command_dispatch(cli: Cli) -> anyhow::Result<()> {
+/// Dispatch bridge management commands (top-level start/stop/restart/status/ping).
+fn handle_bridge_command(cli: Cli) -> anyhow::Result<()> {
     match cli.command {
-        Commands::Daemon(cmd) => match cmd {
-            DaemonCommands::Start {
-                project,
-                program,
-                port: _,
-                foreground: _,
-            } => handle_bridge_start(project, program),
-            DaemonCommands::Stop { project } => handle_bridge_stop(project),
-            DaemonCommands::Restart {
-                project,
-                program,
-                port: _,
-            } => {
-                handle_bridge_stop(project.clone())?;
-                std::thread::sleep(std::time::Duration::from_secs(1));
-                handle_bridge_start(project, program)
-            }
-            DaemonCommands::Status { project } => handle_bridge_status(project),
-            DaemonCommands::Ping { project } => handle_bridge_ping(project),
-            DaemonCommands::ClearCache { project: _ } => {
-                println!("Cache is managed by the bridge process");
-                Ok(())
-            }
-        },
+        Commands::Start { project, program } => handle_bridge_start(project, program),
+        Commands::Stop { project } => handle_bridge_stop(project),
+        Commands::Restart { project, program } => {
+            handle_bridge_stop(project.clone())?;
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            handle_bridge_start(project, program)
+        }
+        Commands::Status { project } => handle_bridge_status(project),
+        Commands::Ping { project } => handle_bridge_ping(project),
         _ => unreachable!(),
     }
 }
@@ -823,12 +753,10 @@ fn handle_bridge_start(project: Option<String>, program: Option<String>) -> anyh
     // Determine start mode
     let mode = if let Some(prog) = program {
         BridgeStartMode::Process { program_name: prog }
-    } else {
-        // Need a program name
-        let prog = config.get_default_program().ok_or_else(|| {
-            anyhow::anyhow!("No program specified. Use --program <name> or set a default.")
-        })?;
+    } else if let Some(prog) = config.get_default_program() {
         BridgeStartMode::Process { program_name: prog }
+    } else {
+        BridgeStartMode::Project
     };
 
     println!("Starting bridge for project: {}", project_path.display());
@@ -866,6 +794,17 @@ fn handle_bridge_status(project: Option<String>) -> anyhow::Result<()> {
             println!("  PID: {}", pid);
             println!("  Port: {}", port);
             println!("  Project: {}", project_path.display());
+
+            // Try to get extended info from the bridge
+            let client = BridgeClient::new(port);
+            if let Ok(info) = client.bridge_info() {
+                if let Some(prog) = info.get("current_program").and_then(|v| v.as_str()) {
+                    println!("  Current program: {}", prog);
+                }
+                if let Some(count) = info.get("program_count").and_then(|v| v.as_u64()) {
+                    println!("  Programs: {}", count);
+                }
+            }
         }
         BridgeStatus::Stopped => {
             println!("No bridge running for project: {}", project_path.display());
@@ -944,7 +883,7 @@ async fn run_setup(cli: Cli) -> anyhow::Result<()> {
     let client = GhidraClient::new(config)?;
     if client.verify_installation().is_ok() {
         println!("Verification passed!");
-        println!("\nYou can now run: ghidra quick <binary>");
+        println!("\nYou can now run: ghidra import <binary> --project <name>");
     } else {
         println!("Verification failed - analyzeHeadless not found");
         println!("  The installation may be incomplete.");
@@ -1195,14 +1134,6 @@ fn verify_bridge(client: &BridgeClient) -> anyhow::Result<()> {
         anyhow::bail!("Bridge not responding to ping");
     }
     Ok(())
-}
-
-/// Connect to a running bridge for a project.
-fn connect_to_bridge(project_path: &Path) -> anyhow::Result<BridgeClient> {
-    let port = bridge::is_bridge_running(project_path).ok_or_else(|| {
-        anyhow::anyhow!("Bridge not running for project: {}", project_path.display())
-    })?;
-    Ok(BridgeClient::new(port))
 }
 
 /// Resolve a project name to its full path on disk.

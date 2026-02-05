@@ -105,9 +105,6 @@ pub enum Commands {
     /// Set default values
     SetDefault(SetDefaultArgs),
 
-    /// Quick analysis (import + analyze + summary)
-    Quick(QuickArgs),
-
     /// Program summary
     Summary(SummaryArgs),
 
@@ -129,9 +126,46 @@ pub enum Commands {
     /// Analyze a program
     Analyze(AnalyzeArgs),
 
-    /// Daemon management commands
-    #[command(subcommand)]
-    Daemon(DaemonCommands),
+    /// Start the bridge
+    Start {
+        /// Project path
+        #[arg(long)]
+        project: Option<String>,
+        /// Program name to load
+        #[arg(long)]
+        program: Option<String>,
+    },
+
+    /// Stop the bridge
+    Stop {
+        /// Project path
+        #[arg(long)]
+        project: Option<String>,
+    },
+
+    /// Restart the bridge
+    Restart {
+        /// Project path
+        #[arg(long)]
+        project: Option<String>,
+        /// Program name to load
+        #[arg(long)]
+        program: Option<String>,
+    },
+
+    /// Show bridge status
+    Status {
+        /// Project path
+        #[arg(long)]
+        project: Option<String>,
+    },
+
+    /// Ping the bridge
+    Ping {
+        /// Project path
+        #[arg(long)]
+        project: Option<String>,
+    },
 
     /// Download and setup Ghidra automatically
     Setup(SetupArgs),
@@ -684,13 +718,6 @@ pub struct SetDefaultArgs {
 }
 
 #[derive(Args, Clone, Serialize, Deserialize, Debug)]
-pub struct QuickArgs {
-    pub binary: String,
-    #[arg(long)]
-    pub project: Option<String>,
-}
-
-#[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct SummaryArgs {
     #[command(flatten)]
     pub options: QueryOptions,
@@ -757,72 +784,6 @@ pub struct QueryOptions {
 
     #[arg(long)]
     pub json: bool,
-}
-
-/// Daemon management commands
-#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
-pub enum DaemonCommands {
-    /// Start the daemon
-    Start {
-        /// Project path
-        #[arg(long)]
-        project: Option<String>,
-
-        /// Program name to load
-        #[arg(long)]
-        program: Option<String>,
-
-        /// Port to listen on (default: auto-select)
-        #[arg(long)]
-        port: Option<u16>,
-
-        /// Run in foreground (don't daemonize)
-        #[arg(long)]
-        foreground: bool,
-    },
-
-    /// Stop the daemon
-    Stop {
-        /// Project path
-        #[arg(long)]
-        project: Option<String>,
-    },
-
-    /// Restart the daemon
-    Restart {
-        /// Project path
-        #[arg(long)]
-        project: Option<String>,
-
-        /// Program name to load
-        #[arg(long)]
-        program: Option<String>,
-
-        /// Port to listen on (default: auto-select)
-        #[arg(long)]
-        port: Option<u16>,
-    },
-
-    /// Get daemon status
-    Status {
-        /// Project path
-        #[arg(long)]
-        project: Option<String>,
-    },
-
-    /// Ping the daemon
-    Ping {
-        /// Project path
-        #[arg(long)]
-        project: Option<String>,
-    },
-
-    /// Clear the cache
-    ClearCache {
-        /// Project path
-        #[arg(long)]
-        project: Option<String>,
-    },
 }
 
 /// Arguments for the setup command

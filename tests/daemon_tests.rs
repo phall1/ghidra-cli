@@ -25,7 +25,6 @@ fn test_daemon_start() {
         .unwrap()
         .arg("--project")
         .arg(TEST_PROJECT)
-        .arg("daemon")
         .arg("status")
         .assert()
         .success();
@@ -47,7 +46,6 @@ fn test_daemon_status() {
         .unwrap()
         .arg("--project")
         .arg(TEST_PROJECT)
-        .arg("daemon")
         .arg("status")
         .assert()
         .success()
@@ -70,30 +68,7 @@ fn test_daemon_ping() {
         .unwrap()
         .arg("--project")
         .arg(TEST_PROJECT)
-        .arg("daemon")
         .arg("ping")
-        .assert()
-        .success();
-
-    drop(harness);
-}
-
-#[test]
-#[serial]
-fn test_daemon_clear_cache() {
-    require_ghidra!();
-
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
-
-    let harness =
-        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
-
-    Command::cargo_bin("ghidra")
-        .unwrap()
-        .arg("--project")
-        .arg(TEST_PROJECT)
-        .arg("daemon")
-        .arg("clear-cache")
         .assert()
         .success();
 
@@ -114,7 +89,6 @@ fn test_daemon_lifecycle() {
         .unwrap()
         .arg("--project")
         .arg(TEST_PROJECT)
-        .arg("daemon")
         .arg("status")
         .assert()
         .success()
@@ -124,7 +98,6 @@ fn test_daemon_lifecycle() {
         .unwrap()
         .arg("--project")
         .arg(TEST_PROJECT)
-        .arg("daemon")
         .arg("ping")
         .assert()
         .success();
@@ -133,7 +106,6 @@ fn test_daemon_lifecycle() {
         .unwrap()
         .arg("--project")
         .arg(TEST_PROJECT)
-        .arg("daemon")
         .arg("stop")
         .assert()
         .success();
@@ -153,7 +125,6 @@ fn test_daemon_stop() {
         .unwrap()
         .arg("--project")
         .arg(TEST_PROJECT)
-        .arg("daemon")
         .arg("stop")
         .assert()
         .success();
@@ -162,11 +133,10 @@ fn test_daemon_stop() {
         .unwrap()
         .arg("--project")
         .arg(TEST_PROJECT)
-        .arg("daemon")
         .arg("status")
         .assert()
         .success()
-        .stdout(predicate::str::contains("No daemon running"));
+        .stdout(predicate::str::contains("No bridge running"));
 
     drop(harness);
 }
@@ -185,7 +155,6 @@ fn test_daemon_restart() {
         .unwrap()
         .arg("--project")
         .arg(TEST_PROJECT)
-        .arg("daemon")
         .arg("restart")
         .arg("--program")
         .arg(TEST_PROGRAM)
@@ -196,7 +165,6 @@ fn test_daemon_restart() {
         .unwrap()
         .arg("--project")
         .arg(TEST_PROJECT)
-        .arg("daemon")
         .arg("stop")
         .assert()
         .success();
@@ -218,13 +186,12 @@ fn test_daemon_start_when_running() {
         .unwrap()
         .arg("--project")
         .arg(TEST_PROJECT)
-        .arg("daemon")
         .arg("start")
         .arg("--program")
         .arg(TEST_PROGRAM)
         .assert()
-        .failure()
-        .stderr(predicate::str::contains("already running"));
+        .success()
+        .stdout(predicate::str::contains("already running"));
 
     drop(harness);
 }

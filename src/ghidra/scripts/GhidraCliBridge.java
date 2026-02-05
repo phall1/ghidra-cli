@@ -53,9 +53,11 @@ import java.util.Iterator;
 public class GhidraCliBridge extends GhidraScript {
 
     private Gson gson = new GsonBuilder().serializeNulls().create();
+    private long startTime;
 
     @Override
     public void run() throws Exception {
+        startTime = System.currentTimeMillis();
         // Get port file path from script arguments
         String[] scriptArgs = getScriptArgs();
         if (scriptArgs.length < 1) {
@@ -239,6 +241,8 @@ public class GhidraCliBridge extends GhidraScript {
             case "script_list":     return handleScriptList();
             // Batch
             case "batch":           return handleBatch(args);
+            // Bridge info
+            case "bridge_info":     return handleBridgeInfo();
             default:                return null;
         }
     }
@@ -313,6 +317,28 @@ public class GhidraCliBridge extends GhidraScript {
     private JsonObject handlePing() {
         JsonObject result = new JsonObject();
         result.addProperty("message", "pong");
+        return result;
+    }
+
+    private JsonObject handleBridgeInfo() {
+        JsonObject result = new JsonObject();
+        result.addProperty("has_current_program", currentProgram != null);
+        if (currentProgram != null) {
+            result.addProperty("current_program", currentProgram.getName());
+        }
+        result.addProperty("uptime_ms", System.currentTimeMillis() - startTime);
+
+        Project project = state.getProject();
+        if (project != null) {
+            result.addProperty("project_name", project.getName());
+            try {
+                ProjectData projectData = project.getProjectData();
+                DomainFolder rootFolder = projectData.getRootFolder();
+                result.addProperty("program_count", rootFolder.getFiles().length);
+            } catch (Exception e) {
+                result.addProperty("program_count", 0);
+            }
+        }
         return result;
     }
 
@@ -596,8 +622,7 @@ public class GhidraCliBridge extends GhidraScript {
         ReferenceManager refMgr = currentProgram.getReferenceManager();
         FunctionManager fm = currentProgram.getFunctionManager();
 
-        Reference[] refs = refMgr.getReferencesTo(addr);
-        for (Reference ref : refs) {
+        for (Reference ref : refMgr.getReferencesTo(addr)) {
             Address fromAddr = ref.getFromAddress();
             Function fromFunc = fm.getFunctionContaining(fromAddr);
             Function toFunc = fm.getFunctionContaining(addr);
@@ -740,7 +765,10 @@ public class GhidraCliBridge extends GhidraScript {
     private JsonObject handleAnalyze(JsonObject args) {
         String programName = getArgString(args, "program");
         if (programName == null || programName.isEmpty()) {
-            return errorResult("No program name provided");
+            if (currentProgram == null) {
+                return errorResult("No program loaded. Use 'open_program' or 'import' first.");
+            }
+            programName = currentProgram.getName();
         }
 
         if (currentProgram == null) {
@@ -758,35 +786,10 @@ public class GhidraCliBridge extends GhidraScript {
         }
 
         try {
-            // Try Ghidra 12+ import path first, fall back to older path
-            Class<?> aamClass;
-            try {
-                aamClass = Class.forName("ghidra.app.plugin.core.analysis.AutoAnalysisManager");
-            } catch (ClassNotFoundException e) {
-                aamClass = Class.forName("ghidra.app.cmd.analysis.AutoAnalysisManager");
-            }
-
-            java.lang.reflect.Method getManager = aamClass.getMethod("getAnalysisManager", ghidra.program.model.listing.Program.class);
-            Object autoMgr = getManager.invoke(null, currentProgram);
-
-            if (autoMgr == null) {
-                return errorResult("Could not get AutoAnalysisManager");
-            }
-
             TaskMonitor mon = new ConsoleTaskMonitor();
 
-            // Schedule full re-analysis
-            java.lang.reflect.Method reAnalyze = aamClass.getMethod("reAnalyzeAll", Address.class);
-            reAnalyze.invoke(autoMgr, (Address) null);
-
-            java.lang.reflect.Method startAnalysis = aamClass.getMethod("startAnalysis", TaskMonitor.class);
-            startAnalysis.invoke(autoMgr, mon);
-
-            // Poll until analysis completes
-            java.lang.reflect.Method isAnalyzing = aamClass.getMethod("isAnalyzing");
-            while ((Boolean) isAnalyzing.invoke(autoMgr)) {
-                Thread.sleep(1000);
-            }
+            // Use GhidraScript's built-in analyzeAll which works across Ghidra versions
+            analyzeAll(currentProgram);
 
             // Save the program
             try {
@@ -795,9 +798,11 @@ public class GhidraCliBridge extends GhidraScript {
                 // Best effort
             }
 
+            FunctionManager fm = currentProgram.getFunctionManager();
             JsonObject result = new JsonObject();
             result.addProperty("status", "success");
             result.addProperty("program", programName);
+            result.addProperty("function_count", fm.getFunctionCount());
             return result;
 
         } catch (Exception e) {
@@ -826,12 +831,48 @@ public class GhidraCliBridge extends GhidraScript {
                 prog.addProperty("type", domainFile.getContentType());
                 prog.addProperty("version", domainFile.getVersion());
                 prog.addProperty("current", isCurrent);
+
+                // Add analysis metadata
+                if (isCurrent && currentProgram != null) {
+                    // For current program, use live data
+                    FunctionManager fm = currentProgram.getFunctionManager();
+                    int funcCount = fm.getFunctionCount();
+                    prog.addProperty("function_count", funcCount);
+                    prog.addProperty("analyzed", funcCount > 1);
+                    prog.addProperty("executable_format", currentProgram.getExecutableFormat());
+                } else {
+                    // For other programs, use DomainFile metadata
+                    try {
+                        java.util.Map<String, String> metadata = domainFile.getMetadata();
+                        if (metadata != null) {
+                            String funcCountStr = metadata.get("# of Functions");
+                            int funcCount = 0;
+                            if (funcCountStr != null) {
+                                try { funcCount = Integer.parseInt(funcCountStr.trim()); }
+                                catch (NumberFormatException ignored) {}
+                            }
+                            prog.addProperty("function_count", funcCount);
+                            prog.addProperty("analyzed", funcCount > 1);
+                            String exeFmt = metadata.get("Executable Format");
+                            if (exeFmt != null) {
+                                prog.addProperty("executable_format", exeFmt);
+                            }
+                        }
+                    } catch (Exception ignored) {
+                        // metadata not available for this file
+                    }
+                }
+
                 programs.add(prog);
             }
 
             JsonObject result = new JsonObject();
             result.add("programs", programs);
             result.addProperty("count", programs.size());
+            result.addProperty("has_current_program", currentProgram != null);
+            if (currentProgram != null) {
+                result.addProperty("current_program_name", currentProgram.getName());
+            }
             return result;
 
         } catch (Exception e) {
@@ -1178,10 +1219,9 @@ public class GhidraCliBridge extends GhidraScript {
 
             ReferenceManager refMgr = currentProgram.getReferenceManager();
             Address targetAddr = targetFunc.getEntryPoint();
-            Reference[] refs = refMgr.getReferencesTo(targetAddr);
             JsonArray results = new JsonArray();
 
-            for (Reference ref : refs) {
+            for (Reference ref : refMgr.getReferencesTo(targetAddr)) {
                 if (ref.getReferenceType().isCall()) {
                     Address fromAddr = ref.getFromAddress();
                     Function callerFunc = fm.getFunctionContaining(fromAddr);
@@ -1262,8 +1302,10 @@ public class GhidraCliBridge extends GhidraScript {
                 Address funcAddr = func.getEntryPoint();
                 long funcSize = func.getBody().getNumAddresses();
 
-                Reference[] refs = refMgr.getReferencesTo(funcAddr);
-                int xrefCount = refs.length;
+                int xrefCount = 0;
+                for (Reference ref : refMgr.getReferencesTo(funcAddr)) {
+                    xrefCount++;
+                }
 
                 JsonArray reasons = new JsonArray();
 
@@ -1953,8 +1995,7 @@ public class GhidraCliBridge extends GhidraScript {
         if (visited.contains(funcAddrStr)) return;
         visited.add(funcAddrStr);
 
-        Reference[] refs = refMgr.getReferencesTo(func.getEntryPoint());
-        for (Reference ref : refs) {
+        for (Reference ref : refMgr.getReferencesTo(func.getEntryPoint())) {
             if (ref.getReferenceType().isCall()) {
                 Address fromAddr = ref.getFromAddress();
                 Function callerFunc = fm.getFunctionContaining(fromAddr);

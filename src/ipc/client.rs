@@ -94,6 +94,11 @@ impl BridgeClient {
         self.send_command("status", None)
     }
 
+    /// Get bridge info (current program, project name, program count, uptime).
+    pub fn bridge_info(&self) -> Result<serde_json::Value> {
+        self.send_command("bridge_info", None)
+    }
+
     /// List functions.
     pub fn list_functions(
         &self,

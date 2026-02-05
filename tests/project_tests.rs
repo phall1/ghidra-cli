@@ -240,29 +240,3 @@ fn test_import_existing_program() {
         .success();
 }
 
-#[test]
-#[serial]
-fn test_quick() {
-    require_ghidra!();
-
-    let project = unique_project_name("quick");
-    let binary = common::fixture_binary();
-
-    Command::cargo_bin("ghidra")
-        .unwrap()
-        .arg("quick")
-        .arg(binary.to_str().unwrap())
-        .arg("--project")
-        .arg(&project)
-        .timeout(std::time::Duration::from_secs(300))
-        .assert()
-        .success();
-
-    Command::cargo_bin("ghidra")
-        .unwrap()
-        .arg("project")
-        .arg("delete")
-        .arg(&project)
-        .assert()
-        .success();
-}
