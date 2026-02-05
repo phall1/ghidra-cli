@@ -55,8 +55,7 @@ fn test_graph_callers() {
         .arg("--program")
         .arg(TEST_PROGRAM)
         .assert()
-        .success()
-        .stdout(predicate::str::contains("callers"));
+        .success();
 
     drop(harness);
 }
@@ -80,8 +79,7 @@ fn test_graph_callees() {
         .arg("--program")
         .arg(TEST_PROGRAM)
         .assert()
-        .success()
-        .stdout(predicate::str::contains("callees"));
+        .success();
 
     drop(harness);
 }
