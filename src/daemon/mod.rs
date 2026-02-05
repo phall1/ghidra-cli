@@ -48,8 +48,9 @@ pub fn get_bridge_status(project_path: &Path) -> Result<BridgeStatus> {
 }
 
 /// Check if a bridge is running for a project.
+/// Returns `Some(port)` if running, `None` otherwise.
 #[allow(dead_code)]
-pub fn is_bridge_running(project_path: &Path) -> bool {
+pub fn is_bridge_running(project_path: &Path) -> Option<u16> {
     bridge::is_bridge_running(project_path)
 }
 

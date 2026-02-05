@@ -4,32 +4,16 @@
 //! starts a TCP socket server. The CLI connects directly to this server
 //! to execute commands. No intermediate daemon process is needed.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 
-/// Response from the bridge
-#[derive(Debug, Deserialize)]
-pub struct BridgeResponse<T> {
-    pub status: String,
-    pub data: Option<T>,
-    #[serde(default)]
-    pub message: Option<String>,
-}
-
-/// Request to the bridge
-#[derive(Debug, Serialize)]
-struct BridgeRequest {
-    command: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    args: Option<serde_json::Value>,
-}
+use crate::ipc::client::BridgeClient;
 
 /// How to start the bridge - import a new binary or open an existing program.
 pub enum BridgeStartMode {
@@ -131,25 +115,27 @@ pub fn cleanup_stale_files(project_path: &Path) -> Result<()> {
 /// Check if a bridge is running for the given project.
 ///
 /// Verifies: port file exists, PID is alive, TCP connect succeeds.
-pub fn is_bridge_running(project_path: &Path) -> bool {
+/// Returns `Some(port)` if running, `None` otherwise. Callers use the returned port
+/// directly, avoiding a separate read_port_file call (TOCTOU elimination).
+pub fn is_bridge_running(project_path: &Path) -> Option<u16> {
     let port = match read_port_file(project_path) {
         Ok(Some(p)) => p,
-        _ => return false,
+        _ => return None,
     };
 
     let pid = match read_pid_file(project_path) {
         Ok(Some(p)) => p,
-        _ => return false,
+        _ => return None,
     };
 
     if !is_pid_alive(pid) {
-        return false;
+        return None;
     }
 
     // Verify TCP connect
     TcpStream::connect(format!("127.0.0.1:{}", port))
-        .map(|_| true)
-        .unwrap_or(false)
+        .map(|_| Some(port))
+        .unwrap_or(None)
 }
 
 /// Ensure a bridge is running for the given project.
@@ -241,6 +227,10 @@ pub fn start_bridge(
     let mut child = cmd.spawn().context("Failed to spawn Ghidra headless")?;
     info!("Ghidra process started with PID: {:?}", child.id());
 
+    // Write PID file immediately so orphan cleanup is possible if Java crashes
+    // before the ready signal (Java overwrites this once it binds the ServerSocket)
+    write_pid_file(project_path, child.id()).ok();
+
     // Spawn a thread to capture stderr
     let stderr = child.stderr.take().expect("stderr should be piped");
     let stderr_handle = std::thread::spawn(move || {
@@ -283,6 +273,14 @@ pub fn start_bridge(
     }
 
     if !ready {
+        // Prevent orphaned JVM process: if child is still running but didn't
+        // send the ready signal, kill it and clean up stale files
+        if let Ok(None) = child.try_wait() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        cleanup_stale_files(project_path).ok();
+
         let stderr_output = stderr_handle.join().unwrap_or_default();
         let detail = if !last_error.is_empty() {
             format!(": {}", last_error)
@@ -314,87 +312,13 @@ pub fn start_bridge(
     Ok(port)
 }
 
-/// Send a command to the bridge and return the response.
-pub fn send_command(
-    port: u16,
-    command: &str,
-    args: Option<serde_json::Value>,
-) -> Result<serde_json::Value> {
-    let mut stream =
-        TcpStream::connect(format!("127.0.0.1:{}", port)).context("Failed to connect to bridge")?;
-    stream.set_read_timeout(Some(Duration::from_secs(300))).ok();
-    stream.set_write_timeout(Some(Duration::from_secs(30))).ok();
-
-    let request = BridgeRequest {
-        command: command.to_string(),
-        args,
-    };
-
-    let request_json = serde_json::to_string(&request)?;
-    debug!("Sending: {}", request_json);
-
-    writeln!(stream, "{}", request_json)?;
-    stream.flush()?;
-
-    let mut reader = BufReader::new(&stream);
-    let mut response_line = String::new();
-    reader.read_line(&mut response_line)?;
-
-    debug!("Received: {}", response_line.trim());
-
-    let response: BridgeResponse<serde_json::Value> = serde_json::from_str(&response_line)?;
-
-    match response.status.as_str() {
-        "success" => Ok(response.data.unwrap_or(serde_json::json!({}))),
-        "error" => {
-            let msg = response
-                .message
-                .unwrap_or_else(|| "Unknown error".to_string());
-            anyhow::bail!("{}", msg)
-        }
-        "shutdown" => Ok(serde_json::json!({"status": "shutdown"})),
-        _ => Ok(response.data.unwrap_or(serde_json::json!({}))),
-    }
-}
-
-/// Send a typed command to the bridge.
-pub fn send_typed_command<T: for<'de> Deserialize<'de>>(
-    port: u16,
-    command: &str,
-    args: Option<serde_json::Value>,
-) -> Result<BridgeResponse<T>> {
-    let mut stream =
-        TcpStream::connect(format!("127.0.0.1:{}", port)).context("Failed to connect to bridge")?;
-    stream.set_read_timeout(Some(Duration::from_secs(300))).ok();
-    stream.set_write_timeout(Some(Duration::from_secs(30))).ok();
-
-    let request = BridgeRequest {
-        command: command.to_string(),
-        args,
-    };
-
-    let request_json = serde_json::to_string(&request)?;
-    debug!("Sending: {}", request_json);
-
-    writeln!(stream, "{}", request_json)?;
-    stream.flush()?;
-
-    let mut reader = BufReader::new(&stream);
-    let mut response_line = String::new();
-    reader.read_line(&mut response_line)?;
-
-    debug!("Received: {}", response_line.trim());
-
-    let response: BridgeResponse<T> = serde_json::from_str(&response_line)?;
-    Ok(response)
-}
-
 /// Stop the bridge for a project.
 pub fn stop_bridge(project_path: &Path) -> Result<()> {
-    // Try graceful shutdown via TCP
+    // Try graceful shutdown via TCP using BridgeClient
     if let Ok(Some(port)) = read_port_file(project_path) {
-        if let Ok(response) = send_command(port, "shutdown", None) {
-            debug!("Shutdown response: {:?}", response);
+        let client = BridgeClient::new(port);
+        if let Ok(()) = client.shutdown() {
+            debug!("Graceful shutdown sent");
         }
     }
 
@@ -428,14 +352,27 @@ pub fn bridge_status(project_path: &Path) -> Result<BridgeStatus> {
     let pid = read_pid_file(project_path)?;
 
     if let (Some(port), Some(pid)) = (port, pid) {
-        if is_pid_alive(pid) && TcpStream::connect(format!("127.0.0.1:{}", port)).is_ok() {
-            return Ok(BridgeStatus::Running { port, pid });
+        if is_pid_alive(pid) {
+            let client = BridgeClient::new(port);
+            if client.ping().unwrap_or(false) {
+                return Ok(BridgeStatus::Running { port, pid });
+            }
         }
         // Stale files
         cleanup_stale_files(project_path).ok();
     }
 
     Ok(BridgeStatus::Stopped)
+}
+
+/// Write PID to the PID file for a project.
+/// Enables orphan cleanup when Java crashes before writing its own PID file.
+/// Java overwrites this value once it binds the ServerSocket.
+fn write_pid_file(project_path: &Path, pid: u32) -> Result<()> {
+    let path = pid_file_path(project_path)?;
+    std::fs::write(&path, pid.to_string())?;
+    debug!("Wrote PID {} to {}", pid, path.display());
+    Ok(())
 }
 
 /// Bridge status

@@ -11,7 +11,7 @@ mod query;
 use clap::Parser;
 use cli::{Cli, Commands, DaemonCommands};
 use config::Config;
-use error::{GhidraError, Result};
+use error::GhidraError;
 use format::{auto_detect_format, DefaultFormatter, Formatter, OutputFormat};
 use ghidra::bridge::{self, BridgeStartMode, BridgeStatus};
 use ghidra::GhidraClient;
@@ -224,6 +224,105 @@ fn extract_project_from_command(command: &Commands) -> Option<String> {
     }
 }
 
+/// Extract the --program argument from a command's args, if present.
+/// Enables program switching before query execution when the requested
+/// program differs from the bridge's current program.
+fn extract_program_from_command(command: &Commands) -> Option<String> {
+    match command {
+        Commands::Analyze(args) => args.program.clone(),
+        Commands::Query(args) => args.program.clone(),
+        Commands::Summary(args) => args.options.program.clone(),
+        Commands::Decompile(args) => args.options.program.clone(),
+        Commands::Function(cmd) => match cmd {
+            cli::FunctionCommands::List(opts) => opts.program.clone(),
+            cli::FunctionCommands::Decompile(args) => args.options.program.clone(),
+            cli::FunctionCommands::Get(args) => args.options.program.clone(),
+            cli::FunctionCommands::Disasm(args) => args.options.program.clone(),
+            cli::FunctionCommands::Calls(args) => args.options.program.clone(),
+            cli::FunctionCommands::XRefs(args) => args.options.program.clone(),
+            cli::FunctionCommands::Rename(args) => args.program.clone(),
+            cli::FunctionCommands::Create(args) => args.program.clone(),
+            cli::FunctionCommands::Delete(args) => args.options.program.clone(),
+        },
+        Commands::Strings(cmd) => match cmd {
+            cli::StringsCommands::List(opts) => opts.program.clone(),
+            cli::StringsCommands::Refs(args) => args.options.program.clone(),
+        },
+        Commands::Memory(cmd) => match cmd {
+            cli::MemoryCommands::Map(opts) => opts.program.clone(),
+            cli::MemoryCommands::Read(args) => args.options.program.clone(),
+            cli::MemoryCommands::Write(args) => args.program.clone(),
+            cli::MemoryCommands::Search(args) => args.options.program.clone(),
+        },
+        Commands::Dump(cmd) => match cmd {
+            cli::DumpCommands::Imports(opts) => opts.program.clone(),
+            cli::DumpCommands::Exports(opts) => opts.program.clone(),
+            cli::DumpCommands::Functions(opts) => opts.program.clone(),
+            cli::DumpCommands::Strings(opts) => opts.program.clone(),
+        },
+        Commands::XRef(cmd) => match cmd {
+            cli::XRefCommands::To(args) => args.options.program.clone(),
+            cli::XRefCommands::From(args) => args.options.program.clone(),
+            cli::XRefCommands::List(args) => args.options.program.clone(),
+        },
+        Commands::Stats(args) => args.options.program.clone(),
+        Commands::Disasm(args) => args.options.program.clone(),
+        Commands::Find(cmd) => match cmd {
+            cli::FindCommands::String(args) => args.options.program.clone(),
+            cli::FindCommands::Bytes(args) => args.options.program.clone(),
+            cli::FindCommands::Function(args) => args.options.program.clone(),
+            cli::FindCommands::Calls(args) => args.options.program.clone(),
+            cli::FindCommands::Crypto(opts) => opts.program.clone(),
+            cli::FindCommands::Interesting(opts) => opts.program.clone(),
+        },
+        Commands::Graph(cmd) => match cmd {
+            cli::GraphCommands::Calls(opts) => opts.program.clone(),
+            cli::GraphCommands::Callers(args) => args.options.program.clone(),
+            cli::GraphCommands::Callees(args) => args.options.program.clone(),
+            cli::GraphCommands::Export(args) => args.options.program.clone(),
+        },
+        Commands::Comment(cmd) => match cmd {
+            cli::CommentCommands::List(opts) => opts.program.clone(),
+            cli::CommentCommands::Get(args) => args.options.program.clone(),
+            cli::CommentCommands::Set(args) => args.program.clone(),
+            cli::CommentCommands::Delete(args) => args.options.program.clone(),
+        },
+        Commands::Symbol(cmd) => match cmd {
+            cli::SymbolCommands::List(opts) => opts.program.clone(),
+            cli::SymbolCommands::Get(args) => args.options.program.clone(),
+            cli::SymbolCommands::Create(args) => args.program.clone(),
+            cli::SymbolCommands::Delete(args) => args.options.program.clone(),
+            cli::SymbolCommands::Rename(args) => args.program.clone(),
+        },
+        Commands::Type(cmd) => match cmd {
+            cli::TypeCommands::List(opts) => opts.program.clone(),
+            cli::TypeCommands::Get(args) => args.options.program.clone(),
+            cli::TypeCommands::Create(args) => args.program.clone(),
+            cli::TypeCommands::Apply(args) => args.program.clone(),
+        },
+        Commands::Patch(cmd) => match cmd {
+            cli::PatchCommands::Bytes(args) => args.program.clone(),
+            cli::PatchCommands::Nop(args) => args.program.clone(),
+            cli::PatchCommands::Export(args) => args.program.clone(),
+        },
+        Commands::Script(cmd) => match cmd {
+            cli::ScriptCommands::Run(args) => args.program.clone(),
+            cli::ScriptCommands::Python(args) => args.program.clone(),
+            cli::ScriptCommands::Java(args) => args.program.clone(),
+            cli::ScriptCommands::List => None,
+        },
+        Commands::Program(cmd) => match cmd {
+            cli::ProgramCommands::List(args) => args.program.clone(),
+            cli::ProgramCommands::Open(args) => args.program.clone(),
+            cli::ProgramCommands::Close(args) => args.program.clone(),
+            cli::ProgramCommands::Delete(args) => args.program.clone(),
+            cli::ProgramCommands::Info(args) => args.program.clone(),
+            cli::ProgramCommands::Export(args) => args.program.clone(),
+        },
+        _ => None,
+    }
+}
+
 /// Run a command that requires the bridge.
 fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
     let config = Config::load()?;
@@ -242,8 +341,10 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
             )
         })?;
 
-    // For Import and Quick, we may need to start a new bridge
-    let client = match &cli.command {
+    // Import and Quick produce their own result and don't need execute_via_bridge.
+    // Other commands (including Analyze) produce a result via execute_via_bridge.
+    use serde_json::json;
+    let result = match &cli.command {
         Commands::Import(args) => {
             let binary_path = PathBuf::from(&args.binary);
             if !binary_path.exists() {
@@ -251,11 +352,10 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
             }
 
             // Check if bridge is already running
-            if bridge::is_bridge_running(&project_path) {
+            if let Some(port) = bridge::is_bridge_running(&project_path) {
                 // Bridge running - import via bridge command
-                let port = bridge::read_port_file(&project_path)?
-                    .ok_or_else(|| anyhow::anyhow!("Bridge port file not found"))?;
                 let client = BridgeClient::new(port);
+                verify_bridge(&client)?;
                 let result = client.import_binary(&args.binary, args.program.as_deref())?;
 
                 let program_name = args.program.clone().unwrap_or_else(|| {
@@ -268,29 +368,39 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
 
                 // Switch to the newly imported program
                 client.open_program(&program_name)?;
-                println!("Successfully imported as: {}", program_name);
-                return Ok(());
+                eprintln!("Successfully imported as: {}", program_name);
+                json!({
+                    "command": "import",
+                    "program": program_name,
+                    "status": "success",
+                    "data": result
+                })
+            } else {
+                // No bridge running - start one in import mode
+                eprintln!("Starting Ghidra bridge...");
+                let port = bridge::ensure_bridge_running(
+                    &project_path,
+                    &ghidra_install_dir,
+                    BridgeStartMode::Import {
+                        binary_path: args.binary.clone(),
+                    },
+                )?;
+                let client = BridgeClient::new(port);
+                let info = client.program_info()?;
+                let program_name = args.program.clone().unwrap_or_else(|| {
+                    info.get("name")
+                        .and_then(|n| n.as_str())
+                        .unwrap_or("unknown")
+                        .to_string()
+                });
+                eprintln!("Successfully imported as: {}", program_name);
+                json!({
+                    "command": "import",
+                    "program": program_name,
+                    "status": "success",
+                    "data": info
+                })
             }
-
-            // No bridge running - start one in import mode
-            eprintln!("Starting Ghidra bridge...");
-            let port = bridge::ensure_bridge_running(
-                &project_path,
-                &ghidra_install_dir,
-                BridgeStartMode::Import {
-                    binary_path: args.binary.clone(),
-                },
-            )?;
-            let client = BridgeClient::new(port);
-            let info = client.program_info()?;
-            let program_name = args.program.clone().unwrap_or_else(|| {
-                info.get("name")
-                    .and_then(|n| n.as_str())
-                    .unwrap_or("unknown")
-                    .to_string()
-            });
-            println!("Successfully imported as: {}", program_name);
-            return Ok(());
         }
 
         Commands::Quick(args) => {
@@ -299,72 +409,71 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
                 anyhow::bail!("Binary not found: {}", args.binary);
             }
 
-            println!("Quick analysis of {}...\n", args.binary);
+            eprintln!("Quick analysis of {}...", args.binary);
 
-            println!("[1/3] Importing binary...");
-            let port = bridge::ensure_bridge_running(
-                &project_path,
-                &ghidra_install_dir,
-                BridgeStartMode::Import {
-                    binary_path: args.binary.clone(),
-                },
-            )?;
-            let client = BridgeClient::new(port);
+            // Reuse running bridge instead of re-importing in a fresh one
+            let (client, port) = if let Some(port) = bridge::is_bridge_running(&project_path) {
+                let client = BridgeClient::new(port);
+                verify_bridge(&client)?;
+                eprintln!("[1/3] Importing binary...");
+                let result = client.import_binary(&args.binary, None)?;
+                // import result has the newly-imported program name
+                let program_name = result
+                    .get("program")
+                    .and_then(|p| p.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                client.open_program(&program_name)?;
+                (client, port)
+            } else {
+                eprintln!("[1/3] Importing binary...");
+                let port = bridge::ensure_bridge_running(
+                    &project_path,
+                    &ghidra_install_dir,
+                    BridgeStartMode::Import {
+                        binary_path: args.binary.clone(),
+                    },
+                )?;
+                let client = BridgeClient::new(port);
+                client.program_info()?;
+                (client, port)
+            };
 
-            client.program_info()?;
-
-            println!("[2/3] Running analysis...");
+            eprintln!("[2/3] Running analysis...");
             client.analyze()?;
+            eprintln!("[3/3] Done!");
+            eprintln!("Analysis complete. The bridge is running on port {}.", port);
+            eprintln!();
+            eprintln!("Run queries like:");
+            eprintln!("  ghidra function list");
+            eprintln!("  ghidra decompile main");
+            eprintln!("  ghidra summary");
 
-            println!("[3/3] Done!\n");
-            println!("Analysis complete. The bridge is running on port {}.", port);
-            println!("\nRun queries like:");
-            println!("  ghidra function list");
-            println!("  ghidra decompile main");
-            println!("  ghidra summary");
-
-            return Ok(());
+            let info = client.program_info()?;
+            json!({
+                "command": "quick",
+                "program": info.get("name").and_then(|n| n.as_str()).unwrap_or("unknown"),
+                "status": "success",
+                "port": port,
+                "data": info
+            })
         }
 
-        Commands::Analyze(args) => {
-            let program = resolve_program(&args.program, &config)?;
-
-            // If bridge is already running, just send analyze command
-            if bridge::is_bridge_running(&project_path) {
-                let client = connect_to_bridge(&project_path)?;
-                println!("Analyzing {}...", program);
-                client.analyze()?;
-                println!("Analysis complete!");
-                return Ok(());
-            }
-
-            // Start bridge in process mode
-            eprintln!("Starting Ghidra bridge...");
-            let port = bridge::ensure_bridge_running(
-                &project_path,
-                &ghidra_install_dir,
-                BridgeStartMode::Process {
-                    program_name: program.clone(),
-                },
-            )?;
-            let client = BridgeClient::new(port);
-            println!("Analyzing {}...", program);
-            client.analyze()?;
-            println!("Analysis complete!");
-            return Ok(());
-        }
+        // Analyze uses the generic dispatch path via execute_via_bridge
 
         _ => {
-            // For query commands, ensure bridge is running (auto-start in process mode if needed)
-            if !bridge::is_bridge_running(&project_path) {
-                // Need a program name to start the bridge in process mode
-                let program = config.get_default_program().ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "No bridge running and no default program configured.\n\
-                         Import a binary first: ghidra import <binary>\n\
-                         Or set a default: ghidra set-default program <name>"
-                    )
-                })?;
+            // For query commands (including Analyze), ensure bridge is running
+            if bridge::is_bridge_running(&project_path).is_none() {
+                // Need a program name to start the bridge
+                let program = extract_program_from_command(&cli.command)
+                    .or_else(|| config.get_default_program())
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "No bridge running and no default program configured.\n\
+                             Import a binary first: ghidra import <binary>\n\
+                             Or set a default: ghidra set-default program <name>"
+                        )
+                    })?;
 
                 eprintln!("Starting Ghidra bridge...");
                 let port = bridge::ensure_bridge_running(
@@ -375,15 +484,28 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
                     },
                 )?;
                 eprintln!("Bridge ready.");
-                BridgeClient::new(port)
+                let client = BridgeClient::new(port);
+                execute_via_bridge(&client, &cli.command)?
             } else {
-                connect_to_bridge(&project_path)?
+                let client = connect_to_bridge(&project_path)?;
+                verify_bridge(&client)?;
+
+                // Switch to requested program if it differs from the bridge's current program
+                if let Some(requested_program) = extract_program_from_command(&cli.command) {
+                    let info = client.program_info()?;
+                    let current = info
+                        .get("name")
+                        .and_then(|n| n.as_str())
+                        .unwrap_or("");
+                    if current != requested_program {
+                        client.open_program(&requested_program)?;
+                    }
+                }
+
+                execute_via_bridge(&client, &cli.command)?
             }
         }
     };
-
-    // Execute the command via bridge
-    let result = execute_via_bridge(&client, &cli.command)?;
 
     // Determine output format based on flags and TTY detection
     let format = if cli.pretty {
@@ -416,6 +538,17 @@ fn execute_via_bridge(
     use serde_json::json;
 
     match command {
+        // Analyze shares the generic dispatch path with all query commands
+        Commands::Analyze(_) => {
+            eprintln!("Analyzing...");
+            let result = client.analyze()?;
+            eprintln!("Analysis complete!");
+            Ok(json!({
+                "command": "analyze",
+                "status": "success",
+                "data": result
+            }))
+        }
         Commands::Query(args) => match args.data_type.as_str() {
             "functions" => client.list_functions(args.limit, args.filter.clone()),
             "strings" => client.list_strings(args.limit),
@@ -679,7 +812,7 @@ fn handle_bridge_start(project: Option<String>, program: Option<String>) -> anyh
         })?;
 
     // Check if bridge is already running
-    if bridge::is_bridge_running(&project_path) {
+    if bridge::is_bridge_running(&project_path).is_some() {
         println!(
             "Bridge is already running for project: {}",
             project_path.display()
@@ -711,7 +844,7 @@ fn handle_bridge_stop(project: Option<String>) -> anyhow::Result<()> {
     let config = Config::load()?;
     let project_path = resolve_project_path(&project, &config)?;
 
-    if bridge::is_bridge_running(&project_path) {
+    if bridge::is_bridge_running(&project_path).is_some() {
         println!("Stopping bridge...");
         bridge::stop_bridge(&project_path)?;
         println!("Bridge stopped");
@@ -747,8 +880,8 @@ fn handle_bridge_ping(project: Option<String>) -> anyhow::Result<()> {
     let config = Config::load()?;
     let project_path = resolve_project_path(&project, &config)?;
 
-    if bridge::is_bridge_running(&project_path) {
-        let client = connect_to_bridge(&project_path)?;
+    if let Some(port) = bridge::is_bridge_running(&project_path) {
+        let client = BridgeClient::new(port);
         if client.ping()? {
             println!("Bridge is responsive");
         } else {
@@ -1055,16 +1188,18 @@ fn handle_project_command(cmd: cli::ProjectCommands) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn resolve_program(program: &Option<String>, config: &Config) -> Result<String> {
-    program
-        .clone()
-        .or_else(|| config.get_default_program())
-        .ok_or_else(|| GhidraError::Other("No program specified. Use --program or set default with 'ghidra set-default program <name>'".to_string()))
+
+/// Verify that a bridge is actually responding to commands.
+fn verify_bridge(client: &BridgeClient) -> anyhow::Result<()> {
+    if !client.ping()? {
+        anyhow::bail!("Bridge not responding to ping");
+    }
+    Ok(())
 }
 
 /// Connect to a running bridge for a project.
 fn connect_to_bridge(project_path: &Path) -> anyhow::Result<BridgeClient> {
-    let port = bridge::read_port_file(project_path)?.ok_or_else(|| {
+    let port = bridge::is_bridge_running(project_path).ok_or_else(|| {
         anyhow::anyhow!("Bridge not running for project: {}", project_path.display())
     })?;
     Ok(BridgeClient::new(port))

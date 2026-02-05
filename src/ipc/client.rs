@@ -83,7 +83,6 @@ impl BridgeClient {
     }
 
     /// Shutdown the bridge.
-    #[allow(dead_code)]
     pub fn shutdown(&self) -> Result<()> {
         self.send_command("shutdown", None)?;
         Ok(())

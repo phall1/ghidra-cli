@@ -7,6 +7,8 @@ See @AGENTS.md for agent-specific instructions.
 | What | When |
 |------|------|
 | `src/main.rs` | Modifying CLI entry point, bridge lifecycle, or output format detection |
+| `src/main.rs` `verify_bridge()` | Changing bridge ping verification after connecting to an existing bridge |
+| `src/main.rs` `extract_program_from_command()` | Adding new command variants that support `--program` switching |
 | `src/cli.rs` | Adding/modifying CLI arguments and subcommands |
 | `src/format/mod.rs` | Implementing new output formats or changing format detection logic |
 | `src/ghidra/bridge.rs` | Bridge process management (start/stop/status/connect via TCP) |
@@ -31,5 +33,7 @@ See @AGENTS.md for agent-specific instructions.
 | What | When |
 |------|------|
 | `CHANGELOG.md` | Reviewing version history and release notes |
-| `src/daemon/README.md` | Understanding bridge architecture and command protocol |
+| `src/daemon/README.md` | Understanding daemon wrapper and its delegation to bridge.rs |
+| `src/ghidra/README.md` | Understanding bridge lifecycle, PID file sequence, TOCTOU elimination, BridgeClient adoption |
+| `src/ipc/README.md` | Understanding TCP wire format, BridgeClient API, single implementation rationale |
 | `tests/README.md` | Understanding test structure and conventions |
