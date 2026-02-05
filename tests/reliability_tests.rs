@@ -120,9 +120,9 @@ fn test_bridge_not_ready_error() {
     // Ping should work
     assert_cmd::Command::cargo_bin("ghidra")
         .unwrap()
+        .arg("ping")
         .arg("--project")
         .arg(TEST_PROJECT)
-        .arg("ping")
         .timeout(Duration::from_secs(30))
         .assert()
         .success();

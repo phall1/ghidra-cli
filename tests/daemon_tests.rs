@@ -184,9 +184,9 @@ fn test_daemon_start_when_running() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
+        .arg("start")
         .arg("--project")
         .arg(TEST_PROJECT)
-        .arg("start")
         .arg("--program")
         .arg(TEST_PROGRAM)
         .assert()
