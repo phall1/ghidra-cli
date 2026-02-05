@@ -623,6 +623,8 @@ pub struct DiffProgramsArgs {
     pub program2: String,
     #[arg(long)]
     pub format: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
 }
 
 #[derive(Args, Clone, Serialize, Deserialize, Debug)]
@@ -633,6 +635,8 @@ pub struct DiffFunctionsArgs {
     pub func2: String,
     #[arg(long)]
     pub format: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
 }
 
 #[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]

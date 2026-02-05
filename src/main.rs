@@ -223,6 +223,10 @@ fn extract_project_from_command(command: &Commands) -> Option<String> {
             cli::ProgramCommands::Info(args) => args.project.clone(),
             cli::ProgramCommands::Export(args) => args.project.clone(),
         },
+        Commands::Diff(cmd) => match cmd {
+            cli::DiffCommands::Programs(args) => args.project.clone(),
+            cli::DiffCommands::Functions(args) => args.project.clone(),
+        },
         Commands::Batch(args) => args.project.clone(),
         _ => None,
     }
