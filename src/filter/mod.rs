@@ -71,36 +71,12 @@ pub enum Value {
     Hex(u64),
 }
 
-#[allow(dead_code)]
 impl Value {
-    pub fn as_str(&self) -> Option<&str> {
-        match self {
-            Value::String(s) => Some(s),
-            _ => None,
-        }
-    }
-
     pub fn as_f64(&self) -> Option<f64> {
         match self {
             Value::Number(n) => Some(*n),
             Value::Integer(i) => Some(*i as f64),
             Value::Hex(h) => Some(*h as f64),
-            _ => None,
-        }
-    }
-
-    pub fn as_i64(&self) -> Option<i64> {
-        match self {
-            Value::Integer(i) => Some(*i),
-            Value::Number(n) => Some(*n as i64),
-            Value::Hex(h) => Some(*h as i64),
-            _ => None,
-        }
-    }
-
-    pub fn as_bool(&self) -> Option<bool> {
-        match self {
-            Value::Boolean(b) => Some(*b),
             _ => None,
         }
     }

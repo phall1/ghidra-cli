@@ -63,8 +63,8 @@ pub struct Query {
     pub count_only: bool,
 }
 
-#[allow(dead_code)]
 impl Query {
+    #[allow(dead_code)]
     pub fn new(data_type: DataType) -> Self {
         Self {
             data_type,
@@ -114,26 +114,31 @@ impl Query {
         }))
     }
 
+    #[allow(dead_code)]
     pub fn with_filter(mut self, filter: Filter) -> Self {
         self.filter = Some(filter);
         self
     }
 
+    #[allow(dead_code)]
     pub fn with_format(mut self, format: OutputFormat) -> Self {
         self.format = format;
         self
     }
 
+    #[allow(dead_code)]
     pub fn with_limit(mut self, limit: usize) -> Self {
         self.limit = Some(limit);
         self
     }
 
+    #[allow(dead_code)]
     pub fn with_offset(mut self, offset: usize) -> Self {
         self.offset = Some(offset);
         self
     }
 
+    #[allow(dead_code)]
     pub fn count_only(mut self) -> Self {
         self.count_only = true;
         self

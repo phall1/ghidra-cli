@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::error::{GhidraError, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -158,24 +156,10 @@ impl Config {
         None
     }
 
-    pub fn get_timeout(&self) -> u64 {
-        std::env::var("GHIDRA_TIMEOUT")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .or(self.timeout)
-            .unwrap_or(300)
-    }
-
     pub fn get_default_program(&self) -> Option<String> {
         std::env::var("GHIDRA_DEFAULT_PROGRAM")
             .ok()
             .or_else(|| self.default_program.clone())
-    }
-
-    pub fn get_default_project(&self) -> Option<String> {
-        std::env::var("GHIDRA_DEFAULT_PROJECT")
-            .ok()
-            .or_else(|| self.default_project.clone())
     }
 }
 

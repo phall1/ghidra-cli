@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 
 /// GitHub release asset information
 #[derive(Deserialize, Debug)]
+#[allow(dead_code)]
 struct GithubAsset {
     name: String,
     browser_download_url: String,

@@ -1,6 +1,5 @@
 mod cli;
 mod config;
-mod daemon;
 mod error;
 mod filter;
 mod format;
@@ -17,6 +16,7 @@ use ghidra::bridge::{self, BridgeStartMode, BridgeStatus};
 use ghidra::GhidraClient;
 use ipc::client::BridgeClient;
 use query::Query;
+use std::io::IsTerminal;
 use std::path::PathBuf;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -443,7 +443,9 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
 
                 // Switch to the newly imported program
                 client.open_program(&program_name)?;
-                eprintln!("Successfully imported as: {}", program_name);
+                if !cli.quiet {
+                    eprintln!("Successfully imported as: {}", program_name);
+                }
                 json!({
                     "command": "import",
                     "program": program_name,
@@ -452,7 +454,9 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
                 })
             } else {
                 // No bridge running - start one in import mode
-                eprintln!("Starting Ghidra bridge...");
+                if !cli.quiet {
+                    eprintln!("Starting Ghidra bridge...");
+                }
                 let port = bridge::ensure_bridge_running(
                     &project_path,
                     &ghidra_install_dir,
@@ -468,7 +472,9 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
                         .unwrap_or("unknown")
                         .to_string()
                 });
-                eprintln!("Successfully imported as: {}", program_name);
+                if !cli.quiet {
+                    eprintln!("Successfully imported as: {}", program_name);
+                }
                 json!({
                     "command": "import",
                     "program": program_name,
@@ -496,13 +502,17 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
                     BridgeStartMode::Project
                 };
 
-                eprintln!("Starting Ghidra bridge...");
+                if !cli.quiet {
+                    eprintln!("Starting Ghidra bridge...");
+                }
                 let port = bridge::ensure_bridge_running(
                     &project_path,
                     &ghidra_install_dir,
                     mode,
                 )?;
-                eprintln!("Bridge ready.");
+                if !cli.quiet {
+                    eprintln!("Bridge ready.");
+                }
                 BridgeClient::new(port)
             };
 
@@ -521,12 +531,14 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
                 }
             }
 
-            execute_via_bridge(&client, &cli.command)?
+            execute_via_bridge(&client, &cli.command, cli.quiet, config.default_limit)?
         }
     };
 
     // Check for .NET decompilation and warn
-    check_dotnet_decompile_warning(&cli.command, &result);
+    if !cli.quiet {
+        check_dotnet_decompile_warning(&cli.command, &result);
+    }
 
     // Determine output format: explicit -o flag > --json/--pretty > TTY detection
     let opts = extract_query_options(&cli.command);
@@ -542,10 +554,10 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
         fmt
     } else if cli.pretty {
         OutputFormat::Json
-    } else if cli.json {
+    } else if cli.json || opts.as_ref().map_or(false, |o| o.json) {
         OutputFormat::JsonCompact
     } else {
-        auto_detect_format(atty::is(atty::Stream::Stdout))
+        auto_detect_format(std::io::stdout().is_terminal())
     };
 
     // Unwrap bridge response envelopes before formatting
@@ -574,15 +586,21 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
 fn execute_via_bridge(
     client: &BridgeClient,
     command: &Commands,
+    quiet: bool,
+    default_limit: Option<usize>,
 ) -> anyhow::Result<serde_json::Value> {
     use serde_json::json;
 
     match command {
         // Analyze shares the generic dispatch path with all query commands
         Commands::Analyze(_) => {
-            eprintln!("Analyzing...");
+            if !quiet {
+                eprintln!("Analyzing...");
+            }
             let result = client.analyze()?;
-            eprintln!("Analysis complete!");
+            if !quiet {
+                eprintln!("Analysis complete!");
+            }
             Ok(json!({
                 "command": "analyze",
                 "status": "success",
@@ -590,8 +608,8 @@ fn execute_via_bridge(
             }))
         }
         Commands::Query(args) => match args.data_type.as_str() {
-            "functions" => client.list_functions(args.limit, None),
-            "strings" => client.list_strings(args.limit),
+            "functions" => client.list_functions(args.limit.or(default_limit), None),
+            "strings" => client.list_strings(args.limit.or(default_limit)),
             "imports" => client.list_imports(),
             "exports" => client.list_exports(),
             "memory" => client.memory_map(),
@@ -602,7 +620,7 @@ fn execute_via_bridge(
             use cli::FunctionCommands;
             match cmd {
                 FunctionCommands::List(opts) => {
-                    client.list_functions(opts.limit, None)
+                    client.list_functions(opts.limit.or(default_limit), None)
                 }
                 FunctionCommands::Decompile(args) => client.decompile(args.target.clone()),
                 FunctionCommands::Get(args) => {
@@ -636,7 +654,7 @@ fn execute_via_bridge(
         Commands::Strings(cmd) => {
             use cli::StringsCommands;
             match cmd {
-                StringsCommands::List(opts) => client.list_strings(opts.limit),
+                StringsCommands::List(opts) => client.list_strings(opts.limit.or(default_limit)),
                 StringsCommands::Refs(args) => client.xrefs_to(args.string.clone()),
             }
         }
@@ -672,9 +690,9 @@ fn execute_via_bridge(
                 DumpCommands::Imports(_) => client.list_imports(),
                 DumpCommands::Exports(_) => client.list_exports(),
                 DumpCommands::Functions(opts) => {
-                    client.list_functions(opts.limit, None)
+                    client.list_functions(opts.limit.or(default_limit), None)
                 }
-                DumpCommands::Strings(opts) => client.list_strings(opts.limit),
+                DumpCommands::Strings(opts) => client.list_strings(opts.limit.or(default_limit)),
             }
         }
         Commands::Summary(_) => client.program_info(),
@@ -725,7 +743,7 @@ fn execute_via_bridge(
         Commands::Type(cmd) => {
             use cli::TypeCommands;
             match cmd {
-                TypeCommands::List(opts) => client.type_list(opts.limit),
+                TypeCommands::List(opts) => client.type_list(opts.limit.or(default_limit)),
                 TypeCommands::Get(args) => client.type_get(&args.name),
                 TypeCommands::Create(args) => client.type_create(&args.definition),
                 TypeCommands::Apply(args) => client.type_apply(&args.address, &args.type_name),
@@ -745,7 +763,7 @@ fn execute_via_bridge(
         Commands::Graph(cmd) => {
             use cli::GraphCommands;
             match cmd {
-                GraphCommands::Calls(opts) => client.graph_calls(opts.limit),
+                GraphCommands::Calls(opts) => client.graph_calls(opts.limit.or(default_limit)),
                 GraphCommands::Callers(args) => client.graph_callers(&args.function, args.depth),
                 GraphCommands::Callees(args) => client.graph_callees(&args.function, args.depth),
                 GraphCommands::Export(args) => client.graph_export(&args.format),
@@ -1133,6 +1151,16 @@ fn handle_config_command(cmd: cli::ConfigCommands) -> anyhow::Result<()> {
                         GhidraError::ConfigError("Invalid timeout value".to_string())
                     })?;
                     config.timeout = Some(timeout);
+                }
+                "ghidra_install_dir" => config.ghidra_install_dir = Some(PathBuf::from(value)),
+                "ghidra_project_dir" => config.ghidra_project_dir = Some(PathBuf::from(value)),
+                "default_program" => config.default_program = Some(value),
+                "default_project" => config.default_project = Some(value),
+                "default_limit" => {
+                    let limit: usize = value.parse().map_err(|_| {
+                        GhidraError::ConfigError("Invalid limit value".to_string())
+                    })?;
+                    config.default_limit = Some(limit);
                 }
                 _ => {
                     anyhow::bail!("Unknown config key: {}", key);

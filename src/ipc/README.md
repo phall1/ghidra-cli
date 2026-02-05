@@ -8,7 +8,6 @@ Single TCP implementation for CLI-to-bridge communication. All command sending g
 |------|---------|
 | `client.rs` | `BridgeClient` -- the canonical client for all bridge commands |
 | `protocol.rs` | `BridgeRequest` / `BridgeResponse` wire format structs |
-| `transport.rs` | Utility: `port_reachable()` TCP probe |
 
 ## BridgeClient
 

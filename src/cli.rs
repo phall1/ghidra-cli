@@ -209,7 +209,7 @@ pub struct QueryArgs {
     pub offset: Option<usize>,
 
     /// Sort by field(s) (comma-separated, prefix with - for descending)
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     pub sort: Option<String>,
 
     /// Only return count
@@ -797,7 +797,7 @@ pub struct QueryOptions {
     #[arg(long)]
     pub offset: Option<usize>,
 
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     pub sort: Option<String>,
 
     #[arg(long)]

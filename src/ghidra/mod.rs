@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 pub mod bridge;
 pub mod setup;
 
@@ -9,7 +7,6 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 pub struct GhidraClient {
-    config: Config,
     install_dir: PathBuf,
     project_dir: PathBuf,
 }
@@ -25,37 +22,14 @@ impl GhidraClient {
         }
 
         Ok(Self {
-            config,
             install_dir,
             project_dir,
         })
     }
 
-    pub fn install_dir(&self) -> &PathBuf {
-        &self.install_dir
-    }
-
-    pub fn get_headless_script(&self) -> PathBuf {
-        let support_dir = self.install_dir.join("support");
-
-        #[cfg(target_os = "windows")]
-        {
-            support_dir.join("analyzeHeadless.bat")
-        }
-
-        #[cfg(not(target_os = "windows"))]
-        {
-            support_dir.join("analyzeHeadless")
-        }
-    }
-
     pub fn verify_installation(&self) -> Result<()> {
-        let headless = self.get_headless_script();
-
-        if !headless.exists() {
-            return Err(GhidraError::GhidraNotFound);
-        }
-
+        bridge::find_headless_script(&self.install_dir)
+            .map_err(|_| GhidraError::GhidraNotFound)?;
         Ok(())
     }
 
@@ -80,24 +54,6 @@ impl GhidraClient {
         std::fs::create_dir_all(&project_path)?;
 
         Ok(())
-    }
-
-    fn get_scripts_dir(&self) -> Result<PathBuf> {
-        let config_dir = dirs::config_dir().ok_or_else(|| {
-            GhidraError::ConfigError("Could not determine config directory".to_string())
-        })?;
-
-        let scripts_dir = config_dir.join("ghidra-cli").join("scripts");
-
-        if !scripts_dir.exists() {
-            std::fs::create_dir_all(&scripts_dir)?;
-        }
-
-        Ok(scripts_dir)
-    }
-
-    pub fn get_install_dir(&self) -> &Path {
-        &self.install_dir
     }
 
     pub fn get_project_dir(&self) -> &Path {

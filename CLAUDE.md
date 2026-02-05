@@ -24,7 +24,6 @@ See @AGENTS.md for agent-specific instructions.
 |------|------|
 | `src/ghidra/` | Bridge management, Ghidra setup/installation, Java bridge script |
 | `src/ipc/` | TCP client, protocol definitions, transport helpers |
-| `src/daemon/` | Thin wrapper over bridge.rs (kept for API compatibility) |
 | `src/format/` | Handling output format conversion (Table, Compact, JSON, CSV, etc.) |
 | `tests/` | Writing integration or unit tests |
 
@@ -33,7 +32,6 @@ See @AGENTS.md for agent-specific instructions.
 | What | When |
 |------|------|
 | `CHANGELOG.md` | Reviewing version history and release notes |
-| `src/daemon/README.md` | Understanding daemon wrapper and its delegation to bridge.rs |
 | `src/ghidra/README.md` | Understanding bridge lifecycle, PID file sequence, TOCTOU elimination, BridgeClient adoption |
 | `src/ipc/README.md` | Understanding TCP wire format, BridgeClient API, single implementation rationale |
 | `tests/README.md` | Understanding test structure and conventions |

@@ -4,7 +4,6 @@ use serde::Serialize;
 use serde_json::Value as JsonValue;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum OutputFormat {
     Full,
     Compact,
@@ -23,7 +22,6 @@ pub enum OutputFormat {
     C,
 }
 
-#[allow(dead_code)]
 impl OutputFormat {
     pub fn from_str(s: &str) -> Result<Self> {
         match s.to_lowercase().as_str() {
@@ -46,16 +44,6 @@ impl OutputFormat {
         }
     }
 
-    pub fn is_human_friendly(&self) -> bool {
-        matches!(self, Self::Full | Self::Compact | Self::Table | Self::Tree)
-    }
-
-    pub fn is_machine_friendly(&self) -> bool {
-        matches!(
-            self,
-            Self::Json | Self::JsonCompact | Self::JsonStream | Self::Csv | Self::Tsv
-        )
-    }
 }
 
 pub trait Formatter {

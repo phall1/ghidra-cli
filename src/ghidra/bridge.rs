@@ -7,7 +7,7 @@
 use std::io::{BufRead, BufReader};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -327,8 +327,16 @@ pub fn stop_bridge(project_path: &Path) -> Result<()> {
         }
     }
 
-    // If PID file exists, kill the process as fallback
+    // Wait for the process to exit gracefully, then force-kill if needed
     if let Ok(Some(pid)) = read_pid_file(project_path) {
+        // Wait up to 3 seconds for graceful exit
+        for _ in 0..30 {
+            if !is_pid_alive(pid) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        // If still alive after waiting, force kill
         if is_pid_alive(pid) {
             warn!("Killing bridge process {} as fallback", pid);
             #[cfg(unix)]
@@ -388,7 +396,7 @@ pub enum BridgeStatus {
 }
 
 /// Find the analyzeHeadless script.
-fn find_headless_script(ghidra_install_dir: &Path) -> Result<PathBuf> {
+pub fn find_headless_script(ghidra_install_dir: &Path) -> Result<PathBuf> {
     let support_dir = ghidra_install_dir.join("support");
 
     #[cfg(unix)]
@@ -405,33 +413,3 @@ fn find_headless_script(ghidra_install_dir: &Path) -> Result<PathBuf> {
     }
 }
 
-/// Convenience wrapper for wait_timeout on Child
-trait ChildExt {
-    fn wait_timeout(
-        &mut self,
-        timeout: Duration,
-    ) -> std::io::Result<Option<std::process::ExitStatus>>;
-}
-
-impl ChildExt for Child {
-    fn wait_timeout(
-        &mut self,
-        timeout: Duration,
-    ) -> std::io::Result<Option<std::process::ExitStatus>> {
-        use std::thread;
-        use std::time::Instant;
-
-        let start = Instant::now();
-        loop {
-            match self.try_wait()? {
-                Some(status) => return Ok(Some(status)),
-                None => {
-                    if start.elapsed() >= timeout {
-                        return Ok(None);
-                    }
-                    thread::sleep(Duration::from_millis(100));
-                }
-            }
-        }
-    }
-}
