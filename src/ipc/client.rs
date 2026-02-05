@@ -206,8 +206,8 @@ impl BridgeClient {
         )
     }
 
-    pub fn type_list(&self) -> Result<serde_json::Value> {
-        self.send_command("type_list", None)
+    pub fn type_list(&self, limit: Option<usize>) -> Result<serde_json::Value> {
+        self.send_command("type_list", Some(json!({"limit": limit})))
     }
 
     pub fn type_get(&self, name: &str) -> Result<serde_json::Value> {

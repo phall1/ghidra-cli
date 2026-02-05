@@ -9,13 +9,14 @@ mod ipc;
 mod query;
 
 use clap::Parser;
-use cli::{Cli, Commands};
+use cli::{Cli, Commands, QueryOptions};
 use config::Config;
 use error::GhidraError;
 use format::{auto_detect_format, DefaultFormatter, Formatter, OutputFormat};
 use ghidra::bridge::{self, BridgeStartMode, BridgeStatus};
 use ghidra::GhidraClient;
 use ipc::client::BridgeClient;
+use query::Query;
 use std::path::PathBuf;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -325,6 +326,78 @@ fn extract_program_from_command(command: &Commands) -> Option<String> {
     }
 }
 
+/// Extract QueryOptions from a command, if it has them.
+fn extract_query_options(command: &Commands) -> Option<QueryOptions> {
+    match command {
+        Commands::Summary(args) => Some(args.options.clone()),
+        Commands::Decompile(args) => Some(args.options.clone()),
+        Commands::Disasm(args) => Some(args.options.clone()),
+        Commands::Stats(args) => Some(args.options.clone()),
+        Commands::Function(cmd) => match cmd {
+            cli::FunctionCommands::List(opts) => Some(opts.clone()),
+            cli::FunctionCommands::Get(args) => Some(args.options.clone()),
+            cli::FunctionCommands::Decompile(args) => Some(args.options.clone()),
+            cli::FunctionCommands::Disasm(args) => Some(args.options.clone()),
+            cli::FunctionCommands::Calls(args) => Some(args.options.clone()),
+            cli::FunctionCommands::XRefs(args) => Some(args.options.clone()),
+            cli::FunctionCommands::Delete(args) => Some(args.options.clone()),
+            _ => None,
+        },
+        Commands::Strings(cmd) => match cmd {
+            cli::StringsCommands::List(opts) => Some(opts.clone()),
+            cli::StringsCommands::Refs(args) => Some(args.options.clone()),
+        },
+        Commands::Memory(cmd) => match cmd {
+            cli::MemoryCommands::Map(opts) => Some(opts.clone()),
+            cli::MemoryCommands::Read(args) => Some(args.options.clone()),
+            cli::MemoryCommands::Search(args) => Some(args.options.clone()),
+            _ => None,
+        },
+        Commands::Dump(cmd) => match cmd {
+            cli::DumpCommands::Imports(opts) => Some(opts.clone()),
+            cli::DumpCommands::Exports(opts) => Some(opts.clone()),
+            cli::DumpCommands::Functions(opts) => Some(opts.clone()),
+            cli::DumpCommands::Strings(opts) => Some(opts.clone()),
+        },
+        Commands::XRef(cmd) => match cmd {
+            cli::XRefCommands::To(args) => Some(args.options.clone()),
+            cli::XRefCommands::From(args) => Some(args.options.clone()),
+            cli::XRefCommands::List(args) => Some(args.options.clone()),
+        },
+        Commands::Symbol(cmd) => match cmd {
+            cli::SymbolCommands::List(opts) => Some(opts.clone()),
+            cli::SymbolCommands::Get(args) => Some(args.options.clone()),
+            cli::SymbolCommands::Delete(args) => Some(args.options.clone()),
+            _ => None,
+        },
+        Commands::Type(cmd) => match cmd {
+            cli::TypeCommands::List(opts) => Some(opts.clone()),
+            cli::TypeCommands::Get(args) => Some(args.options.clone()),
+            _ => None,
+        },
+        Commands::Comment(cmd) => match cmd {
+            cli::CommentCommands::List(opts) => Some(opts.clone()),
+            cli::CommentCommands::Get(args) => Some(args.options.clone()),
+            _ => None,
+        },
+        Commands::Graph(cmd) => match cmd {
+            cli::GraphCommands::Calls(opts) => Some(opts.clone()),
+            cli::GraphCommands::Callers(args) => Some(args.options.clone()),
+            cli::GraphCommands::Callees(args) => Some(args.options.clone()),
+            cli::GraphCommands::Export(args) => Some(args.options.clone()),
+        },
+        Commands::Find(cmd) => match cmd {
+            cli::FindCommands::String(args) => Some(args.options.clone()),
+            cli::FindCommands::Bytes(args) => Some(args.options.clone()),
+            cli::FindCommands::Function(args) => Some(args.options.clone()),
+            cli::FindCommands::Calls(args) => Some(args.options.clone()),
+            cli::FindCommands::Crypto(opts) => Some(opts.clone()),
+            cli::FindCommands::Interesting(opts) => Some(opts.clone()),
+        },
+        _ => None,
+    }
+}
+
 /// Run a command that requires the bridge.
 fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
     let config = Config::load()?;
@@ -452,8 +525,22 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
         }
     };
 
-    // Determine output format based on flags and TTY detection
-    let format = if cli.pretty {
+    // Check for .NET decompilation and warn
+    check_dotnet_decompile_warning(&cli.command, &result);
+
+    // Determine output format: explicit -o flag > --json/--pretty > TTY detection
+    let opts = extract_query_options(&cli.command);
+    let explicit_format = opts
+        .as_ref()
+        .and_then(|o| o.format.as_ref())
+        .map(|f| OutputFormat::from_str(f))
+        .transpose()
+        .ok()
+        .flatten();
+
+    let format = if let Some(fmt) = explicit_format {
+        fmt
+    } else if cli.pretty {
         OutputFormat::Json
     } else if cli.json {
         OutputFormat::JsonCompact
@@ -461,11 +548,19 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
         auto_detect_format(atty::is(atty::Stream::Stdout))
     };
 
-    // Detect if result is already an array before wrapping
-    let values = match result {
-        serde_json::Value::Array(arr) => arr,
-        single => vec![single],
-    };
+    // Unwrap bridge response envelopes before formatting
+    let values = unwrap_bridge_response(result);
+
+    // Apply Rust-side query processing (filter, fields, sort) if QueryOptions are present
+    if let Some(opts) = &opts {
+        if let Ok(Some(query)) = Query::from_options(opts, format) {
+            let output = query.process_results(values)?;
+            if !output.is_empty() {
+                println!("{}", output);
+            }
+            return Ok(());
+        }
+    }
 
     let formatter = DefaultFormatter;
     let output = formatter.format(&values, format)?;
@@ -495,7 +590,7 @@ fn execute_via_bridge(
             }))
         }
         Commands::Query(args) => match args.data_type.as_str() {
-            "functions" => client.list_functions(args.limit, args.filter.clone()),
+            "functions" => client.list_functions(args.limit, None),
             "strings" => client.list_strings(args.limit),
             "imports" => client.list_imports(),
             "exports" => client.list_exports(),
@@ -507,7 +602,7 @@ fn execute_via_bridge(
             use cli::FunctionCommands;
             match cmd {
                 FunctionCommands::List(opts) => {
-                    client.list_functions(opts.limit, opts.filter.clone())
+                    client.list_functions(opts.limit, None)
                 }
                 FunctionCommands::Decompile(args) => client.decompile(args.target.clone()),
                 FunctionCommands::Get(args) => {
@@ -577,7 +672,7 @@ fn execute_via_bridge(
                 DumpCommands::Imports(_) => client.list_imports(),
                 DumpCommands::Exports(_) => client.list_exports(),
                 DumpCommands::Functions(opts) => {
-                    client.list_functions(opts.limit, opts.filter.clone())
+                    client.list_functions(opts.limit, None)
                 }
                 DumpCommands::Strings(opts) => client.list_strings(opts.limit),
             }
@@ -618,7 +713,7 @@ fn execute_via_bridge(
         Commands::Symbol(cmd) => {
             use cli::SymbolCommands;
             match cmd {
-                SymbolCommands::List(opts) => client.symbol_list(opts.filter.as_deref()),
+                SymbolCommands::List(_) => client.symbol_list(None),
                 SymbolCommands::Get(args) => client.symbol_get(&args.name),
                 SymbolCommands::Create(args) => client.symbol_create(&args.address, &args.name),
                 SymbolCommands::Delete(args) => client.symbol_delete(&args.name),
@@ -630,7 +725,7 @@ fn execute_via_bridge(
         Commands::Type(cmd) => {
             use cli::TypeCommands;
             match cmd {
-                TypeCommands::List(_) => client.type_list(),
+                TypeCommands::List(opts) => client.type_list(opts.limit),
                 TypeCommands::Get(args) => client.type_get(&args.name),
                 TypeCommands::Create(args) => client.type_create(&args.definition),
                 TypeCommands::Apply(args) => client.type_apply(&args.address, &args.type_name),
@@ -1127,6 +1222,96 @@ fn handle_project_command(cmd: cli::ProjectCommands) -> anyhow::Result<()> {
     Ok(())
 }
 
+
+/// Check if a decompile result looks like .NET managed code and warn the user.
+fn check_dotnet_decompile_warning(command: &Commands, result: &serde_json::Value) {
+    let is_decompile = matches!(
+        command,
+        Commands::Decompile(_)
+            | Commands::Function(cli::FunctionCommands::Decompile(_))
+    );
+    if !is_decompile {
+        return;
+    }
+
+    if let Some(code) = result.get("code").and_then(|c| c.as_str()) {
+        if code.contains("halt_baddata()") || code.contains(".NET CLR Managed Code") {
+            eprintln!(
+                "Warning: This appears to be .NET managed code. Ghidra cannot decompile .NET IL bytecode.\n\
+                 Consider using a .NET decompiler (e.g., ilspy-cli) for better results."
+            );
+        }
+    }
+}
+
+/// Unwrap bridge response envelopes into a flat array of objects.
+///
+/// Bridge returns envelopes like `{"count": N, "functions": [...]}`.
+/// This extracts the inner array so formatters can render individual items.
+fn unwrap_bridge_response(value: serde_json::Value) -> Vec<serde_json::Value> {
+    // Already an array - return as-is
+    if let serde_json::Value::Array(arr) = &value {
+        return arr.clone();
+    }
+
+    // Must be an object to unwrap
+    let obj = match value {
+        serde_json::Value::Object(ref map) => map,
+        other => return vec![other],
+    };
+
+    // Known array keys from bridge responses
+    const ARRAY_KEYS: &[&str] = &[
+        "functions",
+        "strings",
+        "imports",
+        "exports",
+        "blocks",
+        "xrefs",
+        "results",
+        "programs",
+        "types",
+        "comments",
+        "symbols",
+        "callers",
+        "callees",
+        "calls",
+        "instructions",
+        "sections",
+        "references",
+    ];
+
+    // Metadata keys that accompany array keys (not data themselves)
+    const META_KEYS: &[&str] = &[
+        "count",
+        "target",
+        "function",
+        "command",
+        "status",
+        "current_program_name",
+        "has_current_program",
+        "data",
+    ];
+
+    // Special case: decompile responses have a "code" key - return as-is for special rendering
+    if obj.contains_key("code") {
+        return vec![value];
+    }
+
+    // Look for a known array key
+    for &key in ARRAY_KEYS {
+        if let Some(serde_json::Value::Array(arr)) = obj.get(key) {
+            // Verify remaining keys are metadata
+            let all_meta = obj.keys().all(|k| k == key || META_KEYS.contains(&k.as_str()));
+            if all_meta {
+                return arr.clone();
+            }
+        }
+    }
+
+    // No known array key found - return as single-item vec
+    vec![value]
+}
 
 /// Verify that a bridge is actually responding to commands.
 fn verify_bridge(client: &BridgeClient) -> anyhow::Result<()> {

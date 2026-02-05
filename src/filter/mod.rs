@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 pub mod evaluator;
 pub mod parser;
 
@@ -73,6 +71,7 @@ pub enum Value {
     Hex(u64),
 }
 
+#[allow(dead_code)]
 impl Value {
     pub fn as_str(&self) -> Option<&str> {
         match self {

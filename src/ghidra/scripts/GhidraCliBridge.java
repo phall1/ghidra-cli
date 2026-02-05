@@ -210,7 +210,7 @@ public class GhidraCliBridge extends GhidraScript {
             case "symbol_delete":   return handleSymbolDelete(args);
             case "symbol_rename":   return handleSymbolRename(args);
             // Type commands
-            case "type_list":       return handleTypeList();
+            case "type_list":       return handleTypeList(args);
             case "type_get":        return handleTypeGet(args);
             case "type_create":     return handleTypeCreate(args);
             case "type_apply":      return handleTypeApply(args);
@@ -276,13 +276,40 @@ public class GhidraCliBridge extends GhidraScript {
             return null;
         }
 
-        // Try as hex address first
+        // Try as hex address first (with and without 0x prefix)
         Address addr = currentProgram.getAddressFactory().getAddress(addrStr);
         if (addr != null) {
             return addr;
         }
+        if (addrStr.startsWith("0x") || addrStr.startsWith("0X")) {
+            addr = currentProgram.getAddressFactory().getAddress(addrStr.substring(2));
+            if (addr != null) {
+                return addr;
+            }
+        }
 
-        // Try as function name
+        // Try as symbol/function name via SymbolTable
+        SymbolTable st = currentProgram.getSymbolTable();
+        SymbolIterator syms = st.getSymbols(addrStr);
+        while (syms.hasNext()) {
+            Symbol sym = syms.next();
+            Address symAddr = sym.getAddress();
+            // Skip external/fake addresses - prefer real addresses
+            if (symAddr != null && !symAddr.isExternalAddress()) {
+                return symAddr;
+            }
+        }
+
+        // Try global symbols (may include exports)
+        List<Symbol> globalSyms = st.getGlobalSymbols(addrStr);
+        for (Symbol sym : globalSyms) {
+            Address symAddr = sym.getAddress();
+            if (symAddr != null && !symAddr.isExternalAddress()) {
+                return symAddr;
+            }
+        }
+
+        // Fallback: scan functions by name (O(n) but handles edge cases)
         FunctionManager fm = currentProgram.getFunctionManager();
         FunctionIterator iter = fm.getFunctions(true);
         while (iter.hasNext()) {
@@ -1562,21 +1589,25 @@ public class GhidraCliBridge extends GhidraScript {
 
     // --- Type Handlers ---
 
-    private JsonObject handleTypeList() {
+    private JsonObject handleTypeList(JsonObject args) {
         if (currentProgram == null) return errorResult("No program loaded");
 
+        int limit = getArgInt(args, "limit", 0);
         DataTypeManager dtm = currentProgram.getDataTypeManager();
         JsonArray types = new JsonArray();
 
         Iterator<DataType> dtIter = dtm.getAllDataTypes();
+        int count = 0;
         while (dtIter.hasNext()) {
             DataType dt = dtIter.next();
+            if (limit > 0 && count >= limit) break;
             JsonObject typeData = new JsonObject();
             typeData.addProperty("name", dt.getName());
             typeData.addProperty("path", dt.getPathName());
             typeData.addProperty("category", dt.getCategoryPath().toString());
             typeData.addProperty("size", dt.getLength());
             types.add(typeData);
+            count++;
         }
 
         JsonObject result = new JsonObject();
@@ -2371,23 +2402,29 @@ public class GhidraCliBridge extends GhidraScript {
         }
 
         try {
-            // Strip 0x prefix if present
-            String cleanAddr = addressStr;
-            if (cleanAddr.startsWith("0x") || cleanAddr.startsWith("0X")) {
-                cleanAddr = cleanAddr.substring(2);
-            }
-
-            Address addr = currentProgram.getAddressFactory().getAddress(cleanAddr);
-            if (addr == null) {
-                // Try with the original string (might be a function name)
-                addr = resolveAddress(addressStr);
-            }
+            // Use resolveAddress which handles 0x prefix and symbol lookup
+            Address addr = resolveAddress(addressStr);
             if (addr == null) return errorResult("Invalid address: " + addressStr);
 
             Listing listing = currentProgram.getListing();
             Instruction instruction = listing.getInstructionAt(addr);
+
+            // If no instruction at exact address, try containing instruction (mid-instruction)
             if (instruction == null) {
-                return errorResult("No instruction at address: " + addressStr);
+                instruction = listing.getInstructionContaining(addr);
+            }
+
+            // If still null, try starting from containing function's entry point
+            if (instruction == null) {
+                Function func = currentProgram.getFunctionManager().getFunctionContaining(addr);
+                if (func != null) {
+                    instruction = listing.getInstructionAt(func.getEntryPoint());
+                }
+            }
+
+            if (instruction == null) {
+                return errorResult("No instruction at address " + addressStr +
+                    ". Address may be data or unanalyzed code.");
             }
 
             JsonArray results = new JsonArray();
@@ -2419,7 +2456,7 @@ public class GhidraCliBridge extends GhidraScript {
             }
 
             JsonObject result = new JsonObject();
-            result.add("results", results);
+            result.add("instructions", results);
             result.addProperty("count", results.size());
             return result;
         } catch (Exception e) {

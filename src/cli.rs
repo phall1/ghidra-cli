@@ -34,19 +34,19 @@ pub enum Commands {
     Project(ProjectArgs),
 
     /// Program/binary management commands
-    #[command(subcommand)]
+    #[command(subcommand, alias = "prog", alias = "programs")]
     Program(ProgramCommands),
 
     /// Function operations
-    #[command(subcommand, alias = "fn")]
+    #[command(subcommand, alias = "fn", alias = "func", alias = "functions")]
     Function(FunctionCommands),
 
     /// String operations
-    #[command(subcommand)]
+    #[command(subcommand, alias = "string", alias = "str")]
     Strings(StringsCommands),
 
     /// Symbol operations
-    #[command(subcommand, alias = "sym")]
+    #[command(subcommand, alias = "sym", alias = "symbols")]
     Symbol(SymbolCommands),
 
     /// Memory operations
@@ -54,29 +54,31 @@ pub enum Commands {
     Memory(MemoryCommands),
 
     /// Cross-reference operations
-    #[command(subcommand)]
+    #[command(subcommand, alias = "xrefs", alias = "xref", alias = "crossref", alias = "crossrefs")]
     XRef(XRefCommands),
 
     /// Type operations
-    #[command(subcommand)]
+    #[command(subcommand, alias = "types")]
     Type(TypeCommands),
 
     /// Comment operations
-    #[command(subcommand)]
+    #[command(subcommand, alias = "comments")]
     Comment(CommentCommands),
 
     /// Search operations
-    #[command(subcommand)]
+    #[command(subcommand, alias = "search")]
     Find(FindCommands),
 
     /// Graph operations
-    #[command(subcommand)]
+    #[command(subcommand, alias = "callgraph", alias = "cg")]
     Graph(GraphCommands),
 
     /// Decompile function
+    #[command(alias = "decomp", alias = "dec")]
     Decompile(DecompileArgs),
 
     /// Disassemble code
+    #[command(alias = "disassemble", alias = "dis")]
     Disasm(DisasmArgs),
 
     /// Diff operations
@@ -84,7 +86,7 @@ pub enum Commands {
     Diff(DiffCommands),
 
     /// Dump/export data
-    #[command(subcommand)]
+    #[command(subcommand, alias = "export")]
     Dump(DumpCommands),
 
     /// Patch binary
@@ -92,7 +94,7 @@ pub enum Commands {
     Patch(PatchCommands),
 
     /// Script execution
-    #[command(subcommand)]
+    #[command(subcommand, alias = "scripts")]
     Script(ScriptCommands),
 
     /// Batch operations
@@ -106,6 +108,7 @@ pub enum Commands {
     SetDefault(SetDefaultArgs),
 
     /// Program summary
+    #[command(alias = "info")]
     Summary(SummaryArgs),
 
     /// Program statistics
@@ -124,6 +127,7 @@ pub enum Commands {
     Import(ImportArgs),
 
     /// Analyze a program
+    #[command(alias = "analysis")]
     Analyze(AnalyzeArgs),
 
     /// Start the bridge
@@ -238,6 +242,7 @@ pub enum ProjectCommands {
 #[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
 pub enum ProgramCommands {
     /// List all programs in the project
+    #[command(alias = "ls")]
     List(ProgramTargetArgs),
     /// Open/switch to a program
     Open(ProgramTargetArgs),
@@ -275,16 +280,21 @@ pub struct ExportArgs {
 #[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
 pub enum FunctionCommands {
     /// List all functions
+    #[command(alias = "ls")]
     List(QueryOptions),
     /// Get function details
+    #[command(alias = "show", alias = "detail")]
     Get(FunctionGetArgs),
     /// Decompile function
+    #[command(alias = "decomp")]
     Decompile(FunctionGetArgs),
     /// Disassemble function
+    #[command(alias = "disassemble", alias = "dis")]
     Disasm(FunctionGetArgs),
     /// Get function calls
     Calls(FunctionGetArgs),
     /// Get cross-references to function
+    #[command(alias = "xrefs", alias = "crossrefs", alias = "references")]
     XRefs(FunctionGetArgs),
     /// Rename function
     Rename(RenameArgs),
@@ -325,8 +335,10 @@ pub struct CreateFunctionArgs {
 #[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
 pub enum StringsCommands {
     /// List all strings
+    #[command(alias = "ls")]
     List(QueryOptions),
     /// Get references to a string
+    #[command(alias = "references", alias = "xrefs")]
     Refs(StringRefsArgs),
 }
 
@@ -340,6 +352,7 @@ pub struct StringRefsArgs {
 #[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
 pub enum SymbolCommands {
     /// List all symbols
+    #[command(alias = "ls")]
     List(QueryOptions),
     /// Get symbol details
     Get(SymbolGetArgs),
@@ -425,6 +438,7 @@ pub struct XRefArgs {
 #[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
 pub enum TypeCommands {
     /// List data types
+    #[command(alias = "ls")]
     List(QueryOptions),
     /// Get type definition
     Get(TypeGetArgs),
@@ -463,6 +477,7 @@ pub struct ApplyTypeArgs {
 #[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
 pub enum CommentCommands {
     /// List all comments
+    #[command(alias = "ls")]
     List(QueryOptions),
     /// Get comment at address
     Get(CommentGetArgs),
@@ -494,16 +509,20 @@ pub struct CommentSetArgs {
 #[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
 pub enum FindCommands {
     /// Find strings
+    #[command(alias = "str", alias = "strings")]
     String(FindStringArgs),
     /// Find byte patterns
     Bytes(FindBytesArgs),
     /// Find functions
+    #[command(alias = "func", alias = "fn", alias = "functions")]
     Function(FindFunctionArgs),
     /// Find calls to function
     Calls(FindCallsArgs),
     /// Find crypto constants
+    #[command(alias = "encryption")]
     Crypto(QueryOptions),
     /// Find interesting functions
+    #[command(alias = "suspicious", alias = "notable")]
     Interesting(QueryOptions),
 }
 
@@ -540,8 +559,10 @@ pub enum GraphCommands {
     /// Call graph
     Calls(QueryOptions),
     /// Get callers of function
+    #[command(alias = "called-by", alias = "incoming")]
     Callers(GraphFunctionArgs),
     /// Get callees of function
+    #[command(alias = "calls-to", alias = "outgoing")]
     Callees(GraphFunctionArgs),
     /// Export graph
     Export(GraphExportArgs),

@@ -1,11 +1,11 @@
-#![allow(dead_code)]
-
+use crate::cli::QueryOptions;
 use crate::error::{GhidraError, Result};
 use crate::filter::Filter;
 use crate::format::{DefaultFormatter, Formatter, OutputFormat};
 use serde_json::Value as JsonValue;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum DataType {
     Functions,
     Strings,
@@ -24,6 +24,7 @@ pub enum DataType {
     References,
 }
 
+#[allow(dead_code)]
 impl DataType {
     pub fn from_str(s: &str) -> Result<Self> {
         match s.to_lowercase().as_str() {
@@ -51,6 +52,7 @@ impl DataType {
 }
 
 pub struct Query {
+    #[allow(dead_code)]
     pub data_type: DataType,
     pub filter: Option<Filter>,
     pub fields: Option<FieldSelector>,
@@ -61,6 +63,7 @@ pub struct Query {
     pub count_only: bool,
 }
 
+#[allow(dead_code)]
 impl Query {
     pub fn new(data_type: DataType) -> Self {
         Self {
@@ -73,6 +76,42 @@ impl Query {
             sort: None,
             count_only: false,
         }
+    }
+
+    /// Build a Query from CLI QueryOptions. Returns None if no query processing is needed.
+    pub fn from_options(opts: &QueryOptions, format: OutputFormat) -> Result<Option<Self>> {
+        let has_filter = opts.filter.is_some();
+        let has_fields = opts.fields.is_some();
+        let has_sort = opts.sort.is_some();
+        let has_count = opts.count;
+
+        // No query processing needed if no filter/fields/sort/count
+        if !has_filter && !has_fields && !has_sort && !has_count {
+            return Ok(None);
+        }
+
+        let filter = opts
+            .filter
+            .as_ref()
+            .map(|f| Filter::parse(f))
+            .transpose()?;
+        let fields = opts
+            .fields
+            .as_ref()
+            .map(|f| FieldSelector::parse(f))
+            .transpose()?;
+        let sort = opts.sort.as_ref().map(|s| SortKey::parse(s));
+
+        Ok(Some(Self {
+            data_type: DataType::Functions, // placeholder, not used in process_results
+            filter,
+            fields,
+            format,
+            limit: None,   // limit/offset already handled by bridge
+            offset: None,
+            sort,
+            count_only: has_count,
+        }))
     }
 
     pub fn with_filter(mut self, filter: Filter) -> Self {
