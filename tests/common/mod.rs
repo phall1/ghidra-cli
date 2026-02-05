@@ -10,7 +10,8 @@ pub mod schemas;
 
 // Re-export commonly used items
 pub use helpers::{
-    get_function_address, ghidra, normalize_json, normalize_output, GhidraCommand, GhidraResult,
+    get_function_address, get_function_addresses, ghidra, normalize_json, normalize_output,
+    GhidraCommand, GhidraResult,
 };
 pub use schemas::Validate;
 

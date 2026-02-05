@@ -6,7 +6,9 @@ use serial_test::serial;
 
 #[macro_use]
 mod common;
-use common::{ensure_test_project, DaemonTestHarness};
+use common::{
+    ensure_test_project, get_function_address, get_function_addresses, DaemonTestHarness,
+};
 
 const TEST_PROJECT: &str = "comment-test";
 const TEST_PROGRAM: &str = "sample_binary";
@@ -20,13 +22,14 @@ fn test_comment_set_and_get() {
     let harness =
         DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
-    // Set a comment at the entry point (0x118910 in Ghidra's address space)
-    // Note: ELF entry is 0x18910, but Ghidra loads with base 0x100000
+    // Dynamically resolve an address with a code unit
+    let addr = get_function_address(&harness, TEST_PROJECT, TEST_PROGRAM, "main");
+
     Command::cargo_bin("ghidra")
         .unwrap()
         .arg("comment")
         .arg("set")
-        .arg("0x00118910")
+        .arg(&addr)
         .arg("test comment from integration test")
         .arg("--project")
         .arg(TEST_PROJECT)
@@ -40,7 +43,7 @@ fn test_comment_set_and_get() {
         .unwrap()
         .arg("comment")
         .arg("get")
-        .arg("0x00118910")
+        .arg(&addr)
         .arg("--project")
         .arg(TEST_PROJECT)
         .arg("--program")
@@ -61,11 +64,15 @@ fn test_comment_list() {
     let harness =
         DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
+    // Use a dynamically resolved function address
+    let addrs = get_function_addresses(&harness, TEST_PROJECT, TEST_PROGRAM, 2);
+    let addr = &addrs[0];
+
     Command::cargo_bin("ghidra")
         .unwrap()
         .arg("comment")
         .arg("set")
-        .arg("0x00118920") // Within executable range (Ghidra address space)
+        .arg(addr)
         .arg("another comment")
         .arg("--project")
         .arg(TEST_PROJECT)
@@ -98,11 +105,15 @@ fn test_comment_delete() {
     let harness =
         DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
+    // Use a dynamically resolved function address
+    let addrs = get_function_addresses(&harness, TEST_PROJECT, TEST_PROGRAM, 3);
+    let addr = &addrs[addrs.len() - 1];
+
     Command::cargo_bin("ghidra")
         .unwrap()
         .arg("comment")
         .arg("set")
-        .arg("0x00118930") // Within executable range (Ghidra address space)
+        .arg(addr)
         .arg("to be deleted")
         .arg("--project")
         .arg(TEST_PROJECT)
@@ -115,7 +126,7 @@ fn test_comment_delete() {
         .unwrap()
         .arg("comment")
         .arg("delete")
-        .arg("0x00118930") // Within executable range (Ghidra address space)
+        .arg(addr)
         .arg("--project")
         .arg(TEST_PROJECT)
         .arg("--program")
