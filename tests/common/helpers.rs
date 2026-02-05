@@ -129,6 +129,8 @@ impl GhidraResult {
 /// Builder for running ghidra CLI commands with proper configuration.
 pub struct GhidraCommand {
     args: Vec<String>,
+    project: Option<String>,
+    program: Option<String>,
     env_vars: Vec<(String, String)>,
     timeout_secs: u64,
 }
@@ -138,6 +140,8 @@ impl GhidraCommand {
     pub fn new() -> Self {
         Self {
             args: Vec::new(),
+            project: None,
+            program: None,
             env_vars: Vec::new(),
             timeout_secs: 120,
         }
@@ -168,16 +172,16 @@ impl GhidraCommand {
     }
 
     /// Configure for bridge connection.
-    pub fn with_daemon(self, harness: &DaemonTestHarness) -> Self {
-        self.arg("--project").arg(harness.project())
+    pub fn with_daemon(mut self, harness: &DaemonTestHarness) -> Self {
+        self.project = Some(harness.project().to_string());
+        self
     }
 
     /// Set project and program arguments.
-    pub fn with_project(self, project: &str, program: &str) -> Self {
-        self.arg("--project")
-            .arg(project)
-            .arg("--program")
-            .arg(program)
+    pub fn with_project(mut self, project: &str, program: &str) -> Self {
+        self.project = Some(project.to_string());
+        self.program = Some(program.to_string());
+        self
     }
 
     /// Request JSON output format.
@@ -201,6 +205,14 @@ impl GhidraCommand {
 
         for arg in &self.args {
             cmd.arg(arg);
+        }
+
+        // Add --project and --program after the subcommand and its args
+        if let Some(ref project) = self.project {
+            cmd.arg("--project").arg(project);
+        }
+        if let Some(ref program) = self.program {
+            cmd.arg("--program").arg(program);
         }
 
         cmd.timeout(std::time::Duration::from_secs(self.timeout_secs));
