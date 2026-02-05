@@ -111,9 +111,9 @@ impl DaemonTestHarness {
     pub fn new(project: &str, program: &str) -> Result<Self> {
         let data_dir = get_unique_data_dir();
 
-        // Resolve the project path
-        let project_path = dirs::data_local_dir()
-            .context("Could not determine data directory")?
+        // Resolve the project path (must match CLI's default: cache_dir/ghidra-cli/projects)
+        let project_path = dirs::cache_dir()
+            .context("Could not determine cache directory")?
             .join("ghidra-cli")
             .join("projects")
             .join(project);
