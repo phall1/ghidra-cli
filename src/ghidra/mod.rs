@@ -28,8 +28,7 @@ impl GhidraClient {
     }
 
     pub fn verify_installation(&self) -> Result<()> {
-        bridge::find_headless_script(&self.install_dir)
-            .map_err(|_| GhidraError::GhidraNotFound)?;
+        bridge::find_headless_script(&self.install_dir).map_err(|_| GhidraError::GhidraNotFound)?;
         Ok(())
     }
 

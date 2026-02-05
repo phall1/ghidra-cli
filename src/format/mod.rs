@@ -43,7 +43,6 @@ impl OutputFormat {
             _ => Err(GhidraError::InvalidFormat(format!("Unknown format: {}", s))),
         }
     }
-
 }
 
 pub trait Formatter {
@@ -206,14 +205,11 @@ fn format_compact<T: Serialize>(data: &[T]) -> Result<String> {
                     map.get("address").and_then(|v| v.as_str()),
                     map.get("mnemonic").and_then(|v| v.as_str()),
                 ) {
-                    let bytes = map
-                        .get("bytes")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
+                    let bytes = map.get("bytes").and_then(|v| v.as_str()).unwrap_or("");
                     let operands = match map.get("operands") {
                         Some(JsonValue::Array(ops)) => ops
                             .iter()
-                            .map(|o| format_json_value(o))
+                            .map(format_json_value)
                             .collect::<Vec<_>>()
                             .join(", "),
                         _ => String::new(),
@@ -269,7 +265,15 @@ fn format_compact<T: Serialize>(data: &[T]) -> Result<String> {
                     .filter(|(k, _)| {
                         !matches!(
                             k.as_str(),
-                            "address" | "name" | "size" | "value" | "mnemonic" | "bytes" | "operands" | "code" | "signature"
+                            "address"
+                                | "name"
+                                | "size"
+                                | "value"
+                                | "mnemonic"
+                                | "bytes"
+                                | "operands"
+                                | "code"
+                                | "signature"
                         )
                     })
                     .filter_map(|(k, v)| {

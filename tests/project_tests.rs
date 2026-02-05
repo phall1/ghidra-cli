@@ -239,4 +239,3 @@ fn test_import_existing_program() {
         .assert()
         .success();
 }
-

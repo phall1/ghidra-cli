@@ -505,11 +505,7 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
                 if !cli.quiet {
                     eprintln!("Starting Ghidra bridge...");
                 }
-                let port = bridge::ensure_bridge_running(
-                    &project_path,
-                    &ghidra_install_dir,
-                    mode,
-                )?;
+                let port = bridge::ensure_bridge_running(&project_path, &ghidra_install_dir, mode)?;
                 if !cli.quiet {
                     eprintln!("Bridge ready.");
                 }
@@ -519,10 +515,7 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
             // Switch to requested program if it differs from the bridge's current program
             if let Some(requested_program) = extract_program_from_command(&cli.command) {
                 if let Ok(info) = client.program_info() {
-                    let current = info
-                        .get("name")
-                        .and_then(|n| n.as_str())
-                        .unwrap_or("");
+                    let current = info.get("name").and_then(|n| n.as_str()).unwrap_or("");
                     if current != requested_program {
                         client.open_program(&requested_program)?;
                     }
@@ -554,7 +547,7 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
         fmt
     } else if cli.pretty {
         OutputFormat::Json
-    } else if cli.json || opts.as_ref().map_or(false, |o| o.json) {
+    } else if cli.json || opts.as_ref().is_some_and(|o| o.json) {
         OutputFormat::JsonCompact
     } else {
         auto_detect_format(std::io::stdout().is_terminal())
@@ -1157,9 +1150,9 @@ fn handle_config_command(cmd: cli::ConfigCommands) -> anyhow::Result<()> {
                 "default_program" => config.default_program = Some(value),
                 "default_project" => config.default_project = Some(value),
                 "default_limit" => {
-                    let limit: usize = value.parse().map_err(|_| {
-                        GhidraError::ConfigError("Invalid limit value".to_string())
-                    })?;
+                    let limit: usize = value
+                        .parse()
+                        .map_err(|_| GhidraError::ConfigError("Invalid limit value".to_string()))?;
                     config.default_limit = Some(limit);
                 }
                 _ => {
@@ -1250,13 +1243,11 @@ fn handle_project_command(cmd: cli::ProjectCommands) -> anyhow::Result<()> {
     Ok(())
 }
 
-
 /// Check if a decompile result looks like .NET managed code and warn the user.
 fn check_dotnet_decompile_warning(command: &Commands, result: &serde_json::Value) {
     let is_decompile = matches!(
         command,
-        Commands::Decompile(_)
-            | Commands::Function(cli::FunctionCommands::Decompile(_))
+        Commands::Decompile(_) | Commands::Function(cli::FunctionCommands::Decompile(_))
     );
     if !is_decompile {
         return;
@@ -1330,7 +1321,9 @@ fn unwrap_bridge_response(value: serde_json::Value) -> Vec<serde_json::Value> {
     for &key in ARRAY_KEYS {
         if let Some(serde_json::Value::Array(arr)) = obj.get(key) {
             // Verify remaining keys are metadata
-            let all_meta = obj.keys().all(|k| k == key || META_KEYS.contains(&k.as_str()));
+            let all_meta = obj
+                .keys()
+                .all(|k| k == key || META_KEYS.contains(&k.as_str()));
             if all_meta {
                 return arr.clone();
             }

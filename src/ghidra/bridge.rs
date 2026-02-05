@@ -412,4 +412,3 @@ pub fn find_headless_script(ghidra_install_dir: &Path) -> Result<PathBuf> {
         anyhow::bail!("analyzeHeadless not found at: {}", support_dir.display())
     }
 }
-

@@ -90,11 +90,7 @@ impl Query {
             return Ok(None);
         }
 
-        let filter = opts
-            .filter
-            .as_ref()
-            .map(|f| Filter::parse(f))
-            .transpose()?;
+        let filter = opts.filter.as_ref().map(|f| Filter::parse(f)).transpose()?;
         let fields = opts
             .fields
             .as_ref()
@@ -107,7 +103,7 @@ impl Query {
             filter,
             fields,
             format,
-            limit: None,   // limit/offset already handled by bridge
+            limit: None, // limit/offset already handled by bridge
             offset: None,
             sort,
             count_only: has_count,

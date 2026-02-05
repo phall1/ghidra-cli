@@ -54,7 +54,13 @@ pub enum Commands {
     Memory(MemoryCommands),
 
     /// Cross-reference operations
-    #[command(subcommand, alias = "xrefs", alias = "xref", alias = "crossref", alias = "crossrefs")]
+    #[command(
+        subcommand,
+        alias = "xrefs",
+        alias = "xref",
+        alias = "crossref",
+        alias = "crossrefs"
+    )]
     XRef(XRefCommands),
 
     /// Type operations
