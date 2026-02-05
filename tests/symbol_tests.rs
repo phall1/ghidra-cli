@@ -14,6 +14,7 @@ const TEST_PROGRAM: &str = "sample_binary";
 #[test]
 #[serial]
 fn test_symbol_list() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -37,6 +38,7 @@ fn test_symbol_list() {
 #[test]
 #[serial]
 fn test_symbol_create_and_get() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -74,6 +76,7 @@ fn test_symbol_create_and_get() {
 #[test]
 #[serial]
 fn test_symbol_rename() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -111,6 +114,7 @@ fn test_symbol_rename() {
 #[test]
 #[serial]
 fn test_symbol_get_nonexistent() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =

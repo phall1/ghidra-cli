@@ -14,6 +14,7 @@ const TEST_PROGRAM: &str = "sample_binary";
 #[test]
 #[serial]
 fn test_comment_set_and_get() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -54,6 +55,7 @@ fn test_comment_set_and_get() {
 #[test]
 #[serial]
 fn test_comment_list() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -90,6 +92,7 @@ fn test_comment_list() {
 #[test]
 #[serial]
 fn test_comment_delete() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =

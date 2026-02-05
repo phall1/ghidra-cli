@@ -14,6 +14,7 @@ const TEST_PROGRAM: &str = "sample_binary";
 #[test]
 #[serial]
 fn test_diff_programs() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -37,6 +38,7 @@ fn test_diff_programs() {
 #[test]
 #[serial]
 fn test_diff_functions() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =

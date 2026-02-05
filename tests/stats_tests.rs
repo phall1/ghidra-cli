@@ -14,6 +14,7 @@ const TEST_PROGRAM: &str = "sample_binary";
 #[test]
 #[serial]
 fn test_stats_normal() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -38,6 +39,7 @@ fn test_stats_normal() {
 #[test]
 #[serial]
 fn test_stats_has_all_fields() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -67,6 +69,7 @@ fn test_stats_has_all_fields() {
 #[test]
 #[serial]
 fn test_stats_json_format() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =

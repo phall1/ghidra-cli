@@ -33,6 +33,7 @@ static HARNESS: Lazy<DaemonTestHarness> = Lazy::new(|| {
 #[test]
 #[serial]
 fn test_function_list_schema_validation() {
+    require_ghidra!();
     let harness = &*HARNESS;
 
     let result = ghidra(harness)
@@ -65,6 +66,7 @@ fn test_function_list_schema_validation() {
 #[test]
 #[serial]
 fn test_function_list_contains_expected_functions() {
+    require_ghidra!();
     let harness = &*HARNESS;
 
     let result = ghidra(harness)
@@ -99,6 +101,7 @@ fn test_function_list_contains_expected_functions() {
 #[test]
 #[serial]
 fn test_function_list_limit() {
+    require_ghidra!();
     let harness = &*HARNESS;
 
     let limit = 3;
@@ -129,6 +132,7 @@ fn test_function_list_limit() {
 #[test]
 #[serial]
 fn test_function_list_filter() {
+    require_ghidra!();
     let harness = &*HARNESS;
 
     let result = ghidra(harness)
@@ -169,6 +173,7 @@ fn test_function_list_filter() {
 #[test]
 #[serial]
 fn test_strings_list_schema_validation() {
+    require_ghidra!();
     let harness = &*HARNESS;
 
     let result = ghidra(harness)
@@ -199,6 +204,7 @@ fn test_strings_list_schema_validation() {
 #[test]
 #[serial]
 fn test_memory_map_schema_validation() {
+    require_ghidra!();
     let harness = &*HARNESS;
 
     let result = ghidra(harness)
@@ -242,6 +248,7 @@ fn test_memory_map_schema_validation() {
 #[test]
 #[serial]
 fn test_summary_contains_expected_fields() {
+    require_ghidra!();
     let harness = &*HARNESS;
 
     let result = ghidra(harness)
@@ -263,6 +270,7 @@ fn test_summary_contains_expected_fields() {
 #[test]
 #[serial]
 fn test_decompile_by_name() {
+    require_ghidra!();
     let harness = &*HARNESS;
 
     let result = ghidra(harness)
@@ -288,6 +296,7 @@ fn test_decompile_by_name() {
 #[test]
 #[serial]
 fn test_decompile_by_address() {
+    require_ghidra!();
     let harness = &*HARNESS;
 
     // Get main's address dynamically
@@ -312,6 +321,7 @@ fn test_decompile_by_address() {
 #[test]
 #[serial]
 fn test_decompile_nonexistent_function() {
+    require_ghidra!();
     let harness = &*HARNESS;
 
     let result = ghidra(harness)
@@ -341,6 +351,7 @@ fn test_decompile_nonexistent_function() {
 #[test]
 #[serial]
 fn test_xref_to() {
+    require_ghidra!();
     let harness = &*HARNESS;
 
     let main_addr = get_function_address(harness, TEST_PROJECT, TEST_PROGRAM, "main");
@@ -361,6 +372,7 @@ fn test_xref_to() {
 #[test]
 #[serial]
 fn test_xref_from() {
+    require_ghidra!();
     let harness = &*HARNESS;
 
     let main_addr = get_function_address(harness, TEST_PROJECT, TEST_PROGRAM, "main");
@@ -384,6 +396,7 @@ fn test_xref_from() {
 #[test]
 #[serial]
 fn test_function_list_snapshot() {
+    require_ghidra!();
     let harness = &*HARNESS;
 
     let result = ghidra(harness)

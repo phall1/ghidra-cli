@@ -14,6 +14,7 @@ const TEST_PROGRAM: &str = "sample_binary";
 #[test]
 #[serial]
 fn test_graph_calls() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -38,6 +39,7 @@ fn test_graph_calls() {
 #[test]
 #[serial]
 fn test_graph_callers() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -62,6 +64,7 @@ fn test_graph_callers() {
 #[test]
 #[serial]
 fn test_graph_callees() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -86,6 +89,7 @@ fn test_graph_callees() {
 #[test]
 #[serial]
 fn test_graph_export_dot() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =

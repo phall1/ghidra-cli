@@ -26,6 +26,7 @@ const TEST_PROGRAM: &str = "sample_binary";
 #[test]
 #[serial]
 fn test_patch_bytes_success() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -66,6 +67,7 @@ fn test_patch_bytes_success() {
 #[test]
 #[serial]
 fn test_patch_nop_success() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -98,6 +100,7 @@ fn test_patch_nop_success() {
 #[test]
 #[serial]
 fn test_patch_export() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -136,6 +139,7 @@ fn test_patch_export() {
 #[test]
 #[serial]
 fn test_patch_at_function_boundary() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -162,6 +166,7 @@ fn test_patch_at_function_boundary() {
 #[test]
 #[serial]
 fn test_patch_invalid_address_fails() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -196,6 +201,7 @@ fn test_patch_invalid_address_fails() {
 #[test]
 #[serial]
 fn test_patch_invalid_hex_fails() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -220,6 +226,7 @@ fn test_patch_invalid_hex_fails() {
 #[test]
 #[serial]
 fn test_patch_odd_hex_length() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -249,6 +256,7 @@ fn test_patch_odd_hex_length() {
 #[test]
 #[serial]
 fn test_patch_missing_program_arg() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -277,6 +285,7 @@ fn test_patch_missing_program_arg() {
 #[test]
 #[serial]
 fn test_patch_output_format_snapshot() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =

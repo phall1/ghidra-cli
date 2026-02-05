@@ -23,6 +23,7 @@ fn create_batch_file(content: &str) -> PathBuf {
 #[test]
 #[serial]
 fn test_batch_multiple_queries() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -54,6 +55,7 @@ query --function main
 #[test]
 #[serial]
 fn test_batch_empty_file() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -85,6 +87,7 @@ fn test_batch_empty_file() {
 #[test]
 #[serial]
 fn test_batch_with_comments() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -118,6 +121,7 @@ query --address 0x100000
 #[test]
 #[serial]
 fn test_batch_invalid_file() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -139,6 +143,7 @@ fn test_batch_invalid_file() {
 #[test]
 #[serial]
 fn test_batch_with_invalid_command() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =

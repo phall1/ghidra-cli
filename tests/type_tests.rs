@@ -14,6 +14,7 @@ const TEST_PROGRAM: &str = "sample_binary";
 #[test]
 #[serial]
 fn test_type_list() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -37,6 +38,7 @@ fn test_type_list() {
 #[test]
 #[serial]
 fn test_type_get_primitive() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -61,6 +63,7 @@ fn test_type_get_primitive() {
 #[test]
 #[serial]
 fn test_type_create() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -84,6 +87,7 @@ fn test_type_create() {
 #[test]
 #[serial]
 fn test_type_apply() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -108,6 +112,7 @@ fn test_type_apply() {
 #[test]
 #[serial]
 fn test_type_get_nonexistent() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =

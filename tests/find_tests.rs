@@ -14,6 +14,7 @@ const TEST_PROGRAM: &str = "sample_binary";
 #[test]
 #[serial]
 fn test_find_string() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -38,6 +39,7 @@ fn test_find_string() {
 #[test]
 #[serial]
 fn test_find_bytes() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -62,6 +64,7 @@ fn test_find_bytes() {
 #[test]
 #[serial]
 fn test_find_function() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -86,6 +89,7 @@ fn test_find_function() {
 #[test]
 #[serial]
 fn test_find_function_glob() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -110,6 +114,7 @@ fn test_find_function_glob() {
 #[test]
 #[serial]
 fn test_find_calls() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -133,6 +138,7 @@ fn test_find_calls() {
 #[test]
 #[serial]
 fn test_find_crypto() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -156,6 +162,7 @@ fn test_find_crypto() {
 #[test]
 #[serial]
 fn test_find_interesting() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -179,6 +186,7 @@ fn test_find_interesting() {
 #[test]
 #[serial]
 fn test_find_string_no_matches() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =

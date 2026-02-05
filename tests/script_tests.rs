@@ -39,6 +39,7 @@ print("Test script executed")
 #[test]
 #[serial]
 fn test_script_list() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -62,6 +63,7 @@ fn test_script_list() {
 #[test]
 #[serial]
 fn test_script_run() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let script_path = create_test_script();
@@ -90,6 +92,7 @@ fn test_script_run() {
 #[test]
 #[serial]
 fn test_script_python_inline() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -114,6 +117,7 @@ fn test_script_python_inline() {
 #[test]
 #[serial]
 fn test_script_run_nonexistent() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =

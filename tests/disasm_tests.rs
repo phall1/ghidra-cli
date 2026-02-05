@@ -27,6 +27,7 @@ const TEST_PROGRAM: &str = "sample_binary";
 #[test]
 #[serial]
 fn test_disasm_at_main() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -74,6 +75,7 @@ fn test_disasm_at_main() {
 #[test]
 #[serial]
 fn test_disasm_with_instruction_limit() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -122,6 +124,7 @@ fn test_disasm_with_instruction_limit() {
 #[test]
 #[serial]
 fn test_disasm_small_count() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -160,6 +163,7 @@ fn test_disasm_small_count() {
 #[test]
 #[serial]
 fn test_disasm_instruction_fields() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -221,6 +225,7 @@ fn test_disasm_instruction_fields() {
 #[test]
 #[serial]
 fn test_disasm_invalid_address() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -255,6 +260,7 @@ fn test_disasm_invalid_address() {
 #[test]
 #[serial]
 fn test_disasm_missing_program() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -274,6 +280,7 @@ fn test_disasm_missing_program() {
 #[test]
 #[serial]
 fn test_disasm_zero_instructions() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
@@ -310,6 +317,7 @@ fn test_disasm_zero_instructions() {
 #[test]
 #[serial]
 fn test_disasm_output_format_snapshot() {
+    require_ghidra!();
     ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
 
     let harness =
