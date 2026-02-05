@@ -22,9 +22,9 @@ fn test_stats_normal() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
+        .arg("stats")
         .arg("--project")
         .arg(TEST_PROJECT)
-        .arg("stats")
         .arg("--program")
         .arg(TEST_PROGRAM)
         .assert()
@@ -47,9 +47,9 @@ fn test_stats_has_all_fields() {
 
     Command::cargo_bin("ghidra")
         .unwrap()
+        .arg("stats")
         .arg("--project")
         .arg(TEST_PROJECT)
-        .arg("stats")
         .arg("--program")
         .arg(TEST_PROGRAM)
         .assert()
@@ -77,9 +77,9 @@ fn test_stats_json_format() {
 
     let output = Command::cargo_bin("ghidra")
         .unwrap()
+        .arg("stats")
         .arg("--project")
         .arg(TEST_PROJECT)
-        .arg("stats")
         .arg("--program")
         .arg(TEST_PROGRAM)
         .assert()

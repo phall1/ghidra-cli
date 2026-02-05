@@ -23,12 +23,12 @@ fn test_diff_programs() {
     // diff programs compares two programs by name (no --program flag needed)
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project")
-        .arg(TEST_PROJECT)
         .arg("diff")
         .arg("programs")
         .arg(TEST_PROGRAM)
         .arg(TEST_PROGRAM)
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .assert()
         .success();
 
@@ -48,12 +48,12 @@ fn test_diff_functions() {
     // Using _start (entry point) for both since we just want to verify command works
     Command::cargo_bin("ghidra")
         .unwrap()
-        .arg("--project")
-        .arg(TEST_PROJECT)
         .arg("diff")
         .arg("functions")
         .arg("_start")
         .arg("_start")
+        .arg("--project")
+        .arg(TEST_PROJECT)
         .assert()
         .success();
 

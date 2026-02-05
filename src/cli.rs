@@ -724,6 +724,12 @@ pub struct ScriptInlineArgs {
 #[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct BatchArgs {
     pub script_file: String,
+
+    #[arg(long)]
+    pub project: Option<String>,
+
+    #[arg(long)]
+    pub program: Option<String>,
 }
 
 #[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]

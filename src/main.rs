@@ -223,6 +223,7 @@ fn extract_project_from_command(command: &Commands) -> Option<String> {
             cli::ProgramCommands::Info(args) => args.project.clone(),
             cli::ProgramCommands::Export(args) => args.project.clone(),
         },
+        Commands::Batch(args) => args.project.clone(),
         _ => None,
     }
 }
@@ -322,6 +323,7 @@ fn extract_program_from_command(command: &Commands) -> Option<String> {
             cli::ProgramCommands::Info(args) => args.program.clone(),
             cli::ProgramCommands::Export(args) => args.program.clone(),
         },
+        Commands::Batch(args) => args.program.clone(),
         _ => None,
     }
 }
