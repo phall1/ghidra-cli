@@ -91,7 +91,7 @@ fn test_comment_list() {
         .arg(TEST_PROGRAM)
         .assert()
         .success()
-        .stdout(predicate::str::contains("comments"));
+        .stdout(predicate::str::contains("another comment"));
 
     drop(harness);
 }
