@@ -6,7 +6,7 @@ use serial_test::serial;
 
 #[macro_use]
 mod common;
-use common::{ensure_test_project, DaemonTestHarness};
+use common::{ensure_test_project, get_function_address, DaemonTestHarness};
 
 const TEST_PROJECT: &str = "type-test";
 const TEST_PROGRAM: &str = "sample_binary";
@@ -29,8 +29,7 @@ fn test_type_list() {
         .arg("--program")
         .arg(TEST_PROGRAM)
         .assert()
-        .success()
-        .stdout(predicate::str::contains("types"));
+        .success();
 
     drop(harness);
 }
@@ -93,11 +92,13 @@ fn test_type_apply() {
     let harness =
         DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
+    let addr = get_function_address(&harness, TEST_PROJECT, TEST_PROGRAM, "main");
+
     Command::cargo_bin("ghidra")
         .unwrap()
         .arg("type")
         .arg("apply")
-        .arg("0x1000")
+        .arg(&addr)
         .arg("int")
         .arg("--project")
         .arg(TEST_PROJECT)

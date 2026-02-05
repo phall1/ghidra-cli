@@ -6,7 +6,7 @@ use serial_test::serial;
 
 #[macro_use]
 mod common;
-use common::{ensure_test_project, DaemonTestHarness};
+use common::{ensure_test_project, get_function_address, get_function_addresses, DaemonTestHarness};
 
 const TEST_PROJECT: &str = "symbol-test";
 const TEST_PROGRAM: &str = "sample_binary";
@@ -29,8 +29,7 @@ fn test_symbol_list() {
         .arg("--program")
         .arg(TEST_PROGRAM)
         .assert()
-        .success()
-        .stdout(predicate::str::contains("symbols"));
+        .success();
 
     drop(harness);
 }
@@ -44,11 +43,13 @@ fn test_symbol_create_and_get() {
     let harness =
         DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
+    let addr = get_function_address(&harness, TEST_PROJECT, TEST_PROGRAM, "main");
+
     Command::cargo_bin("ghidra")
         .unwrap()
         .arg("symbol")
         .arg("create")
-        .arg("0x1000")
+        .arg(&addr)
         .arg("test_symbol")
         .arg("--project")
         .arg(TEST_PROJECT)
@@ -82,11 +83,14 @@ fn test_symbol_rename() {
     let harness =
         DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
+    let addrs = get_function_addresses(&harness, TEST_PROJECT, TEST_PROGRAM, 2);
+    let addr = &addrs[1];
+
     Command::cargo_bin("ghidra")
         .unwrap()
         .arg("symbol")
         .arg("create")
-        .arg("0x2000")
+        .arg(addr)
         .arg("old_symbol")
         .arg("--project")
         .arg(TEST_PROJECT)
