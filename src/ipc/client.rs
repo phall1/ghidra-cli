@@ -359,10 +359,6 @@ impl BridgeClient {
         self.send_command("script_list", None)
     }
 
-    pub fn batch(&self, commands: &[serde_json::Value]) -> Result<serde_json::Value> {
-        self.send_command("batch", Some(json!({"commands": commands})))
-    }
-
     pub fn program_close(&self) -> Result<serde_json::Value> {
         self.send_command("close_program", None)
     }

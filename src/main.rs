@@ -803,15 +803,35 @@ fn execute_via_bridge(
         }
         Commands::Disasm(args) => client.disasm(&args.address, args.num_instructions),
         Commands::Batch(args) => {
-            // Read batch file and send commands
+            // Read batch file and execute each command locally
             let content = std::fs::read_to_string(&args.script_file)
                 .map_err(|e| anyhow::anyhow!("Failed to read batch file: {}", e))?;
-            let commands: Vec<serde_json::Value> = content
+            let lines: Vec<&str> = content
                 .lines()
                 .filter(|l| !l.trim().is_empty() && !l.trim().starts_with('#'))
-                .map(|l| serde_json::from_str(l).unwrap_or_else(|_| json!({"command": l.trim()})))
                 .collect();
-            client.batch(&commands)
+
+            let mut results = Vec::new();
+            for line in &lines {
+                let words: Vec<&str> = std::iter::once("ghidra")
+                    .chain(line.split_whitespace())
+                    .collect();
+                let sub_result = match Cli::try_parse_from(&words) {
+                    Ok(sub_cli) => {
+                        execute_via_bridge(client, &sub_cli.command, true, default_limit)
+                    }
+                    Err(e) => Err(anyhow::anyhow!("{}", e)),
+                };
+                match sub_result {
+                    Ok(val) => results.push(json!({"command": line.trim(), "result": val})),
+                    Err(e) => results.push(json!({"command": line.trim(), "error": e.to_string()})),
+                }
+            }
+
+            Ok(json!({
+                "commands_parsed": lines.len(),
+                "results": results
+            }))
         }
         Commands::Stats(_) => client.stats(),
         _ => anyhow::bail!("Command not supported"),
