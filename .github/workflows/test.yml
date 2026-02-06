@@ -45,14 +45,13 @@ jobs:
         run: cargo test --test e2e --test command_tests --test output_format_integration --verbose
 
   # Job 2: Read-only integration tests (one bridge) - ~10-15 min
-  # Windows excluded: Ghidra headless + JVM startup exceeds 45min on GH Actions Windows runners
   readonly-integration:
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -76,7 +75,7 @@ jobs:
             ~/.local/share/ghidra-cli
             ~/Library/Application Support/ghidra-cli
             ~/AppData/Local/ghidra-cli
-          key: ghidra-${{ matrix.os }}-v2
+          key: ghidra-${{ matrix.os }}-v3
 
       - name: Cache Ghidra projects
         uses: actions/cache@v4
@@ -93,8 +92,15 @@ jobs:
       - name: Build test fixture
         run: rustc --edition 2021 -o tests/fixtures/sample_binary tests/fixtures/sample_binary.rs
 
-      - name: Setup Ghidra
-        run: cargo run -- setup --force
+      - name: Setup Ghidra (skip if cached)
+        run: |
+          if cargo run -- doctor 2>&1 | grep -q "analyzeHeadless: OK"; then
+            echo "Ghidra already installed (cache hit), skipping setup"
+          else
+            echo "Ghidra not found, running setup..."
+            cargo run -- setup
+          fi
+        shell: bash
 
       - name: Run read-only integration tests
         run: cargo test --test readonly_tests --verbose
@@ -104,11 +110,11 @@ jobs:
   # Job 3: Mutation tests (parallel with job 2) - ~10-15 min
   mutation-integration:
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -132,7 +138,7 @@ jobs:
             ~/.local/share/ghidra-cli
             ~/Library/Application Support/ghidra-cli
             ~/AppData/Local/ghidra-cli
-          key: ghidra-${{ matrix.os }}-v2
+          key: ghidra-${{ matrix.os }}-v3
 
       - name: Cache Ghidra projects
         uses: actions/cache@v4
@@ -149,8 +155,15 @@ jobs:
       - name: Build test fixture
         run: rustc --edition 2021 -o tests/fixtures/sample_binary tests/fixtures/sample_binary.rs
 
-      - name: Setup Ghidra
-        run: cargo run -- setup --force
+      - name: Setup Ghidra (skip if cached)
+        run: |
+          if cargo run -- doctor 2>&1 | grep -q "analyzeHeadless: OK"; then
+            echo "Ghidra already installed (cache hit), skipping setup"
+          else
+            echo "Ghidra not found, running setup..."
+            cargo run -- setup
+          fi
+        shell: bash
 
       - name: Run mutation integration tests
         run: cargo test --test comment_tests --test symbol_tests --test patch_tests --test type_tests --test script_tests --verbose
@@ -160,11 +173,11 @@ jobs:
   # Job 4: Infrastructure tests (parallel with jobs 2+3) - ~8-10 min
   infrastructure:
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -188,7 +201,7 @@ jobs:
             ~/.local/share/ghidra-cli
             ~/Library/Application Support/ghidra-cli
             ~/AppData/Local/ghidra-cli
-          key: ghidra-${{ matrix.os }}-v2
+          key: ghidra-${{ matrix.os }}-v3
 
       - name: Cache Ghidra projects
         uses: actions/cache@v4
@@ -205,8 +218,15 @@ jobs:
       - name: Build test fixture
         run: rustc --edition 2021 -o tests/fixtures/sample_binary tests/fixtures/sample_binary.rs
 
-      - name: Setup Ghidra
-        run: cargo run -- setup --force
+      - name: Setup Ghidra (skip if cached)
+        run: |
+          if cargo run -- doctor 2>&1 | grep -q "analyzeHeadless: OK"; then
+            echo "Ghidra already installed (cache hit), skipping setup"
+          else
+            echo "Ghidra not found, running setup..."
+            cargo run -- setup
+          fi
+        shell: bash
 
       - name: Run infrastructure tests
         run: cargo test --test daemon_tests --test reliability_tests --test project_tests --verbose
