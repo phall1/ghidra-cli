@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main, master]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -13,6 +17,7 @@ jobs:
   # Job 1: Unit tests and CLI tests (no Ghidra needed) - ~2 min
   unit-and-cli:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -42,6 +47,7 @@ jobs:
   # Job 2: Read-only integration tests (one bridge) - ~10-15 min
   readonly-integration:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -97,6 +103,7 @@ jobs:
   # Job 3: Mutation tests (parallel with job 2) - ~10-15 min
   mutation-integration:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -152,6 +159,7 @@ jobs:
   # Job 4: Infrastructure tests (parallel with jobs 2+3) - ~8-10 min
   infrastructure:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
