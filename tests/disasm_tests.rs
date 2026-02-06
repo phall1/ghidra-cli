@@ -193,15 +193,24 @@ fn test_disasm_instruction_fields() {
         assert!(!first.mnemonic.is_empty(), "Mnemonic should not be empty");
         assert!(!first.address.is_empty(), "Address should not be empty");
 
-        // Verify address format
+        // Verify address is valid hex (Ghidra may or may not include 0x prefix)
+        let addr_hex = first
+            .address
+            .strip_prefix("0x")
+            .or_else(|| first.address.strip_prefix("0X"))
+            .unwrap_or(&first.address);
         assert!(
-            first.address.starts_with("0x") || first.address.starts_with("0X"),
+            !addr_hex.is_empty() && addr_hex.bytes().all(|b| b.is_ascii_hexdigit()),
             "Address should be hex format, got: {}",
             first.address
         );
 
-        // Function prologue typically starts with PUSH, SUB, ENDBR, or similar
-        let common_first_instr = ["PUSH", "SUB", "MOV", "ENDBR", "LEA", "XOR", "JMP"];
+        // Function prologue typically starts with PUSH, SUB, ENDBR, or similar (x86)
+        // or STP, SUB, MOV, etc. (ARM64)
+        let common_first_instr = [
+            "PUSH", "SUB", "MOV", "ENDBR", "LEA", "XOR", "JMP", // x86
+            "STP", "STR", "BL", "NOP", "ADRP", "ADD", "RET", // ARM64
+        ];
         let mnemonic_upper = first.mnemonic.to_uppercase();
 
         // This is a soft check - just log if unexpected
