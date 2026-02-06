@@ -44,7 +44,9 @@ fn test_patch_bytes_success() {
 
     // Patching at code addresses may conflict with existing instructions in Ghidra
     assert!(
-        result.exit_code == 0 || result.stderr.contains("conflict") || result.stderr.contains("Memory change"),
+        result.exit_code == 0
+            || result.stderr.contains("conflict")
+            || result.stderr.contains("Memory change"),
         "Expected success or instruction conflict, got: stderr={}",
         result.stderr
     );
@@ -72,7 +74,9 @@ fn test_patch_nop_success() {
 
     // NOP at code address may conflict with existing instructions
     assert!(
-        result.exit_code == 0 || result.stderr.contains("conflict") || result.stderr.contains("Memory change"),
+        result.exit_code == 0
+            || result.stderr.contains("conflict")
+            || result.stderr.contains("Memory change"),
         "Expected success or instruction conflict, got: stderr={}",
         result.stderr
     );
@@ -140,7 +144,9 @@ fn test_patch_at_function_boundary() {
     // Patching may succeed or fail with instruction conflict depending on Ghidra version
     // Just verify it doesn't crash/hang
     assert!(
-        result.exit_code == 0 || result.stderr.contains("conflict") || result.stderr.contains("Memory change"),
+        result.exit_code == 0
+            || result.stderr.contains("conflict")
+            || result.stderr.contains("Memory change"),
         "Expected success or instruction conflict error, got exit_code={}, stderr={}",
         result.exit_code,
         result.stderr
