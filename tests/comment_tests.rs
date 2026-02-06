@@ -134,5 +134,25 @@ fn test_comment_delete() {
         .assert()
         .success();
 
+    // Verify comment is actually gone
+    let get_result = Command::cargo_bin("ghidra")
+        .unwrap()
+        .arg("comment")
+        .arg("get")
+        .arg(addr)
+        .arg("--project")
+        .arg(TEST_PROJECT)
+        .arg("--program")
+        .arg(TEST_PROGRAM)
+        .output()
+        .expect("Failed to run command");
+
+    let stdout = String::from_utf8_lossy(&get_result.stdout);
+    assert!(
+        !get_result.status.success() || !stdout.contains("to be deleted"),
+        "Comment should be deleted but was still found: {}",
+        stdout
+    );
+
     drop(harness);
 }

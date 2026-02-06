@@ -80,6 +80,20 @@ fn test_type_create() {
         .assert()
         .success();
 
+    // Verify created type exists
+    Command::cargo_bin("ghidra")
+        .unwrap()
+        .arg("type")
+        .arg("get")
+        .arg("MyTestStruct")
+        .arg("--project")
+        .arg(TEST_PROJECT)
+        .arg("--program")
+        .arg(TEST_PROGRAM)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("MyTestStruct"));
+
     drop(harness);
 }
 

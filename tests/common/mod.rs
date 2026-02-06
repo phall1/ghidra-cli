@@ -17,7 +17,6 @@ pub use schemas::Validate;
 
 use anyhow::{Context, Result};
 use std::path::PathBuf;
-use std::process::Command;
 use std::sync::Once;
 use std::time::Duration;
 
@@ -31,6 +30,7 @@ pub fn fixture_binary() -> PathBuf {
 
 /// Ensure test project exists with analyzed sample binary.
 /// Uses Once::call_once for idempotent setup across multiple tests.
+/// Skips import+analyze if the project already exists (supports CI caching).
 pub fn ensure_test_project(project: &str, program: &str) {
     static SETUP: Once = Once::new();
     SETUP.call_once(|| {
@@ -40,6 +40,19 @@ pub fn ensure_test_project(project: &str, program: &str) {
                 "Test fixture not found: {:?}\nRun: rustc --edition 2021 -o tests/fixtures/sample_binary tests/fixtures/sample_binary.rs",
                 binary
             );
+        }
+
+        // Check if project already exists (supports CI caching)
+        let project_dir = dirs::cache_dir()
+            .expect("Could not determine cache directory")
+            .join("ghidra-cli")
+            .join("projects")
+            .join(project);
+        let gpr_file = project_dir.join(format!("{}.gpr", project));
+
+        if gpr_file.exists() {
+            eprintln!("=== Using cached test project: {:?} ===", gpr_file);
+            return;
         }
 
         eprintln!("=== Setting up test project (import + analyze) ===");

@@ -377,3 +377,9 @@ pub fn fixture_path(name: &str) -> PathBuf {
         .join("fixtures")
         .join(name)
 }
+
+/// Check if a function name matches an expected name, accounting for
+/// platform differences (macOS adds underscore prefix to C symbols).
+pub fn matches_function_name(actual: &str, expected: &str) -> bool {
+    actual == expected || actual == format!("_{}", expected)
+}
