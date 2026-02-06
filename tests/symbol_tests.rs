@@ -99,12 +99,16 @@ fn test_symbol_rename() {
     let addrs = get_function_addresses(&harness, TEST_PROJECT, TEST_PROGRAM, 2);
     let addr = &addrs[1];
 
+    // Use unique names to avoid collisions with cached project state
+    let old_name = format!("old_sym_{}", std::process::id());
+    let new_name = format!("new_sym_{}", std::process::id());
+
     Command::cargo_bin("ghidra")
         .unwrap()
         .arg("symbol")
         .arg("create")
         .arg(addr)
-        .arg("old_symbol")
+        .arg(&old_name)
         .arg("--project")
         .arg(TEST_PROJECT)
         .arg("--program")
@@ -116,8 +120,8 @@ fn test_symbol_rename() {
         .unwrap()
         .arg("symbol")
         .arg("rename")
-        .arg("old_symbol")
-        .arg("new_symbol")
+        .arg(&old_name)
+        .arg(&new_name)
         .arg("--project")
         .arg(TEST_PROJECT)
         .arg("--program")
@@ -130,34 +134,14 @@ fn test_symbol_rename() {
         .unwrap()
         .arg("symbol")
         .arg("get")
-        .arg("new_symbol")
+        .arg(&new_name)
         .arg("--project")
         .arg(TEST_PROJECT)
         .arg("--program")
         .arg(TEST_PROGRAM)
         .assert()
         .success()
-        .stdout(predicate::str::contains("new_symbol"));
-
-    // Verify old symbol is gone
-    let old_result = Command::cargo_bin("ghidra")
-        .unwrap()
-        .arg("symbol")
-        .arg("get")
-        .arg("old_symbol")
-        .arg("--project")
-        .arg(TEST_PROJECT)
-        .arg("--program")
-        .arg(TEST_PROGRAM)
-        .output()
-        .expect("Failed to run command");
-
-    let old_stdout = String::from_utf8_lossy(&old_result.stdout);
-    // Old symbol should either not be found or not appear in results
-    // (it might still exist if rename creates a copy rather than moving)
-    if old_result.status.success() {
-        eprintln!("Note: old_symbol still accessible after rename (may be expected)");
-    }
+        .stdout(predicate::str::contains(&*new_name));
 
     drop(harness);
 }
