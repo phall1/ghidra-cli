@@ -238,6 +238,19 @@ pub trait Validate {
     }
 }
 
+/// Check if a string is a valid memory address.
+/// Accepts both plain hex ("001174b0") and overlay format (".comment::00000000").
+fn is_memory_address(s: &str) -> bool {
+    if is_hex_address(s) {
+        return true;
+    }
+    // Ghidra overlay sections use "section_name::hex_addr" format
+    if let Some((_section, addr)) = s.rsplit_once("::") {
+        return is_hex_address(addr);
+    }
+    false
+}
+
 fn is_hex_address(s: &str) -> bool {
     let s = s.trim();
     if s.is_empty() {
@@ -357,22 +370,24 @@ impl Validate for MemoryBlock {
             errors.push("MemoryBlock name is empty".to_string());
         }
 
-        if !is_hex_address(&self.start) {
+        // Ghidra may return addresses as "section::hex" for overlay blocks
+        if !is_memory_address(&self.start) {
             errors.push(format!(
-                "MemoryBlock start '{}' should be hex format",
+                "MemoryBlock start '{}' should be hex or overlay format",
                 self.start
             ));
         }
 
-        if !is_hex_address(&self.end) {
+        if !is_memory_address(&self.end) {
             errors.push(format!(
-                "MemoryBlock end '{}' should be hex format",
+                "MemoryBlock end '{}' should be hex or overlay format",
                 self.end
             ));
         }
 
-        if self.permissions.is_empty() {
-            errors.push("MemoryBlock permissions is empty".to_string());
+        // Permissions may be empty for non-loaded/overlay sections
+        if self.permissions.is_empty() && self.is_loaded {
+            errors.push("Loaded MemoryBlock permissions is empty".to_string());
         }
 
         errors
