@@ -44,10 +44,11 @@ jobs:
       - name: Run CLI tests
         run: cargo test --test e2e --test command_tests --test output_format_integration --verbose
 
-  # Job 2: Read-only integration tests (one bridge) - ~10-15 min
+  # Job 2: Read-only integration tests (one bridge)
+  # First Windows run is slow (~60min) due to Ghidra headless JVM; cached runs ~15-20min
   readonly-integration:
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -68,14 +69,17 @@ jobs:
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
 
-      - name: Cache Ghidra
+      - name: Cache Ghidra installation and config
         uses: actions/cache@v4
         with:
           path: |
             ~/.local/share/ghidra-cli
+            ~/.config/ghidra-cli
             ~/Library/Application Support/ghidra-cli
+            ~/Library/Preferences/ghidra-cli
             ~/AppData/Local/ghidra-cli
-          key: ghidra-${{ matrix.os }}-v3
+            ~/AppData/Roaming/ghidra-cli
+          key: ghidra-${{ matrix.os }}-v4
 
       - name: Cache Ghidra projects
         uses: actions/cache@v4
@@ -110,7 +114,7 @@ jobs:
   # Job 3: Mutation tests (parallel with job 2) - ~10-15 min
   mutation-integration:
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -131,14 +135,17 @@ jobs:
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
 
-      - name: Cache Ghidra
+      - name: Cache Ghidra installation and config
         uses: actions/cache@v4
         with:
           path: |
             ~/.local/share/ghidra-cli
+            ~/.config/ghidra-cli
             ~/Library/Application Support/ghidra-cli
+            ~/Library/Preferences/ghidra-cli
             ~/AppData/Local/ghidra-cli
-          key: ghidra-${{ matrix.os }}-v3
+            ~/AppData/Roaming/ghidra-cli
+          key: ghidra-${{ matrix.os }}-v4
 
       - name: Cache Ghidra projects
         uses: actions/cache@v4
@@ -173,7 +180,7 @@ jobs:
   # Job 4: Infrastructure tests (parallel with jobs 2+3) - ~8-10 min
   infrastructure:
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -194,14 +201,17 @@ jobs:
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
 
-      - name: Cache Ghidra
+      - name: Cache Ghidra installation and config
         uses: actions/cache@v4
         with:
           path: |
             ~/.local/share/ghidra-cli
+            ~/.config/ghidra-cli
             ~/Library/Application Support/ghidra-cli
+            ~/Library/Preferences/ghidra-cli
             ~/AppData/Local/ghidra-cli
-          key: ghidra-${{ matrix.os }}-v3
+            ~/AppData/Roaming/ghidra-cli
+          key: ghidra-${{ matrix.os }}-v4
 
       - name: Cache Ghidra projects
         uses: actions/cache@v4
