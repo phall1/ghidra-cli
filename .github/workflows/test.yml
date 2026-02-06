@@ -78,7 +78,7 @@ jobs:
             ~/.cache/ghidra-cli/projects
             ~/Library/Caches/ghidra-cli/projects
             ~/AppData/Local/ghidra-cli/cache/projects
-          key: ghidra-projects-${{ matrix.os }}-${{ hashFiles('tests/fixtures/sample_binary.rs') }}
+          key: ghidra-projects-${{ github.job }}-${{ matrix.os }}-${{ hashFiles('tests/fixtures/sample_binary.rs') }}
 
       - name: Build
         run: cargo build --verbose
@@ -133,7 +133,7 @@ jobs:
             ~/.cache/ghidra-cli/projects
             ~/Library/Caches/ghidra-cli/projects
             ~/AppData/Local/ghidra-cli/cache/projects
-          key: ghidra-projects-${{ matrix.os }}-${{ hashFiles('tests/fixtures/sample_binary.rs') }}
+          key: ghidra-projects-${{ github.job }}-${{ matrix.os }}-${{ hashFiles('tests/fixtures/sample_binary.rs') }}
 
       - name: Build
         run: cargo build --verbose
@@ -188,7 +188,7 @@ jobs:
             ~/.cache/ghidra-cli/projects
             ~/Library/Caches/ghidra-cli/projects
             ~/AppData/Local/ghidra-cli/cache/projects
-          key: ghidra-projects-${{ matrix.os }}-${{ hashFiles('tests/fixtures/sample_binary.rs') }}
+          key: ghidra-projects-${{ github.job }}-${{ matrix.os }}-${{ hashFiles('tests/fixtures/sample_binary.rs') }}
 
       - name: Build
         run: cargo build --verbose

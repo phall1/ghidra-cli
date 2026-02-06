@@ -42,17 +42,25 @@ pub fn ensure_test_project(project: &str, program: &str) {
             );
         }
 
-        // Check if project already exists (supports CI caching)
+        // Check if project already exists with program data (supports CI caching)
         let project_dir = dirs::cache_dir()
             .expect("Could not determine cache directory")
             .join("ghidra-cli")
             .join("projects")
             .join(project);
         let gpr_file = project_dir.join(format!("{}.gpr", project));
+        let rep_dir = project_dir.join(format!("{}.rep", project));
 
-        if gpr_file.exists() {
+        if gpr_file.exists() && rep_dir.exists() && rep_dir.is_dir() {
             eprintln!("=== Using cached test project: {:?} ===", gpr_file);
             return;
+        }
+
+        // Clean up any partial project state before importing
+        if gpr_file.exists() || rep_dir.exists() {
+            eprintln!("=== Cleaning up incomplete project: {:?} ===", project_dir);
+            let _ = std::fs::remove_dir_all(&project_dir);
+            let _ = std::fs::create_dir_all(&project_dir);
         }
 
         eprintln!("=== Setting up test project (import + analyze) ===");
@@ -73,13 +81,24 @@ pub fn ensure_test_project(project: &str, program: &str) {
         if !result.status.success() {
             let stderr = String::from_utf8_lossy(&result.stderr);
             let stdout = String::from_utf8_lossy(&result.stdout);
-            eprintln!("Import stdout: {}", stdout);
-            eprintln!("Import stderr: {}", stderr);
-            if !stderr.contains("already exists") && !stdout.contains("already exists") {
-                eprintln!("Warning: Import may have failed, but continuing...");
+            if stderr.contains("already exists") || stdout.contains("already exists") {
+                eprintln!("Binary already imported (expected)");
+            } else {
+                panic!(
+                    "Import failed!\nstdout: {}\nstderr: {}",
+                    stdout, stderr
+                );
             }
         } else {
             eprintln!("Binary imported successfully");
+        }
+
+        // Verify import created the project files
+        if !gpr_file.exists() || !rep_dir.exists() {
+            panic!(
+                "Import did not create expected project files.\ngpr: {:?} (exists: {})\nrep: {:?} (exists: {})",
+                gpr_file, gpr_file.exists(), rep_dir, rep_dir.exists()
+            );
         }
 
         // Step 2: Analyze the binary (creates code units needed for comments)
@@ -100,7 +119,7 @@ pub fn ensure_test_project(project: &str, program: &str) {
             let stdout = String::from_utf8_lossy(&analyze_result.stdout);
             eprintln!("Analyze stdout: {}", stdout);
             eprintln!("Analyze stderr: {}", stderr);
-            eprintln!("Warning: Analyze may have failed, but continuing...");
+            panic!("Analysis failed! See output above.");
         } else {
             eprintln!("Analysis complete");
         }
