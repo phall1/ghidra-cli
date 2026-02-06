@@ -3,10 +3,10 @@
 //! All tests that only READ from the Ghidra project share a single
 //! DaemonTestHarness to avoid redundant import+analyze cycles.
 
-use once_cell::sync::Lazy;
 use serial_test::serial;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 #[macro_use]
 mod common;
@@ -35,10 +35,14 @@ const KNOWN_FUNCTIONS: &[&str] = &[
     "main",
 ];
 
-static HARNESS: Lazy<DaemonTestHarness> = Lazy::new(|| {
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
-    DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon")
-});
+static HARNESS: OnceLock<DaemonTestHarness> = OnceLock::new();
+
+fn harness() -> &'static DaemonTestHarness {
+    HARNESS.get_or_init(|| {
+        ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon")
+    })
+}
 
 // ============================================================================
 // Function List Tests
@@ -48,7 +52,7 @@ static HARNESS: Lazy<DaemonTestHarness> = Lazy::new(|| {
 #[serial]
 fn test_function_list_schema_validation() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("function")
@@ -74,7 +78,7 @@ fn test_function_list_schema_validation() {
 #[serial]
 fn test_function_list_contains_expected_functions() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("function")
@@ -104,7 +108,7 @@ fn test_function_list_contains_expected_functions() {
 #[serial]
 fn test_function_list_limit() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("function")
@@ -129,7 +133,7 @@ fn test_function_list_limit() {
 #[serial]
 fn test_function_list_filter() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("function")
@@ -166,7 +170,7 @@ fn test_function_list_filter() {
 #[serial]
 fn test_strings_list_schema_validation() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("strings")
@@ -208,7 +212,7 @@ fn test_strings_list_schema_validation() {
 #[serial]
 fn test_memory_map_schema_validation() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("memory")
@@ -247,7 +251,7 @@ fn test_memory_map_schema_validation() {
 #[serial]
 fn test_summary_contains_expected_fields() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("summary")
@@ -270,7 +274,7 @@ fn test_summary_contains_expected_fields() {
 #[serial]
 fn test_decompile_by_name() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("decompile")
@@ -294,7 +298,7 @@ fn test_decompile_by_name() {
 #[serial]
 fn test_decompile_by_address() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let main_addr = get_function_address(harness, TEST_PROJECT, TEST_PROGRAM, "main");
 
@@ -315,7 +319,7 @@ fn test_decompile_by_address() {
 #[serial]
 fn test_decompile_nonexistent_function() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("decompile")
@@ -341,7 +345,7 @@ fn test_decompile_nonexistent_function() {
 #[serial]
 fn test_xref_to() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let addr = get_function_address(harness, TEST_PROJECT, TEST_PROGRAM, "add_numbers");
 
@@ -359,7 +363,7 @@ fn test_xref_to() {
         if let Some(xref) = xrefs.iter().find(|x| {
             x.from_function
                 .as_deref()
-                .map_or(false, |f| f.contains("main"))
+                .is_some_and(|f| f.contains("main"))
         }) {
             eprintln!("Found xref from main: {:?}", xref);
         } else {
@@ -375,7 +379,7 @@ fn test_xref_to() {
 #[serial]
 fn test_xref_from() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let main_addr = get_function_address(harness, TEST_PROJECT, TEST_PROGRAM, "main");
 
@@ -405,7 +409,7 @@ fn test_xref_from() {
 #[serial]
 fn test_find_string() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("find")
@@ -422,7 +426,7 @@ fn test_find_string() {
 #[serial]
 fn test_find_bytes() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("find")
@@ -438,7 +442,7 @@ fn test_find_bytes() {
 #[serial]
 fn test_find_function() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("find")
@@ -455,7 +459,7 @@ fn test_find_function() {
 #[serial]
 fn test_find_function_glob() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("find")
@@ -472,7 +476,7 @@ fn test_find_function_glob() {
 #[serial]
 fn test_find_calls() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("find")
@@ -488,7 +492,7 @@ fn test_find_calls() {
 #[serial]
 fn test_find_crypto() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("find")
@@ -506,7 +510,7 @@ fn test_find_crypto() {
 #[serial]
 fn test_find_interesting() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("find")
@@ -524,7 +528,7 @@ fn test_find_interesting() {
 #[serial]
 fn test_find_string_no_matches() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("find")
@@ -538,7 +542,10 @@ fn test_find_string_no_matches() {
 
     if let Some(json) = result.try_json::<serde_json::Value>() {
         if let Some(arr) = json.as_array() {
-            assert!(arr.is_empty(), "Should have no matches for nonexistent string");
+            assert!(
+                arr.is_empty(),
+                "Should have no matches for nonexistent string"
+            );
         }
     }
 }
@@ -551,7 +558,7 @@ fn test_find_string_no_matches() {
 #[serial]
 fn test_graph_calls() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("graph")
@@ -568,7 +575,7 @@ fn test_graph_calls() {
 #[serial]
 fn test_graph_callers() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("graph")
@@ -581,11 +588,10 @@ fn test_graph_callers() {
     result.assert_success();
 
     if let Some(graph) = result.try_json::<GraphResult>() {
-        let has_main_node = graph.nodes.iter().any(|n| {
-            n.label
-                .as_deref()
-                .map_or(false, |l| l.contains("main"))
-        });
+        let has_main_node = graph
+            .nodes
+            .iter()
+            .any(|n| n.label.as_deref().is_some_and(|l| l.contains("main")));
         if has_main_node {
             eprintln!("Found main in callers graph nodes");
         } else {
@@ -601,7 +607,7 @@ fn test_graph_callers() {
 #[serial]
 fn test_graph_callees() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("graph")
@@ -640,7 +646,7 @@ fn test_graph_callees() {
 #[serial]
 fn test_graph_export_dot() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("graph")
@@ -661,7 +667,7 @@ fn test_graph_export_dot() {
 #[serial]
 fn test_stats_normal() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("stats")
@@ -678,7 +684,7 @@ fn test_stats_normal() {
 #[serial]
 fn test_stats_has_all_fields() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("stats")
@@ -703,10 +709,7 @@ fn test_stats_has_all_fields() {
         assert!(obj.contains_key(*key), "Missing stats field: {}", key);
     }
 
-    let functions = obj
-        .get("functions")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
+    let functions = obj.get("functions").and_then(|v| v.as_u64()).unwrap_or(0);
     assert!(
         functions > 0,
         "functions count should be > 0, got {}",
@@ -721,7 +724,7 @@ fn test_stats_has_all_fields() {
 #[serial]
 fn test_stats_json_format() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("stats")
@@ -751,7 +754,7 @@ fn test_stats_json_format() {
 #[serial]
 fn test_disasm_at_main() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let main_addr = get_function_address(harness, TEST_PROJECT, TEST_PROGRAM, "main");
 
@@ -772,9 +775,7 @@ fn test_disasm_at_main() {
         for instr in &disasm.results {
             instr.assert_valid();
         }
-    } else if let Some(instructions) =
-        result.try_json::<Vec<common::schemas::Instruction>>()
-    {
+    } else if let Some(instructions) = result.try_json::<Vec<common::schemas::Instruction>>() {
         assert!(
             !instructions.is_empty(),
             "Should have at least one instruction"
@@ -789,7 +790,7 @@ fn test_disasm_at_main() {
 #[serial]
 fn test_disasm_with_instruction_limit() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let main_addr = get_function_address(harness, TEST_PROJECT, TEST_PROGRAM, "main");
     let limit = 5;
@@ -815,9 +816,7 @@ fn test_disasm_with_instruction_limit() {
         for instr in &disasm.results {
             instr.assert_valid();
         }
-    } else if let Some(instructions) =
-        result.try_json::<Vec<common::schemas::Instruction>>()
-    {
+    } else if let Some(instructions) = result.try_json::<Vec<common::schemas::Instruction>>() {
         assert!(
             instructions.len() <= limit,
             "Should return at most {} instructions, got {}",
@@ -831,7 +830,7 @@ fn test_disasm_with_instruction_limit() {
 #[serial]
 fn test_disasm_small_count() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let main_addr = get_function_address(harness, TEST_PROJECT, TEST_PROGRAM, "main");
 
@@ -859,7 +858,7 @@ fn test_disasm_small_count() {
 #[serial]
 fn test_disasm_instruction_fields() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let main_addr = get_function_address(harness, TEST_PROJECT, TEST_PROGRAM, "main");
 
@@ -914,7 +913,7 @@ fn test_disasm_instruction_fields() {
 #[serial]
 fn test_disasm_invalid_address() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("disasm")
@@ -938,12 +937,9 @@ fn test_disasm_invalid_address() {
 #[serial]
 fn test_disasm_missing_program() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
-    let result = ghidra(harness)
-        .arg("disasm")
-        .arg("0x101000")
-        .run();
+    let result = ghidra(harness).arg("disasm").arg("0x101000").run();
 
     result.assert_failure();
 }
@@ -952,7 +948,7 @@ fn test_disasm_missing_program() {
 #[serial]
 fn test_disasm_zero_instructions() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let main_addr = get_function_address(harness, TEST_PROJECT, TEST_PROGRAM, "main");
 
@@ -982,7 +978,7 @@ fn test_disasm_zero_instructions() {
 #[serial]
 fn test_diff_programs() {
     require_ghidra!();
-    let _harness = &*HARNESS;
+    harness();
 
     let result = GhidraCommand::new()
         .arg("diff")
@@ -1011,7 +1007,7 @@ fn test_diff_programs() {
 #[serial]
 fn test_diff_functions() {
     require_ghidra!();
-    let _harness = &*HARNESS;
+    harness();
 
     let result = GhidraCommand::new()
         .arg("diff")
@@ -1029,7 +1025,7 @@ fn test_diff_functions() {
 #[serial]
 fn test_diff_functions_different() {
     require_ghidra!();
-    let _harness = &*HARNESS;
+    harness();
 
     let result = GhidraCommand::new()
         .arg("diff")
@@ -1055,7 +1051,7 @@ fn test_diff_functions_different() {
 #[serial]
 fn test_program_info() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("program")
@@ -1079,7 +1075,7 @@ fn test_program_info() {
 #[serial]
 fn test_program_export_json() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("program")
@@ -1101,7 +1097,7 @@ fn test_program_export_json() {
 #[serial]
 fn test_program_close() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("program")
@@ -1120,7 +1116,7 @@ fn test_program_close() {
 #[serial]
 fn test_program_info_no_program() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = GhidraCommand::new()
         .arg("program")
@@ -1146,7 +1142,7 @@ fn create_batch_file(content: &str) -> PathBuf {
 #[serial]
 fn test_batch_multiple_queries() {
     require_ghidra!();
-    let _harness = &*HARNESS;
+    harness();
 
     let batch_content = r#"
 # Test batch file
@@ -1174,7 +1170,7 @@ query --function main
 #[serial]
 fn test_batch_empty_file() {
     require_ghidra!();
-    let _harness = &*HARNESS;
+    harness();
 
     let batch_content = r#"
 # Only comments
@@ -1202,7 +1198,7 @@ fn test_batch_empty_file() {
 #[serial]
 fn test_batch_with_comments() {
     require_ghidra!();
-    let _harness = &*HARNESS;
+    harness();
 
     let batch_content = r#"
 # Query main function
@@ -1232,7 +1228,7 @@ query --address 0x100000
 #[serial]
 fn test_batch_invalid_file() {
     require_ghidra!();
-    let _harness = &*HARNESS;
+    harness();
 
     let result = GhidraCommand::new()
         .arg("batch")
@@ -1253,7 +1249,7 @@ fn test_batch_invalid_file() {
 #[serial]
 fn test_batch_with_invalid_command() {
     require_ghidra!();
-    let _harness = &*HARNESS;
+    harness();
 
     let batch_content = r#"
 query --function main
@@ -1285,7 +1281,7 @@ query --address 0x100000
 #[serial]
 fn test_snapshot_function_list_structure() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("function")
@@ -1314,7 +1310,7 @@ fn test_snapshot_function_list_structure() {
 #[serial]
 fn test_snapshot_stats_structure() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("stats")
@@ -1342,7 +1338,7 @@ fn test_snapshot_stats_structure() {
 #[serial]
 fn test_snapshot_memory_map_structure() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("memory")
@@ -1365,7 +1361,7 @@ fn test_snapshot_memory_map_structure() {
 #[serial]
 fn test_snapshot_disasm_structure() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let main_addr = get_function_address(harness, TEST_PROJECT, TEST_PROGRAM, "main");
 
@@ -1399,7 +1395,7 @@ fn test_snapshot_disasm_structure() {
 #[serial]
 fn test_snapshot_graph_callees_structure() {
     require_ghidra!();
-    let harness = &*HARNESS;
+    let harness = harness();
 
     let result = ghidra(harness)
         .arg("graph")

@@ -757,7 +757,6 @@ dependencies = [
  "libc",
  "log",
  "md5",
- "once_cell",
  "pest",
  "pest_derive",
  "predicates",
