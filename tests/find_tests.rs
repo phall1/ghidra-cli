@@ -118,12 +118,12 @@ fn test_find_calls() {
     let harness =
         DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
-    // Use add_numbers which exists in the sample binary
+    // Use main which exists on all platforms (add_numbers becomes _add_numbers on macOS)
     Command::cargo_bin("ghidra")
         .unwrap()
         .arg("find")
         .arg("calls")
-        .arg("add_numbers")
+        .arg("main")
         .arg("--project")
         .arg(TEST_PROJECT)
         .arg("--program")
