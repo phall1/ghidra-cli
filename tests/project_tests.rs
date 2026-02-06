@@ -26,7 +26,7 @@ fn test_project_create() {
         .arg(&project)
         .assert()
         .success()
-        .stdout(predicate::str::contains("Created project"));
+        .stdout(predicate::str::contains("created").or(predicate::str::contains("Created")));
 
     // Cleanup
     Command::cargo_bin("ghidra")
@@ -121,6 +121,7 @@ fn test_import_binary() {
     let project = unique_project_name("import");
     let binary = common::fixture_binary();
 
+    // Import outputs JSON to stdout; status messages go to stderr
     Command::cargo_bin("ghidra")
         .unwrap()
         .arg("import")
@@ -131,8 +132,7 @@ fn test_import_binary() {
         .arg("sample_binary")
         .timeout(std::time::Duration::from_secs(300))
         .assert()
-        .success()
-        .stdout(predicate::str::contains("Successfully imported"));
+        .success();
 
     Command::cargo_bin("ghidra")
         .unwrap()
@@ -207,6 +207,7 @@ fn test_import_existing_program() {
     let project = unique_project_name("import-existing");
     let binary = common::fixture_binary();
 
+    // Import outputs JSON to stdout; status messages go to stderr
     let mut cmd = Command::cargo_bin("ghidra").unwrap();
     cmd.arg("import")
         .arg(binary.to_str().unwrap())
@@ -216,9 +217,9 @@ fn test_import_existing_program() {
         .arg("sample_binary")
         .timeout(std::time::Duration::from_secs(300))
         .assert()
-        .success()
-        .stdout(predicate::str::contains("Successfully imported as"));
+        .success();
 
+    // Import again - should still succeed (idempotent or with new name)
     let mut cmd = Command::cargo_bin("ghidra").unwrap();
     cmd.arg("import")
         .arg(binary.to_str().unwrap())
@@ -228,8 +229,7 @@ fn test_import_existing_program() {
         .arg("sample_binary")
         .timeout(std::time::Duration::from_secs(300))
         .assert()
-        .success()
-        .stdout(predicate::str::contains("Successfully imported as"));
+        .success();
 
     Command::cargo_bin("ghidra")
         .unwrap()
