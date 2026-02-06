@@ -239,11 +239,17 @@ pub trait Validate {
 }
 
 fn is_hex_address(s: &str) -> bool {
-    let bytes = s.as_bytes();
-    bytes.len() > 2
-        && bytes[0] == b'0'
-        && (bytes[1] == b'x' || bytes[1] == b'X')
-        && bytes[2..].iter().all(|b| b.is_ascii_hexdigit())
+    let s = s.trim();
+    if s.is_empty() {
+        return false;
+    }
+    // Accept both "0x001174b0" and "001174b0" formats
+    // Ghidra returns addresses without 0x prefix
+    let hex_part = s
+        .strip_prefix("0x")
+        .or_else(|| s.strip_prefix("0X"))
+        .unwrap_or(s);
+    !hex_part.is_empty() && hex_part.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 impl Validate for Function {
