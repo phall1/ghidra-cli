@@ -45,13 +45,14 @@ fn test_diff_functions() {
         DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
 
     // diff functions requires two function names/addresses
-    // Using _start (entry point) for both since we just want to verify command works
+    // Using main for both since we just want to verify command works
+    // (note: _start doesn't exist on macOS Mach-O binaries)
     Command::cargo_bin("ghidra")
         .unwrap()
         .arg("diff")
         .arg("functions")
-        .arg("_start")
-        .arg("_start")
+        .arg("main")
+        .arg("main")
         .arg("--project")
         .arg(TEST_PROJECT)
         .assert()
