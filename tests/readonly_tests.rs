@@ -17,7 +17,7 @@ use common::{
     DaemonTestHarness, GhidraCommand,
 };
 
-const TEST_PROJECT: &str = "readonly-test";
+const TEST_PROJECT: &str = "ci-test";
 const TEST_PROGRAM: &str = "sample_binary";
 
 /// Known exported function names from sample_binary

@@ -10,7 +10,7 @@ use common::{
     ensure_test_project, get_function_address, get_function_addresses, DaemonTestHarness,
 };
 
-const TEST_PROJECT: &str = "symbol-test";
+const TEST_PROJECT: &str = "ci-test";
 const TEST_PROGRAM: &str = "sample_binary";
 
 #[test]

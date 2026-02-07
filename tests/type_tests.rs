@@ -8,7 +8,7 @@ use serial_test::serial;
 mod common;
 use common::{ensure_test_project, get_function_address, DaemonTestHarness};
 
-const TEST_PROJECT: &str = "type-test";
+const TEST_PROJECT: &str = "ci-test";
 const TEST_PROGRAM: &str = "sample_binary";
 
 #[test]

@@ -9,7 +9,7 @@ use std::path::PathBuf;
 mod common;
 use common::{ensure_test_project, DaemonTestHarness};
 
-const TEST_PROJECT: &str = "script-test";
+const TEST_PROJECT: &str = "ci-test";
 const TEST_PROGRAM: &str = "sample_binary";
 
 fn get_test_script_path() -> PathBuf {

@@ -12,7 +12,7 @@ use serial_test::serial;
 mod common;
 use common::{ensure_test_project, get_function_address, ghidra, DaemonTestHarness};
 
-const TEST_PROJECT: &str = "patch-test";
+const TEST_PROJECT: &str = "ci-test";
 const TEST_PROGRAM: &str = "sample_binary";
 
 /// Test patching bytes at a dynamically resolved address.
