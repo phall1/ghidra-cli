@@ -251,44 +251,91 @@ pub fn start_bridge(
         stderr_output
     });
 
-    // Wait for ready signal from stdout
+    // Wait for bridge to become ready.
+    //
+    // Two mechanisms run in parallel:
+    // 1. Stdout reader thread - watches for the JSON ready signal (fast path)
+    // 2. Port file poller - polls port file + TCP ping as fallback
+    //
+    // On Windows, stdout piping through analyzeHeadless.bat → cmd.exe → java.exe
+    // can fail due to buffering, so the port file fallback is essential.
     let stdout = child.stdout.take().expect("stdout should be piped");
-    let reader = BufReader::new(stdout);
+    let (stdout_tx, stdout_rx) = std::sync::mpsc::channel();
+    let stdout_handle = std::thread::spawn(move || {
+        let reader = BufReader::new(stdout);
+        let mut last_error = String::new();
+        let mut stdout_lines = Vec::new();
+        for line in reader.lines() {
+            let line = match line {
+                Ok(l) => l,
+                Err(_) => break,
+            };
+            info!("[Ghidra stdout] {}", line);
+            stdout_lines.push(line.clone());
 
+            if line.contains("ERROR") || line.contains("Exception") || line.contains("SEVERE") {
+                last_error = line.clone();
+            }
+
+            if line.contains("---GHIDRA_CLI_START---") {
+                continue;
+            }
+            if line.contains("\"status\"") && line.contains("\"ready\"") {
+                info!("Bridge is ready (stdout signal)");
+                let _ = stdout_tx.send(true);
+                return (true, last_error, stdout_lines);
+            }
+            if line.contains("---GHIDRA_CLI_END---") {
+                break;
+            }
+        }
+        let _ = stdout_tx.send(false);
+        (false, last_error, stdout_lines)
+    });
+
+    // Poll for readiness: check stdout channel and port file + TCP connect
+    let ready_timeout = Duration::from_secs(120);
+    let start_time = std::time::Instant::now();
     let mut ready = false;
-    let mut last_error = String::new();
-    let mut stdout_lines = Vec::new();
-    for line in reader.lines() {
-        let line = line?;
-        info!("[Ghidra stdout] {}", line);
-        stdout_lines.push(line.clone());
+    let mut ready_via_port_file = false;
 
-        if line.contains("ERROR") || line.contains("Exception") || line.contains("SEVERE") {
-            last_error = line.clone();
-        }
-
-        if line.contains("---GHIDRA_CLI_START---") {
-            continue;
-        }
-        if line.contains("\"status\"") && line.contains("\"ready\"") {
-            info!("Bridge is ready");
+    while start_time.elapsed() < ready_timeout {
+        // Check if stdout thread got the ready signal
+        if let Ok(true) = stdout_rx.try_recv() {
             ready = true;
             break;
         }
-        if line.contains("---GHIDRA_CLI_END---") && ready {
+
+        // Check if the process has exited (error case)
+        if let Ok(Some(_)) = child.try_wait() {
             break;
         }
+
+        // Fallback: check if port file exists and bridge responds to TCP
+        if let Ok(Some(port)) = read_port_file(project_path) {
+            let addr: std::net::SocketAddr =
+                format!("127.0.0.1:{}", port).parse().unwrap();
+            if TcpStream::connect_timeout(&addr, Duration::from_secs(5)).is_ok() {
+                info!("Bridge is ready (port file fallback on port {})", port);
+                ready = true;
+                ready_via_port_file = true;
+                break;
+            }
+        }
+
+        std::thread::sleep(Duration::from_millis(500));
     }
 
     if !ready {
         // Prevent orphaned JVM process: if child is still running but didn't
-        // send the ready signal, kill it and clean up stale files
+        // become ready, kill it and clean up stale files
         if let Ok(None) = child.try_wait() {
             let _ = child.kill();
             let _ = child.wait();
         }
         cleanup_stale_files(project_path).ok();
 
+        let (_, last_error, stdout_lines) = stdout_handle.join().unwrap_or_default();
         let stderr_output = stderr_handle.join().unwrap_or_default();
         let detail = if !last_error.is_empty() {
             format!(": {}", last_error)
@@ -310,6 +357,14 @@ pub fn start_bridge(
                 anyhow::bail!("Error checking process status: {}", e);
             }
         }
+    }
+
+    // If we discovered readiness via port file, the stdout thread may still be
+    // blocking. That's fine - it will terminate when the bridge eventually exits
+    // and closes stdout. We intentionally don't join it here.
+    if !ready_via_port_file {
+        // Stdout thread delivered the signal, safe to join
+        drop(stdout_handle);
     }
 
     // Read port from port file
