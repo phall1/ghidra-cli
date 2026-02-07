@@ -63,8 +63,10 @@ pub fn ensure_test_project(project: &str, program: &str) {
         }
 
         eprintln!("=== Setting up test project (import + analyze) ===");
+        eprintln!("Project dir: {:?}", project_dir);
 
         // Step 1: Import the binary
+        eprintln!("Step 1: Importing binary {:?} ...", binary);
         let mut cmd = assert_cmd::Command::cargo_bin("ghidra").expect("Failed to find ghidra binary");
         let result = cmd
             .arg("import")
@@ -76,6 +78,7 @@ pub fn ensure_test_project(project: &str, program: &str) {
             .timeout(std::time::Duration::from_secs(300))
             .output()
             .expect("Failed to run import command");
+        eprintln!("Import finished with status: {}", result.status);
 
         if !result.status.success() {
             let stderr = String::from_utf8_lossy(&result.stderr);
@@ -90,7 +93,7 @@ pub fn ensure_test_project(project: &str, program: &str) {
         }
 
         // Step 2: Analyze the binary (creates code units needed for comments)
-        eprintln!("Running analysis...");
+        eprintln!("Step 2: Running analysis...");
         let mut analyze_cmd = assert_cmd::Command::cargo_bin("ghidra").expect("Failed to find ghidra binary");
         let analyze_result = analyze_cmd
             .arg("analyze")
@@ -101,6 +104,7 @@ pub fn ensure_test_project(project: &str, program: &str) {
             .timeout(std::time::Duration::from_secs(600))
             .output()
             .expect("Failed to run analyze command");
+        eprintln!("Analyze finished with status: {}", analyze_result.status);
 
         if !analyze_result.status.success() {
             let stderr = String::from_utf8_lossy(&analyze_result.stderr);
