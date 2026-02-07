@@ -89,7 +89,7 @@ jobs:
           path: |
             ~/.cache/ghidra-cli/projects
             ~/Library/Caches/ghidra-cli/projects
-            ~/AppData/Local/ghidra-cli/cache/projects
+            ~/AppData/Local/ghidra-cli/projects
           key: ghidra-projects-${{ matrix.os }}-${{ hashFiles('tests/fixtures/sample_binary.rs') }}
 
       - name: Build
@@ -161,7 +161,7 @@ jobs:
           path: |
             ~/.cache/ghidra-cli/projects
             ~/Library/Caches/ghidra-cli/projects
-            ~/AppData/Local/ghidra-cli/cache/projects
+            ~/AppData/Local/ghidra-cli/projects
           key: ghidra-projects-${{ matrix.os }}-${{ hashFiles('tests/fixtures/sample_binary.rs') }}
 
       - name: Build
@@ -181,7 +181,7 @@ jobs:
         shell: bash
 
       - name: Run read-only integration tests
-        run: cargo test --test readonly_tests --verbose
+        run: cargo test --test readonly_tests --verbose -- --nocapture
         timeout-minutes: 80
         env:
           RUST_LOG: info
@@ -231,7 +231,7 @@ jobs:
           path: |
             ~/.cache/ghidra-cli/projects
             ~/Library/Caches/ghidra-cli/projects
-            ~/AppData/Local/ghidra-cli/cache/projects
+            ~/AppData/Local/ghidra-cli/projects
           key: ghidra-projects-${{ matrix.os }}-${{ hashFiles('tests/fixtures/sample_binary.rs') }}
 
       - name: Build
@@ -251,7 +251,7 @@ jobs:
         shell: bash
 
       - name: Run mutation integration tests
-        run: cargo test --test comment_tests --test symbol_tests --test patch_tests --test type_tests --test script_tests --verbose
+        run: cargo test --test comment_tests --test symbol_tests --test patch_tests --test type_tests --test script_tests --verbose -- --nocapture
         timeout-minutes: 80
         env:
           RUST_LOG: info
@@ -301,7 +301,7 @@ jobs:
           path: |
             ~/.cache/ghidra-cli/projects
             ~/Library/Caches/ghidra-cli/projects
-            ~/AppData/Local/ghidra-cli/cache/projects
+            ~/AppData/Local/ghidra-cli/projects
           key: ghidra-projects-${{ matrix.os }}-${{ hashFiles('tests/fixtures/sample_binary.rs') }}
 
       - name: Build
@@ -321,7 +321,7 @@ jobs:
         shell: bash
 
       - name: Run infrastructure tests
-        run: cargo test --test daemon_tests --test reliability_tests --test project_tests --verbose
+        run: cargo test --test daemon_tests --test reliability_tests --test project_tests --verbose -- --nocapture
         timeout-minutes: 80
         env:
           RUST_LOG: info
