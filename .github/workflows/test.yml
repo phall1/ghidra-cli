@@ -118,6 +118,7 @@ jobs:
   # Job 3: Read-only integration tests (one bridge)
   readonly-integration:
     needs: ghidra-setup
+    if: ${{ !cancelled() }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     # Windows Ghidra tests may exceed timeout on GH Actions free runners
@@ -187,6 +188,7 @@ jobs:
   # Job 4: Mutation tests (parallel with job 3)
   mutation-integration:
     needs: ghidra-setup
+    if: ${{ !cancelled() }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     continue-on-error: ${{ matrix.os == 'windows-latest' }}
@@ -255,6 +257,7 @@ jobs:
   # Job 5: Infrastructure tests (parallel with jobs 3+4)
   infrastructure:
     needs: ghidra-setup
+    if: ${{ !cancelled() }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     continue-on-error: ${{ matrix.os == 'windows-latest' }}
