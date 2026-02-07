@@ -66,54 +66,61 @@ pub fn ensure_test_project(project: &str, program: &str) {
         eprintln!("Project dir: {:?}", project_dir);
 
         // Step 1: Import the binary
+        //
+        // IMPORTANT: We use Stdio::null() instead of piped stdout/stderr.
+        // On Windows, `ghidra import` spawns analyzeHeadless.bat → cmd.exe → java.exe.
+        // If we use piped I/O, the grandchild JVM inherits the pipe handles.
+        // When ghidra.exe exits, the pipe stays open (JVM holds inherited handles),
+        // so output()/wait_with_output() blocks forever. Using null avoids this.
         eprintln!("Step 1: Importing binary {:?} ...", binary);
-        let mut cmd = assert_cmd::Command::cargo_bin("ghidra").expect("Failed to find ghidra binary");
-        let result = cmd
-            .arg("import")
-            .arg(binary.to_str().unwrap())
-            .arg("--project")
-            .arg(project)
-            .arg("--program")
-            .arg(program)
-            .timeout(std::time::Duration::from_secs(300))
-            .output()
-            .expect("Failed to run import command");
-        eprintln!("Import finished with status: {}", result.status);
-
-        if !result.status.success() {
-            let stderr = String::from_utf8_lossy(&result.stderr);
-            let stdout = String::from_utf8_lossy(&result.stdout);
-            eprintln!("Import stdout: {}", stdout);
-            eprintln!("Import stderr: {}", stderr);
-            if !stderr.contains("already exists") && !stdout.contains("already exists") {
-                eprintln!("Warning: Import may have failed, but continuing...");
+        let ghidra_bin = assert_cmd::cargo::cargo_bin("ghidra");
+        let import_status = run_cli_with_timeout(
+            &ghidra_bin,
+            &[
+                "import",
+                binary.to_str().unwrap(),
+                "--project",
+                project,
+                "--program",
+                program,
+            ],
+            Duration::from_secs(300),
+        );
+        match import_status {
+            Ok(status) => {
+                eprintln!("Import finished with status: {}", status);
+                if !status.success() {
+                    eprintln!("Warning: Import may have failed, but continuing...");
+                } else {
+                    eprintln!("Binary imported successfully");
+                }
             }
-        } else {
-            eprintln!("Binary imported successfully");
+            Err(e) => eprintln!("Import error: {}", e),
         }
 
         // Step 2: Analyze the binary (creates code units needed for comments)
         eprintln!("Step 2: Running analysis...");
-        let mut analyze_cmd = assert_cmd::Command::cargo_bin("ghidra").expect("Failed to find ghidra binary");
-        let analyze_result = analyze_cmd
-            .arg("analyze")
-            .arg("--project")
-            .arg(project)
-            .arg("--program")
-            .arg(program)
-            .timeout(std::time::Duration::from_secs(600))
-            .output()
-            .expect("Failed to run analyze command");
-        eprintln!("Analyze finished with status: {}", analyze_result.status);
-
-        if !analyze_result.status.success() {
-            let stderr = String::from_utf8_lossy(&analyze_result.stderr);
-            let stdout = String::from_utf8_lossy(&analyze_result.stdout);
-            eprintln!("Analyze stdout: {}", stdout);
-            eprintln!("Analyze stderr: {}", stderr);
-            eprintln!("Warning: Analyze may have failed, but continuing...");
-        } else {
-            eprintln!("Analysis complete");
+        let analyze_status = run_cli_with_timeout(
+            &ghidra_bin,
+            &[
+                "analyze",
+                "--project",
+                project,
+                "--program",
+                program,
+            ],
+            Duration::from_secs(600),
+        );
+        match analyze_status {
+            Ok(status) => {
+                eprintln!("Analyze finished with status: {}", status);
+                if !status.success() {
+                    eprintln!("Warning: Analyze may have failed, but continuing...");
+                } else {
+                    eprintln!("Analysis complete");
+                }
+            }
+            Err(e) => eprintln!("Analyze error: {}", e),
         }
 
         eprintln!("=== Test project setup complete ===");
@@ -143,27 +150,17 @@ impl DaemonTestHarness {
             .join("projects")
             .join(project);
 
-        // Start the bridge using the CLI command (which starts Ghidra headless)
-        let mut cmd =
-            assert_cmd::Command::cargo_bin("ghidra").expect("Failed to find ghidra binary");
-        let result = cmd
-            .arg("start")
-            .arg("--project")
-            .arg(project)
-            .arg("--program")
-            .arg(program)
-            .timeout(std::time::Duration::from_secs(300))
-            .output()
-            .expect("Failed to start bridge");
+        // Start the bridge using the CLI command (which starts Ghidra headless).
+        // Uses Stdio::null() to avoid Windows pipe handle inheritance (see ensure_test_project).
+        let ghidra_bin = assert_cmd::cargo::cargo_bin("ghidra");
+        let status = run_cli_with_timeout(
+            &ghidra_bin,
+            &["start", "--project", project, "--program", program],
+            Duration::from_secs(300),
+        )?;
 
-        if !result.status.success() {
-            let stderr = String::from_utf8_lossy(&result.stderr);
-            let stdout = String::from_utf8_lossy(&result.stdout);
-            anyhow::bail!(
-                "Failed to start bridge:\nstdout: {}\nstderr: {}",
-                stdout,
-                stderr
-            );
+        if !status.success() {
+            anyhow::bail!("Failed to start bridge (exit status: {})", status);
         }
 
         // Read port from port file
@@ -273,6 +270,46 @@ fn get_unique_data_dir() -> PathBuf {
     let dir = std::env::temp_dir().join(format!("ghidra-data-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).expect("Failed to create test data dir");
     dir
+}
+
+/// Run a CLI command with timeout, using Stdio::null() to avoid pipe inheritance.
+///
+/// On Windows, child processes inherit pipe handles from their parent. When the CLI
+/// spawns analyzeHeadless.bat (which spawns java.exe), the grandchild JVM inherits
+/// the pipe handles. Even after the CLI exits, the pipes remain open because the JVM
+/// holds the inherited handles, causing wait_with_output()/output() to block forever.
+///
+/// Using Stdio::null() avoids creating pipes entirely, so there are no handles to inherit.
+fn run_cli_with_timeout(
+    bin: &std::path::Path,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<std::process::ExitStatus> {
+    use std::process::{Command, Stdio};
+
+    let mut child = Command::new(bin)
+        .args(args)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .context("Failed to spawn CLI command")?;
+
+    let start = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status),
+            Ok(None) => {
+                if start.elapsed() > timeout {
+                    eprintln!("Command timed out after {}s, killing...", timeout.as_secs());
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    anyhow::bail!("Command timed out after {}s", timeout.as_secs());
+                }
+                std::thread::sleep(Duration::from_secs(1));
+            }
+            Err(e) => anyhow::bail!("Error waiting for command: {}", e),
+        }
+    }
 }
 
 /// Require Ghidra to be available for tests to proceed.

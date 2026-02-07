@@ -153,8 +153,7 @@ pub fn ensure_bridge_running(
         if let Ok(Some(pid)) = read_pid_file(project_path) {
             if is_pid_alive(pid) {
                 // Verify TCP connect (with timeout to avoid long hangs on Windows)
-                let addr: std::net::SocketAddr =
-                    format!("127.0.0.1:{}", port).parse().unwrap();
+                let addr: std::net::SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
                 if TcpStream::connect_timeout(&addr, Duration::from_secs(5)).is_ok() {
                     info!("Bridge already running on port {}", port);
                     return Ok(port);
@@ -313,8 +312,7 @@ pub fn start_bridge(
 
         // Fallback: check if port file exists and bridge responds to TCP
         if let Ok(Some(port)) = read_port_file(project_path) {
-            let addr: std::net::SocketAddr =
-                format!("127.0.0.1:{}", port).parse().unwrap();
+            let addr: std::net::SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
             if TcpStream::connect_timeout(&addr, Duration::from_secs(5)).is_ok() {
                 info!("Bridge is ready (port file fallback on port {})", port);
                 ready = true;
