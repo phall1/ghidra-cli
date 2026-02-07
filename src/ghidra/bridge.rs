@@ -134,8 +134,9 @@ pub fn is_bridge_running(project_path: &Path) -> Option<u16> {
         return None;
     }
 
-    // Verify TCP connect
-    TcpStream::connect(format!("127.0.0.1:{}", port))
+    // Verify TCP connect (with timeout to avoid long hangs on Windows)
+    let addr: std::net::SocketAddr = format!("127.0.0.1:{}", port).parse().ok()?;
+    TcpStream::connect_timeout(&addr, Duration::from_secs(5))
         .map(|_| Some(port))
         .unwrap_or(None)
 }
@@ -151,8 +152,10 @@ pub fn ensure_bridge_running(
     if let Ok(Some(port)) = read_port_file(project_path) {
         if let Ok(Some(pid)) = read_pid_file(project_path) {
             if is_pid_alive(pid) {
-                // Verify TCP connect
-                if TcpStream::connect(format!("127.0.0.1:{}", port)).is_ok() {
+                // Verify TCP connect (with timeout to avoid long hangs on Windows)
+                let addr: std::net::SocketAddr =
+                    format!("127.0.0.1:{}", port).parse().unwrap();
+                if TcpStream::connect_timeout(&addr, Duration::from_secs(5)).is_ok() {
                     info!("Bridge already running on port {}", port);
                     return Ok(port);
                 }
@@ -346,7 +349,7 @@ pub fn stop_bridge(project_path: &Path) -> Result<()> {
             #[cfg(windows)]
             {
                 let _ = std::process::Command::new("taskkill")
-                    .args(["/PID", &pid.to_string(), "/F"])
+                    .args(["/PID", &pid.to_string(), "/F", "/T"])
                     .output();
             }
         }

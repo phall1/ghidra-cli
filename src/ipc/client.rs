@@ -36,9 +36,13 @@ impl BridgeClient {
         command: &str,
         args: Option<serde_json::Value>,
     ) -> Result<serde_json::Value> {
-        let mut stream = TcpStream::connect(format!("127.0.0.1:{}", self.port)).map_err(|e| {
-            anyhow::anyhow!("Failed to connect to bridge on port {}: {}", self.port, e)
-        })?;
+        let addr: std::net::SocketAddr = format!("127.0.0.1:{}", self.port)
+            .parse()
+            .map_err(|e| anyhow::anyhow!("Invalid address: {}", e))?;
+        let mut stream =
+            TcpStream::connect_timeout(&addr, Duration::from_secs(10)).map_err(|e| {
+                anyhow::anyhow!("Failed to connect to bridge on port {}: {}", self.port, e)
+            })?;
         stream.set_read_timeout(Some(Duration::from_secs(300))).ok();
         stream.set_write_timeout(Some(Duration::from_secs(30))).ok();
 

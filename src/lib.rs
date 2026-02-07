@@ -4,3 +4,9 @@
 
 #[path = "ipc/mod.rs"]
 pub mod ipc;
+
+/// Re-export bridge module for integration tests.
+#[path = "ghidra"]
+pub mod ghidra {
+    pub mod bridge;
+}

@@ -233,14 +233,33 @@ impl DaemonTestHarness {
 
 impl Drop for DaemonTestHarness {
     fn drop(&mut self) {
-        // Send shutdown command to bridge
-        let client = ghidra_cli::ipc::client::BridgeClient::new(self.port);
-        let _ = client.shutdown();
+        // Read PID BEFORE shutdown (Java deletes PID file during shutdown)
+        let pid = ghidra_cli::ghidra::bridge::read_pid_file(&self.project_path)
+            .ok()
+            .flatten();
 
-        // Wait for process to exit
-        std::thread::sleep(Duration::from_secs(2));
+        // Use stop_bridge for proper graceful shutdown + force-kill
+        let _ = ghidra_cli::ghidra::bridge::stop_bridge(&self.project_path);
 
-        // Clean up
+        // Wait for process to fully exit and release project lock.
+        // Critical on Windows where JVM cleanup is slow.
+        if let Some(pid) = pid {
+            let max_wait = if cfg!(windows) {
+                Duration::from_secs(30)
+            } else {
+                Duration::from_secs(10)
+            };
+            let start = std::time::Instant::now();
+            while start.elapsed() < max_wait {
+                if !ghidra_cli::ghidra::bridge::is_pid_alive(pid) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(500));
+            }
+        }
+
+        // Final cleanup of any remaining stale files
+        let _ = ghidra_cli::ghidra::bridge::cleanup_stale_files(&self.project_path);
         let _ = std::fs::remove_dir_all(&self.data_dir);
     }
 }
