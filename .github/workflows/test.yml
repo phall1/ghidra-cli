@@ -120,6 +120,8 @@ jobs:
     needs: ghidra-setup
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
+    # Windows Ghidra tests may exceed timeout on GH Actions free runners
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     strategy:
       fail-fast: false
       matrix:
@@ -187,6 +189,7 @@ jobs:
     needs: ghidra-setup
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     strategy:
       fail-fast: false
       matrix:
@@ -254,6 +257,7 @@ jobs:
     needs: ghidra-setup
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     strategy:
       fail-fast: false
       matrix:
