@@ -280,7 +280,7 @@ fn get_unique_data_dir() -> PathBuf {
 /// holds the inherited handles, causing wait_with_output()/output() to block forever.
 ///
 /// Using Stdio::null() avoids creating pipes entirely, so there are no handles to inherit.
-fn run_cli_with_timeout(
+pub fn run_cli_with_timeout(
     bin: &std::path::Path,
     args: &[&str],
     timeout: Duration,

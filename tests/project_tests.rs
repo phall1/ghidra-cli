@@ -121,18 +121,23 @@ fn test_import_binary() {
     let project = unique_project_name("import");
     let binary = common::fixture_binary();
 
-    // Import outputs JSON to stdout; status messages go to stderr
-    Command::cargo_bin("ghidra")
-        .unwrap()
-        .arg("import")
-        .arg(binary.to_str().unwrap())
-        .arg("--project")
-        .arg(&project)
-        .arg("--program")
-        .arg("sample_binary")
-        .timeout(std::time::Duration::from_secs(300))
-        .assert()
-        .success();
+    // Use run_cli_with_timeout to avoid Windows pipe handle inheritance.
+    // `ghidra import` spawns a JVM whose inherited pipe handles block output() forever.
+    let ghidra_bin = assert_cmd::cargo::cargo_bin("ghidra");
+    let status = common::run_cli_with_timeout(
+        &ghidra_bin,
+        &[
+            "import",
+            binary.to_str().unwrap(),
+            "--project",
+            &project,
+            "--program",
+            "sample_binary",
+        ],
+        std::time::Duration::from_secs(300),
+    )
+    .expect("Failed to run import");
+    assert!(status.success(), "Import failed with status: {}", status);
 
     Command::cargo_bin("ghidra")
         .unwrap()
@@ -151,28 +156,35 @@ fn test_analyze_program() {
     let project = unique_project_name("analyze");
     let binary = common::fixture_binary();
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
-        .arg("import")
-        .arg(binary.to_str().unwrap())
-        .arg("--project")
-        .arg(&project)
-        .arg("--program")
-        .arg("sample_binary")
-        .timeout(std::time::Duration::from_secs(300))
-        .assert()
-        .success();
+    let ghidra_bin = assert_cmd::cargo::cargo_bin("ghidra");
+    let status = common::run_cli_with_timeout(
+        &ghidra_bin,
+        &[
+            "import",
+            binary.to_str().unwrap(),
+            "--project",
+            &project,
+            "--program",
+            "sample_binary",
+        ],
+        std::time::Duration::from_secs(300),
+    )
+    .expect("Failed to run import");
+    assert!(status.success(), "Import failed with status: {}", status);
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
-        .arg("analyze")
-        .arg("--project")
-        .arg(&project)
-        .arg("--program")
-        .arg("sample_binary")
-        .timeout(std::time::Duration::from_secs(300))
-        .assert()
-        .success();
+    let status = common::run_cli_with_timeout(
+        &ghidra_bin,
+        &[
+            "analyze",
+            "--project",
+            &project,
+            "--program",
+            "sample_binary",
+        ],
+        std::time::Duration::from_secs(300),
+    )
+    .expect("Failed to run analyze");
+    assert!(status.success(), "Analyze failed with status: {}", status);
 
     Command::cargo_bin("ghidra")
         .unwrap()
@@ -207,29 +219,42 @@ fn test_import_existing_program() {
     let project = unique_project_name("import-existing");
     let binary = common::fixture_binary();
 
-    // Import outputs JSON to stdout; status messages go to stderr
-    let mut cmd = Command::cargo_bin("ghidra").unwrap();
-    cmd.arg("import")
-        .arg(binary.to_str().unwrap())
-        .arg("--project")
-        .arg(&project)
-        .arg("--program")
-        .arg("sample_binary")
-        .timeout(std::time::Duration::from_secs(300))
-        .assert()
-        .success();
+    // Use run_cli_with_timeout to avoid Windows pipe handle inheritance.
+    let ghidra_bin = assert_cmd::cargo::cargo_bin("ghidra");
+    let status = common::run_cli_with_timeout(
+        &ghidra_bin,
+        &[
+            "import",
+            binary.to_str().unwrap(),
+            "--project",
+            &project,
+            "--program",
+            "sample_binary",
+        ],
+        std::time::Duration::from_secs(300),
+    )
+    .expect("Failed to run import");
+    assert!(status.success(), "Import failed with status: {}", status);
 
     // Import again - should still succeed (idempotent or with new name)
-    let mut cmd = Command::cargo_bin("ghidra").unwrap();
-    cmd.arg("import")
-        .arg(binary.to_str().unwrap())
-        .arg("--project")
-        .arg(&project)
-        .arg("--program")
-        .arg("sample_binary")
-        .timeout(std::time::Duration::from_secs(300))
-        .assert()
-        .success();
+    let status = common::run_cli_with_timeout(
+        &ghidra_bin,
+        &[
+            "import",
+            binary.to_str().unwrap(),
+            "--project",
+            &project,
+            "--program",
+            "sample_binary",
+        ],
+        std::time::Duration::from_secs(300),
+    )
+    .expect("Failed to run second import");
+    assert!(
+        status.success(),
+        "Second import failed with status: {}",
+        status
+    );
 
     Command::cargo_bin("ghidra")
         .unwrap()
