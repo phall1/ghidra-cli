@@ -27,7 +27,7 @@ fn harness() -> &'static DaemonTestHarness {
 #[serial]
 fn test_symbol_list() {
     require_ghidra!();
-    let harness = harness();
+    let _harness = harness();
 
     let output = Command::cargo_bin("ghidra")
         .unwrap()
@@ -50,8 +50,6 @@ fn test_symbol_list() {
         "symbol list should contain main. Output: {}",
         stdout
     );
-
-    drop(harness);
 }
 
 #[test]
@@ -147,7 +145,7 @@ fn test_symbol_rename() {
 #[serial]
 fn test_symbol_get_nonexistent() {
     require_ghidra!();
-    let harness = harness();
+    let _harness = harness();
 
     Command::cargo_bin("ghidra")
         .unwrap()
@@ -160,6 +158,4 @@ fn test_symbol_get_nonexistent() {
         .arg(TEST_PROGRAM)
         .assert()
         .failure();
-
-    drop(harness);
 }

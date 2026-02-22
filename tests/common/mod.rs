@@ -188,8 +188,7 @@ impl DaemonTestHarness {
             .join(project);
 
         // Load config to find Ghidra installation
-        let config = ghidra_cli::config::Config::load()
-            .context("Failed to load config")?;
+        let config = ghidra_cli::config::Config::load().context("Failed to load config")?;
         let ghidra_install_dir = config
             .ghidra_install_dir
             .clone()

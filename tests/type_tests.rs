@@ -25,7 +25,7 @@ fn harness() -> &'static DaemonTestHarness {
 #[serial]
 fn test_type_list() {
     require_ghidra!();
-    let harness = harness();
+    let _harness = harness();
 
     Command::cargo_bin("ghidra")
         .unwrap()
@@ -37,15 +37,13 @@ fn test_type_list() {
         .arg(TEST_PROGRAM)
         .assert()
         .success();
-
-    drop(harness);
 }
 
 #[test]
 #[serial]
 fn test_type_get_primitive() {
     require_ghidra!();
-    let harness = harness();
+    let _harness = harness();
 
     Command::cargo_bin("ghidra")
         .unwrap()
@@ -59,15 +57,13 @@ fn test_type_get_primitive() {
         .assert()
         .success()
         .stdout(predicate::str::contains("size"));
-
-    drop(harness);
 }
 
 #[test]
 #[serial]
 fn test_type_create() {
     require_ghidra!();
-    let harness = harness();
+    let _harness = harness();
 
     Command::cargo_bin("ghidra")
         .unwrap()
@@ -94,8 +90,6 @@ fn test_type_create() {
         .assert()
         .success()
         .stdout(predicate::str::contains("MyTestStruct"));
-
-    drop(harness);
 }
 
 #[test]
@@ -128,15 +122,13 @@ fn test_type_apply() {
         "Expected success or instruction conflict, got: {}",
         stderr
     );
-
-    drop(harness);
 }
 
 #[test]
 #[serial]
 fn test_type_get_nonexistent() {
     require_ghidra!();
-    let harness = harness();
+    let _harness = harness();
 
     Command::cargo_bin("ghidra")
         .unwrap()
@@ -149,6 +141,4 @@ fn test_type_get_nonexistent() {
         .arg(TEST_PROGRAM)
         .assert()
         .failure();
-
-    drop(harness);
 }
