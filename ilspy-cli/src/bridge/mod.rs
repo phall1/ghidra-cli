@@ -17,6 +17,7 @@ pub struct IlSpyBridge {
     decompile_type_fn: FnTwoArgs,
     decompile_method_fn: FnThreeArgs,
     decompile_full_fn: FnOneArg,
+    decompile_project_fn: FnTwoArgs,
     assembly_info_fn: FnOneArg,
     search_fn: FnTwoArgs,
     free_fn: FnFreeMem,
@@ -73,6 +74,7 @@ impl IlSpyBridge {
             decompile_type_fn: load!("DecompileType", FnTwoArgs),
             decompile_method_fn: load!("DecompileMethod", FnThreeArgs),
             decompile_full_fn: load!("DecompileFull", FnOneArg),
+            decompile_project_fn: load!("DecompileProject", FnTwoArgs),
             assembly_info_fn: load!("GetAssemblyInfo", FnOneArg),
             search_fn: load!("SearchSource", FnTwoArgs),
             free_fn: load!("FreeMem", FnFreeMem),
@@ -134,6 +136,12 @@ impl IlSpyBridge {
     /// Search decompiled source with a regex pattern.
     pub fn search_source(&self, assembly: &str, pattern: &str) -> Result<Vec<SearchResult>> {
         let json = unsafe { call_two_args(self.search_fn, self.free_fn, assembly, pattern) };
+        Self::parse_result(&json)
+    }
+
+    /// Decompile a project into a directory of per-type .cs files.
+    pub fn decompile_project(&self, assembly: &str, target_dir: &str) -> Result<serde_json::Value> {
+        let json = unsafe { call_two_args(self.decompile_project_fn, self.free_fn, assembly, target_dir) };
         Self::parse_result(&json)
     }
 

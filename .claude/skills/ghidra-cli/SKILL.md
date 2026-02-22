@@ -12,526 +12,398 @@ description: >
     - Ghidra project management
 ---
 
-# ghidra-cli
+# ghidra-cli Agent Reference
 
-A high-performance Rust CLI for automating Ghidra reverse engineering tasks. Designed for both direct usage and AI agent integration.
+Rust CLI for Ghidra reverse engineering. Binary name: `ghidra`.
 
-## Architecture Overview
-
-ghidra-cli uses a **daemon-only architecture**:
+## Architecture
 
 ```
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│   CLI Command   │────▶│  Daemon (IPC)    │────▶│  GhidraBridge   │
-│  ghidra ...     │     │  Unix socket     │     │  TCP to Ghidra  │
-└─────────────────┘     └──────────────────┘     └─────────────────┘
-                                                          │
-                                                          ▼
-                                                 ┌─────────────────┐
-                                                 │   bridge.py     │
-                                                 │  (Ghidra Script)│
-                                                 └─────────────────┘
+CLI (Rust/clap) ──TCP──► GhidraCliBridge.java (GhidraScript in Ghidra JVM)
 ```
 
-**Key concepts:**
-- **Daemon**: Background process managing IPC and Ghidra bridge
-- **Bridge**: Python script running inside Ghidra, executing commands
-- **Auto-start**: Daemon starts automatically when needed (import, analyze, quick)
-- **One daemon per project**: Each project gets its own daemon instance
-- **One program per daemon**: Daemon loads a single program for queries
+- **Direct bridge**: no daemon process. The Java bridge IS the persistent server.
+- One bridge per project, keyed by `~/.local/share/ghidra-cli/bridge-{md5}.port`
+- Import/Analyze/query commands **auto-start** the bridge if not running
+- Sequential command processing (Ghidra API is not thread-safe)
 
-## When to Use
+## Global Flags
 
-Activate when the user requests:
-- Binary analysis or reverse engineering
-- Decompilation or disassembly
-- Function listing, inspection, or renaming
-- Cross-reference or call graph analysis
-- String or byte pattern searches
-- Binary patching or modification
-- Ghidra project management
+| Flag | Effect |
+|------|--------|
+| `--json` | Compact JSON output (single line) |
+| `--pretty` | Pretty-printed JSON |
+| `-v` / `-vv` / `-vvv` | Log verbosity: warn / info / debug |
+| `-q` / `--quiet` | Suppress non-essential stderr |
+
+**Format auto-detection**: TTY → compact human-readable; pipe → json-compact. Override with `--json`, `--pretty`, or `-o FORMAT`.
 
 ## Quick Start
 
-### Fastest Path (Auto-Start)
-
 ```bash
-# Import and analyze - daemon starts automatically
-ghidra quick ./binary
-
-# Daemon is now running, queries are fast
-ghidra function list
-ghidra decompile main
-```
-
-### Full Project Setup
-
-```bash
-# Create project structure
-ghidra project create myproject
-
-# Import binary (auto-starts daemon)
-ghidra import ./binary --project myproject --program mybinary
-
-# Analyze (uses running daemon)
+# Fastest path: import + analyze, bridge starts automatically
+ghidra import ./binary --project myproject
 ghidra analyze --project myproject --program mybinary
 
-# All subsequent queries use daemon
-ghidra function list
-ghidra decompile main
-ghidra find string "password"
-```
-
-### Manual Daemon Control
-
-```bash
-# Start daemon explicitly
-ghidra daemon start --project myproject --program mybinary
-
-# Check status
-ghidra daemon status --project myproject
-
-# Stop daemon
-ghidra daemon stop --project myproject
-
-# Restart with different program
-ghidra daemon restart --project myproject --program other_binary
+# All subsequent queries reuse the running bridge
+ghidra function list --project myproject
+ghidra decompile main --project myproject
 ```
 
 ## Command Reference
 
+### Bridge Lifecycle
+
+```bash
+ghidra start [--project P] [--program PROG]
+ghidra stop [--project P]
+ghidra restart [--project P] [--program PROG]
+ghidra status [--project P]
+ghidra ping [--project P]
+```
+
 ### Project Management
 
-| Command | Description |
-|---------|-------------|
-| `ghidra project create <name>` | Create new project |
-| `ghidra project list` | List all projects |
-| `ghidra project info <name>` | Show project details |
-| `ghidra project delete <name>` | Delete project and all programs |
+```bash
+ghidra project create NAME
+ghidra project list
+ghidra project info [NAME]
+ghidra project delete NAME
+```
 
 ### Import & Analysis
 
-| Command | Description |
-|---------|-------------|
-| `ghidra import <binary> --project <p>` | Import binary (auto-starts daemon) |
-| `ghidra analyze --project <p> --program <prog>` | Run Ghidra analysis |
-| `ghidra quick <binary>` | Import + analyze in one step |
+```bash
+ghidra import BINARY [--project P] [--program PROG] [--detach]
+ghidra analyze [--project P] [--program PROG] [--detach]
+```
+
+Both auto-start bridge. `--detach` returns immediately.
+
+### Program Management
+
+```bash
+ghidra program list [--project P]          # alias: prog, programs
+ghidra program open --program PROG [--project P]
+ghidra program close [--project P]
+ghidra program delete --program PROG [--project P]
+ghidra program info [--project P]
+ghidra program export FORMAT [--project P] [-o OUTPUT]   # FORMAT: xml, json, asm, c
+```
 
 ### Function Operations
 
 ```bash
-# List functions
-ghidra function list
-ghidra function list --limit 50
-ghidra function list --filter "size > 100"
-ghidra function list --filter "name contains 'crypt'"
-
-# Get function details
-ghidra function get main
-ghidra function get 0x401000
-
-# Decompile to C-like pseudocode
-ghidra decompile main
-ghidra decompile 0x401000
-
-# Disassemble
-ghidra disasm main
-ghidra disasm 0x401000 --count 50
-
-# Rename function
-ghidra function rename sub_401000 decrypt_key
+ghidra function list [QUERY_OPTS]           # aliases: fn, func, functions
+ghidra function get TARGET [QUERY_OPTS]     # TARGET = name or 0xADDRESS
+ghidra function decompile TARGET [QUERY_OPTS]
+ghidra function disasm TARGET [QUERY_OPTS]
+ghidra function calls TARGET [QUERY_OPTS]   # outgoing calls
+ghidra function xrefs TARGET [QUERY_OPTS]   # incoming references
+ghidra function rename OLD NEW [--project P] [--program PROG]
+ghidra function create ADDRESS [NAME] [--project P] [--program PROG]
+ghidra function delete TARGET [QUERY_OPTS]
 ```
 
-### Search Operations
+### Top-level Shortcuts
 
 ```bash
-# Find functions by pattern (glob)
-ghidra find function "*crypt*"
-ghidra find function "str*"
+ghidra decompile TARGET [QUERY_OPTS]        # aliases: decomp, dec
+ghidra disasm ADDRESS [-n COUNT] [QUERY_OPTS]  # aliases: disassemble, dis
+```
 
-# Find strings
-ghidra find string "password"
-ghidra find string "error" --case-insensitive
+### String Operations
 
-# Find byte patterns (hex, spaces optional)
-ghidra find bytes "4883ec08"
-ghidra find bytes "48 83 ec 08"
+```bash
+ghidra strings list [QUERY_OPTS]            # aliases: string, str
+ghidra strings refs STRING [QUERY_OPTS]     # xrefs to string
+```
 
-# Find function calls
-ghidra find calls malloc
+### Symbol Operations
 
-# Find crypto constants (AES, DES, RSA, etc.)
-ghidra find crypto
+```bash
+ghidra symbol list [QUERY_OPTS]             # aliases: sym, symbols
+ghidra symbol get NAME [QUERY_OPTS]
+ghidra symbol create ADDRESS NAME [--project P] [--program PROG]
+ghidra symbol delete NAME [QUERY_OPTS]
+ghidra symbol rename OLD NEW [--project P] [--program PROG]
+```
 
-# Find suspicious patterns (anti-debug, obfuscation, etc.)
-ghidra find interesting
+### Memory Operations
+
+```bash
+ghidra memory map [QUERY_OPTS]              # alias: mem
+ghidra memory read ADDRESS SIZE [QUERY_OPTS]
+ghidra memory write ADDRESS BYTES [--project P] [--program PROG]
+ghidra memory search PATTERN [QUERY_OPTS]
 ```
 
 ### Cross-References
 
 ```bash
-# References TO an address (who calls/reads this)
-ghidra x-ref to 0x401000
-ghidra x-ref to main
-
-# References FROM an address (what this calls/reads)
-ghidra x-ref from 0x401000
-ghidra x-ref from main
+ghidra x-ref to ADDRESS [QUERY_OPTS]        # aliases: xref, xrefs, crossref
+ghidra x-ref from ADDRESS [QUERY_OPTS]
+ghidra x-ref list [QUERY_OPTS]
 ```
 
-### Call Graphs
+### Type Operations
 
 ```bash
-# Full call graph from function
-ghidra graph calls main
-
-# Callers only (who calls this function)
-ghidra graph callers main --depth 3
-
-# Callees only (what this function calls)
-ghidra graph callees main --depth 3
-
-# Export to DOT format for visualization
-ghidra graph export dot --output callgraph.dot
+ghidra type list [QUERY_OPTS]               # alias: types
+ghidra type get NAME [QUERY_OPTS]
+ghidra type create DEFINITION [--project P] [--program PROG]
+ghidra type apply ADDRESS TYPE_NAME [--project P] [--program PROG]
 ```
 
-### Symbols
+### Comment Operations
 
 ```bash
-# List all symbols
-ghidra symbol list
-ghidra symbol list --limit 100
-
-# Get symbol at address
-ghidra symbol get 0x401000
-
-# Create new symbol
-ghidra symbol create my_func 0x401000
-
-# Rename symbol
-ghidra symbol rename old_name new_name
-
-# Delete symbol
-ghidra symbol delete my_func
+ghidra comment list [QUERY_OPTS]            # alias: comments
+ghidra comment get ADDRESS [QUERY_OPTS]
+ghidra comment set ADDRESS TEXT [--comment-type TYPE] [--project P] [--program PROG]
+ghidra comment delete ADDRESS [QUERY_OPTS]
 ```
 
-### Strings
+### Search / Find
 
 ```bash
-# List strings
-ghidra strings list
-ghidra strings list --limit 100
-ghidra strings list --filter "length > 20"
-
-# Find string references
-ghidra strings refs "error message"
+ghidra find string PATTERN [QUERY_OPTS]     # alias: search
+ghidra find bytes HEX [QUERY_OPTS]
+ghidra find function PATTERN [QUERY_OPTS]   # glob patterns
+ghidra find calls FUNCTION [QUERY_OPTS]
+ghidra find crypto [QUERY_OPTS]             # detect AES/SHA/RSA constants
+ghidra find interesting [QUERY_OPTS]        # suspicious patterns
 ```
 
-### Data Types
+### Graph / Call Graph
 
 ```bash
-# List data types
-ghidra type list
-ghidra type list --filter "name contains 'struct'"
-
-# Get type details
-ghidra type get "MyStruct"
-
-# Create type
-ghidra type create "typedef int HANDLE"
-
-# Apply type to address
-ghidra type apply 0x402000 "char[32]"
+ghidra graph calls [QUERY_OPTS]             # aliases: callgraph, cg
+ghidra graph callers FUNCTION [--depth N] [QUERY_OPTS]
+ghidra graph callees FUNCTION [--depth N] [QUERY_OPTS]
+ghidra graph export FORMAT [QUERY_OPTS]     # FORMAT: dot, json
 ```
 
-### Memory
+### Diff
 
 ```bash
-# Show memory map
-ghidra memory map
-
-# Read bytes at address
-ghidra memory read 0x401000 64
-
-# Dump section
-ghidra dump section .text
+ghidra diff programs PROG1 PROG2 [--project P] [--format F]
+ghidra diff functions FUNC1 FUNC2 [--project P] [--format F]
 ```
 
-### Comments
+### Dump / Export
 
 ```bash
-# Get comment at address
-ghidra comment get 0x401000
-
-# Set comment
-ghidra comment set 0x401000 "Entry point for decryption"
-
-# List all comments
-ghidra comment list
-
-# Delete comment
-ghidra comment delete 0x401000
+ghidra dump imports [QUERY_OPTS]            # alias: export
+ghidra dump exports [QUERY_OPTS]
+ghidra dump functions [QUERY_OPTS]
+ghidra dump strings [QUERY_OPTS]
 ```
 
-### Binary Patching
+### Patch
 
 ```bash
-# Patch bytes at address
-ghidra patch bytes 0x401000 "90909090"
-
-# NOP out instructions
-ghidra patch nop 0x401000 --count 5
-
-# Export patched binary
-ghidra patch export --output patched.bin
+ghidra patch bytes ADDRESS HEX [--project P] [--program PROG]
+ghidra patch nop ADDRESS [--count N] [--project P] [--program PROG]
+ghidra patch export -o OUTPUT [--project P] [--program PROG]
 ```
 
-### Scripting
+### Script Execution
 
 ```bash
-# List available scripts
+ghidra script run PATH [--project P] [--program PROG] [-- ARGS...]
+ghidra script python CODE [--project P] [--program PROG]
+ghidra script java CODE [--project P] [--program PROG]
 ghidra script list
-
-# Run Python script
-ghidra script run analysis.py
-
-# Run with arguments
-ghidra script run myscript.py --args "arg1 arg2"
-
-# Inline Python (access currentProgram, state, etc.)
-ghidra script python "print(currentProgram.getName())"
-
-# Inline Java
-ghidra script java "println(currentProgram.getName());"
 ```
 
-### Batch Operations
+### Batch
 
 ```bash
-# Run commands from file
-ghidra batch commands.txt
-
-# Commands file format (one per line):
-# function list
-# decompile main
-# find string "password"
+ghidra batch SCRIPT_FILE [--project P] [--program PROG]
 ```
 
-### Statistics
+Batch file: one subcommand per line (without `ghidra` prefix), `#` comments.
+
+### Universal Query
 
 ```bash
-# Program statistics
-ghidra stats
-
-# Program summary
-ghidra summary
+ghidra query DATA_TYPE [QUERY_OPTS]
 ```
 
-### Daemon Management
+DATA_TYPE: `functions`, `strings`, `imports`, `exports`, `memory`.
+
+### Statistics & Info
 
 ```bash
-# Start daemon for project
-ghidra daemon start --project myproject --program mybinary
-
-# Start in foreground (for debugging)
-ghidra daemon start --project myproject --program mybinary --foreground
-
-# Check if daemon is running
-ghidra daemon status --project myproject
-
-# Ping daemon (health check)
-ghidra daemon ping --project myproject
-
-# Clear result cache
-ghidra daemon clear-cache --project myproject
-
-# Stop daemon
-ghidra daemon stop --project myproject
-
-# Restart with new program
-ghidra daemon restart --project myproject --program newbinary
+ghidra summary [QUERY_OPTS]       # alias: info
+ghidra stats [QUERY_OPTS]
 ```
 
-## Output Formats
+### Configuration
 
 ```bash
-# Human-readable (default for terminal)
-ghidra function list
-
-# JSON output
-ghidra function list --json
-
-# Pretty JSON
-ghidra function list --pretty
-
-# Select specific fields
-ghidra function list --fields "name,address,size"
-
-# Count only
-ghidra function list --format count
+ghidra init                       # create config
+ghidra doctor                     # check installation
+ghidra version
+ghidra config list
+ghidra config get KEY
+ghidra config set KEY VALUE       # keys: ghidra_install_dir, ghidra_project_dir, default_program, default_project, default_output_format, timeout, default_limit
+ghidra config reset
+ghidra set-default KIND VALUE     # KIND: program, project
+ghidra setup [--version V] [--dir D] [--force]
 ```
 
-## Filtering
+## Common Query Options (QUERY_OPTS)
 
-Use expressions to filter results:
-
-```bash
-# Numeric comparisons
-ghidra function list --filter "size > 100"
-ghidra function list --filter "size >= 50"
-ghidra function list --filter "size < 1000"
-
-# String matching
-ghidra function list --filter "name contains 'crypt'"
-ghidra function list --filter "name starts_with 'sub_'"
-ghidra function list --filter "name ends_with '_init'"
-
-# Combine with limit
-ghidra function list --filter "size > 100" --limit 20
-```
-
-## Common Analysis Patterns
-
-### Investigate a Suspicious Function
-
-```bash
-# Get overview
-ghidra function get suspicious_func
-
-# See the code
-ghidra decompile suspicious_func
-
-# What does it call?
-ghidra graph callees suspicious_func --depth 2
-
-# Who calls it?
-ghidra graph callers suspicious_func --depth 3
-
-# Check cross-references
-ghidra x-ref to suspicious_func
-```
-
-### Find Crypto or Sensitive Code
-
-```bash
-# Find crypto constants
-ghidra find crypto
-
-# Find password-related strings
-ghidra find string "password"
-ghidra find string "key"
-ghidra find string "secret"
-
-# Find crypto function names
-ghidra find function "*crypt*"
-ghidra find function "*aes*"
-ghidra find function "*sha*"
-```
-
-### Trace Data Flow
-
-```bash
-# Find where data is written
-ghidra x-ref to 0x404000
-
-# Find where data is read
-ghidra x-ref from 0x404000
-
-# Trace through call graph
-ghidra graph callees source_func --depth 5
-```
-
-### Analyze Anti-Analysis Techniques
-
-```bash
-# Find interesting/suspicious patterns
-ghidra find interesting
-
-# Look for timing checks, debugger detection
-ghidra find string "IsDebuggerPresent"
-ghidra find function "*debug*"
-
-# Find self-modifying code indicators
-ghidra find bytes "e8 00 00 00 00"  # call $+5 pattern
-```
-
-### Patch and Export
-
-```bash
-# Identify patch location
-ghidra disasm 0x401000 --count 10
-
-# Apply patch
-ghidra patch nop 0x401000 --count 2
-
-# Verify
-ghidra disasm 0x401000 --count 10
-
-# Export
-ghidra patch export --output patched.exe
-```
-
-## Error Recovery
-
-| Situation | Resolution |
-|-----------|------------|
-| Daemon not running | Commands auto-start daemon; or `ghidra daemon start --project <p> --program <prog>` |
-| No project exists | `ghidra project create <name>` or use `ghidra quick <binary>` |
-| Function not found | Use `ghidra find function "*pattern*"` to search |
-| Address format | Use hex with 0x prefix: `0x401000` |
-| Slow queries | Daemon should be running; check with `ghidra daemon status` |
-| Wrong program loaded | `ghidra daemon restart --project <p> --program <correct_prog>` |
-| Daemon crashed | `ghidra daemon start --project <p> --program <prog>` |
-
-## Global Options
-
-All commands accept:
+All query commands accept these:
 
 | Option | Description |
 |--------|-------------|
-| `--project <name>` | Target project (auto-detected if daemon running) |
-| `--program <name>` | Target program within project |
-| `--json` | JSON output |
-| `--pretty` | Pretty-printed JSON output |
-| `--filter <expr>` | Filter expression |
-| `--limit <N>` | Maximum results to return |
-| `--fields <list>` | Comma-separated fields to include |
+| `--project P` | Project name or path (env: `GHIDRA_DEFAULT_PROJECT`) |
+| `--program PROG` | Program within project (env: `GHIDRA_DEFAULT_PROGRAM`) |
+| `--filter EXPR` | Filter expression |
+| `--fields LIST` | Comma-separated fields to return |
+| `-o FORMAT` | Output format |
+| `--limit N` | Max results |
+| `--offset N` | Skip first N |
+| `--sort FIELDS` | Sort: comma-separated, prefix `-` for descending |
+| `--count` | Return count only |
+| `--json` | Shorthand for `--format=json` |
+
+## Output Formats
+
+| Value | Use |
+|-------|-----|
+| `compact` | Default for TTY. One line per item. |
+| `full` | Multi-line labeled blocks |
+| `json` | Pretty JSON |
+| `json-compact` | Default for pipes. Single-line JSON. |
+| `json-stream` / `ndjson` | One JSON object per line |
+| `csv` / `tsv` | Delimited with header |
+| `table` | ASCII box-drawn table |
+| `count` | Number only |
+| `ids` / `minimal` | Address/name only, one per line |
+| `tree` | Indented hierarchy |
+| `hex` | Hex dump |
+| `asm` | Assembly |
+| `c` | C pseudocode |
+
+## Filter Expressions
+
+```bash
+# Numeric
+--filter "size > 100"
+--filter "size >= 50"
+
+# String
+--filter "name contains 'crypt'"
+
+# Combined
+--filter "size > 100 and name contains 'main'"
+--filter "name != 'main'"
+```
+
+Operators: `>`, `<`, `>=`, `<=`, `=`, `!=`, `contains`, `in`, `and`, `or`.
+
+## Agent Best Practices
+
+### 1. Count-First Pattern
+
+Always check result volume before fetching:
+
+```bash
+ghidra function list --count --project P
+# If manageable:
+ghidra function list --limit 50 --fields name,address,size --project P
+```
+
+### 2. Aggressive Filtering
+
+Pre-filter server-side, not client-side:
+
+```bash
+# GOOD
+ghidra function list --filter "size > 1000" --project P
+# BAD
+ghidra function list --project P  # then filter in agent code
+```
+
+### 3. Field Selection
+
+Request only needed fields:
+
+```bash
+ghidra function list --fields name,address --json --project P
+```
+
+### 4. Set Defaults
+
+Avoid repeating `--project` and `--program`:
+
+```bash
+ghidra set-default project myproject
+ghidra set-default program mybinary
+# Now: ghidra function list  (no flags needed)
+```
+
+## .NET Warning
+
+ghidra decompile emits a warning for .NET IL bytecode:
+> "This appears to be .NET managed code. Consider using ilspy-cli."
+
+Use `ilspy detect` to classify binaries before decompiling.
+
+## Analysis Workflow
+
+```bash
+# 1. Import and analyze
+ghidra import ./target.exe --project analysis
+ghidra analyze --project analysis
+
+# 2. Recon
+ghidra summary --project analysis
+ghidra function list --count --project analysis
+ghidra function list --filter "NOT name contains 'FUN_'" --fields name,address,size --limit 30 --project analysis
+
+# 3. Investigate
+ghidra decompile main --project analysis
+ghidra find crypto --project analysis
+ghidra find string "password" --project analysis
+
+# 4. Deep dive
+ghidra graph callers suspicious_func --depth 3 --project analysis
+ghidra x-ref to 0x401000 --project analysis
+ghidra function disasm 0x401000 --project analysis
+
+# 5. Patch
+ghidra patch nop 0x401234 --count 3 --project analysis
+ghidra patch export -o patched.exe --project analysis
+```
 
 ## Environment Variables
 
-| Variable | Description |
-|----------|-------------|
-| `GHIDRA_INSTALL_DIR` | Path to Ghidra installation |
-| `GHIDRA_PROJECT_DIR` | Default project directory |
+| Variable | Purpose |
+|----------|---------|
+| `GHIDRA_INSTALL_DIR` | Ghidra installation path |
+| `GHIDRA_DEFAULT_PROJECT` | Default `--project` value |
+| `GHIDRA_DEFAULT_PROGRAM` | Default `--program` value |
 
-## Troubleshooting
+## File Locations
 
-### Check Installation
+| File | Purpose |
+|------|---------|
+| `~/.local/share/ghidra-cli/bridge-{md5}.port` | TCP port for running bridge |
+| `~/.local/share/ghidra-cli/bridge-{md5}.pid` | Bridge process PID |
+| `~/.local/share/ghidra-cli/config.yaml` | Configuration |
+| `~/.local/share/ghidra-cli/ghidra-cli.log` | Debug log |
 
-```bash
-ghidra doctor
-```
+## Error Recovery
 
-### View Daemon Logs
-
-```bash
-# Logs are at ~/.local/share/ghidra-cli/daemon.log
-tail -f ~/.local/share/ghidra-cli/daemon.log
-```
-
-### Debug Mode
-
-```bash
-# Run daemon in foreground to see output
-ghidra daemon start --project myproject --program mybinary --foreground
-```
-
-### Reset State
-
-```bash
-# Stop all daemons
-ghidra daemon stop --project myproject
-
-# Remove lock files if needed
-rm ~/.local/share/ghidra-cli/daemon-*.lock
-```
+| Problem | Fix |
+|---------|-----|
+| "No project specified" | Add `--project NAME` or `ghidra set-default project NAME` |
+| "Bridge not responding" | `ghidra stop --project P` then retry (auto-starts) |
+| "Ghidra installation not configured" | `ghidra setup` or set `GHIDRA_INSTALL_DIR` |
+| Function not found | Use `ghidra find function "*pattern*"` |
+| Slow first command | Normal: bridge startup + analysis takes seconds |

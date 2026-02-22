@@ -1,13 +1,16 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection.Metadata;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading;
 using ICSharpCode.Decompiler;
 using ICSharpCode.Decompiler.CSharp;
+using ICSharpCode.Decompiler.CSharp.ProjectDecompiler;
 using ICSharpCode.Decompiler.Metadata;
 using ICSharpCode.Decompiler.TypeSystem;
 
@@ -387,6 +390,45 @@ public static class IlSpyBridge
             }
 
             var ptr = MarshalJson(results, out resultLen);
+            Marshal.WriteInt32(resultLenPtr, resultLen);
+            return ptr;
+        }
+        catch (Exception ex)
+        {
+            var ptr = MarshalError(ex.Message, out resultLen);
+            Marshal.WriteInt32(resultLenPtr, resultLen);
+            return ptr;
+        }
+    }
+
+    [UnmanagedCallersOnly(EntryPoint = "DecompileProject")]
+    public static IntPtr DecompileProject(IntPtr pathPtr, int pathLen,
+                                           IntPtr targetDirPtr, int targetDirLen,
+                                           IntPtr resultLenPtr)
+    {
+        int resultLen = 0;
+        try
+        {
+            var path = ReadUtf8(pathPtr, pathLen);
+            var targetDir = ReadUtf8(targetDirPtr, targetDirLen);
+
+            var peFile = new PEFile(path);
+
+            Directory.CreateDirectory(targetDir);
+            var resolver = new UniversalAssemblyResolver(path, false, null);
+            var decompiler = new WholeProjectDecompiler(resolver);
+
+            decompiler.DecompileProject(peFile, targetDir, CancellationToken.None);
+
+            var fileCount = Directory.GetFiles(targetDir, "*.cs", SearchOption.AllDirectories).Length;
+
+            var result = new
+            {
+                files = fileCount,
+                directory = targetDir
+            };
+
+            var ptr = MarshalJson(result, out resultLen);
             Marshal.WriteInt32(resultLenPtr, resultLen);
             return ptr;
         }

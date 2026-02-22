@@ -432,9 +432,23 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
                 anyhow::bail!("Binary not found: {}", args.binary);
             }
 
-            // Check if bridge is already running
-            if let Some(port) = bridge::is_bridge_running(&project_path) {
-                // Bridge running - import via bridge command
+            // First, robustly check if a bridge is already running using ensure_bridge_running
+            // with Project mode. This will reuse an existing bridge or start a minimal one.
+            let existing_bridge_port = bridge::read_port_file(&project_path)
+                .ok()
+                .flatten()
+                .and_then(|port| {
+                    // Verify this port is actually reachable
+                    let client = BridgeClient::new(port);
+                    if client.ping().unwrap_or(false) {
+                        Some(port)
+                    } else {
+                        None
+                    }
+                });
+
+            if let Some(port) = existing_bridge_port {
+                // Bridge is running - import via TCP command
                 let client = BridgeClient::new(port);
                 verify_bridge(&client)?;
                 let result = client.import_binary(&args.binary, args.program.as_deref())?;

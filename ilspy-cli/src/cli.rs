@@ -103,6 +103,10 @@ pub struct DecompileArgs {
     /// Decompile a specific method (requires --type)
     #[arg(long, short, requires = "type")]
     pub method: Option<String>,
+
+    /// Output directory for project-style decompilation (one .cs file per type)
+    #[arg(long, short = 'o')]
+    pub output_dir: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]

@@ -33,6 +33,8 @@ pub type FnThreeArgs = unsafe extern "system" fn(
 /// FFI function signature for FreeMem.
 pub type FnFreeMem = unsafe extern "system" fn(*mut u8);
 
+/// Call a two-arg bridge function and return the JSON string result.
+
 /// Call a one-arg bridge function and return the JSON string result.
 pub unsafe fn call_one_arg(func: FnOneArg, free: FnFreeMem, arg1: &str) -> String {
     let mut result_len: c_int = 0;

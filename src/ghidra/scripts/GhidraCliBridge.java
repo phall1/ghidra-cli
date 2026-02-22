@@ -243,6 +243,8 @@ public class GhidraCliBridge extends GhidraScript {
             case "batch":           return handleBatch(args);
             // Bridge info
             case "bridge_info":     return handleBridgeInfo();
+            // Memory read
+            case "read_memory":     return handleReadMemory(args);
             default:                return null;
         }
     }
@@ -2602,5 +2604,75 @@ public class GhidraCliBridge extends GhidraScript {
     private JsonObject handleBatch(JsonObject args) {
         // Batch operations are handled by the Rust side, not the bridge directly
         return errorResult("Batch operations are handled by the CLI, not via bridge script");
+    }
+
+    // --- Memory Read Handler ---
+
+    private JsonObject handleReadMemory(JsonObject args) {
+        String addrStr = getArgString(args, "address");
+        if (addrStr == null) return errorResult("Address required");
+
+        int size = 200;
+        if (args != null && args.has("size")) {
+            size = args.get("size").getAsInt();
+        }
+
+        try {
+            ghidra.program.model.mem.Memory mem = currentProgram.getMemory();
+            ghidra.program.model.address.AddressFactory af = currentProgram.getAddressFactory();
+
+            // Parse address
+            long addrLong;
+            if (addrStr.startsWith("0x") || addrStr.startsWith("0X")) {
+                addrLong = Long.parseUnsignedLong(addrStr.substring(2), 16);
+            } else {
+                addrLong = Long.parseUnsignedLong(addrStr, 16);
+            }
+
+            ghidra.program.model.address.Address baseAddr = af.getDefaultAddressSpace().getAddress(addrLong);
+
+            // Read bytes
+            byte[] bytes = new byte[size];
+            int bytesRead = mem.getBytes(baseAddr, bytes);
+
+            // Build hex string
+            StringBuilder hexStr = new StringBuilder();
+            for (int i = 0; i < bytesRead; i++) {
+                hexStr.append(String.format("%02x", bytes[i] & 0xFF));
+            }
+
+            // Also interpret as array of 8-byte pointers
+            JsonArray pointers = new JsonArray();
+            for (int i = 0; i + 7 < bytesRead; i += 8) {
+                long val = 0;
+                for (int j = 0; j < 8; j++) {
+                    val |= ((long)(bytes[i+j] & 0xFF)) << (8*j);
+                }
+                JsonObject ptrObj = new JsonObject();
+                ptrObj.addProperty("offset", i);
+                ptrObj.addProperty("address", String.format("0x%08x", addrLong + i));
+                ptrObj.addProperty("value", String.format("0x%016x", val));
+
+                // Check if value looks like a code address
+                if (val >= 0x00401000L && val <= 0x05bb99ffL) {
+                    ghidra.program.model.address.Address funcAddr = af.getDefaultAddressSpace().getAddress(val);
+                    ghidra.program.model.listing.Function func = currentProgram.getFunctionManager().getFunctionAt(funcAddr);
+                    if (func != null) {
+                        ptrObj.addProperty("function", func.getName());
+                    }
+                }
+
+                pointers.add(ptrObj);
+            }
+
+            JsonObject result = new JsonObject();
+            result.addProperty("address", String.format("0x%08x", addrLong));
+            result.addProperty("size", bytesRead);
+            result.addProperty("hex", hexStr.toString());
+            result.add("pointers", pointers);
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to read memory: " + e.getMessage());
+        }
     }
 }
