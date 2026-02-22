@@ -128,10 +128,12 @@ public class GhidraCliBridge extends GhidraScript {
             }
         }
 
-        // Cleanup
+        // Cleanup: close the server socket but leave port/pid files for the
+        // Rust CLI to clean up. Deleting them here creates a race: the JVM is
+        // still unwinding (closing the Ghidra project, releasing locks) but
+        // stop_bridge() can no longer find the PID to wait on, so it returns
+        // early while the project lock is still held.
         serverSocket.close();
-        portFile.delete();
-        pidFile.delete();
     }
 
     // --- Request Handling ---

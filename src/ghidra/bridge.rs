@@ -396,6 +396,10 @@ pub fn start_bridge(
 
 /// Stop the bridge for a project.
 pub fn stop_bridge(project_path: &Path) -> Result<()> {
+    // Read PID before sending TCP shutdown so we can wait for the JVM to
+    // fully exit (release project lock) before returning.
+    let pid = read_pid_file(project_path).ok().flatten();
+
     // Try graceful shutdown via TCP using BridgeClient
     if let Ok(Some(port)) = read_port_file(project_path) {
         let client = BridgeClient::new(port);
@@ -405,7 +409,7 @@ pub fn stop_bridge(project_path: &Path) -> Result<()> {
     }
 
     // Wait for the process to exit gracefully, then force-kill if needed
-    if let Ok(Some(pid)) = read_pid_file(project_path) {
+    if let Some(pid) = pid {
         // Wait up to 3 seconds for graceful exit
         for _ in 0..30 {
             if !is_pid_alive(pid) {
