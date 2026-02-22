@@ -342,9 +342,11 @@ macro_rules! require_ghidra {
         let output = String::from_utf8_lossy(&doctor.stdout);
 
         if !output.contains("OK") || output.contains("NOT FOUND") || output.contains("FAILED") {
-            eprintln!("Ghidra not properly installed, skipping test");
-            eprintln!("Doctor output: {}", output);
-            return;
+            panic!(
+                "Ghidra not properly installed — tests MUST fail without Ghidra.\n\
+                 Doctor output: {}",
+                output
+            );
         }
     };
 }

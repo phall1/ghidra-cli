@@ -83,7 +83,7 @@ cargo test --test e2e --test command_tests --test output_format_integration
 
 ### Ghidra Installation
 
-Tests assume Ghidra is installed. Use `require_ghidra!()` in tests that need a fast, explicit availability check; it skips the test (silent pass) if `ghidra doctor` fails. CI environments must have Ghidra installed.
+Tests assume Ghidra is installed. Use `require_ghidra!()` in tests that need a fast, explicit availability check; it panics (fails the test) if `ghidra doctor` fails.
 
 ### Test Fixtures
 
