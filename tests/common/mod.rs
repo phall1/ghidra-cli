@@ -57,21 +57,35 @@ pub fn ensure_test_project(project: &str, program: &str) {
         let gpr_file = projects_dir.join(format!("{}.gpr", project));
         let rep_dir = projects_dir.join(format!("{}.rep", project));
 
-        // Check that .rep has actual content (not just an empty directory).
-        // If the bridge wasn't stopped before caching, .rep may exist but be empty
-        // because Ghidra hadn't flushed the project database to disk.
-        let rep_has_content = rep_dir.is_dir()
-            && std::fs::read_dir(&rep_dir)
-                .map(|mut entries| entries.next().is_some())
+        // Validate project has actual program data, not just metadata stubs.
+        // On macOS, Ghidra's project close (during `ghidra stop`) can truncate
+        // .gpr to 0 bytes and leave .rep with only metadata stubs (~index.dat,
+        // project.prp) but no actual program data. A valid project needs:
+        //   .gpr - non-empty project descriptor (XML)
+        //   .rep/idata/ - must contain more than just ~index.dat (needs 00/ subdirectories)
+        let idata_dir = rep_dir.join("idata");
+        let idata_has_data = idata_dir.is_dir()
+            && std::fs::read_dir(&idata_dir)
+                .map(|entries| {
+                    entries
+                        .filter_map(|e| e.ok())
+                        .any(|e| e.file_name() != "~index.dat")
+                })
                 .unwrap_or(false);
+        let project_valid = gpr_file.exists()
+            && gpr_file.metadata().map(|m| m.len() > 0).unwrap_or(false)
+            && idata_has_data;
 
-        if gpr_file.exists() && rep_has_content {
+        if project_valid {
             eprintln!("=== Using cached test project: {:?} ===", gpr_file);
             return;
         }
 
-        if gpr_file.exists() && !rep_has_content {
-            eprintln!("=== Project .gpr exists but .rep missing or empty, re-importing ===");
+        if gpr_file.exists() {
+            eprintln!("=== Project cache invalid (missing program data), re-importing ===");
+            // Remove stale project files to avoid conflicts during import
+            let _ = std::fs::remove_file(&gpr_file);
+            let _ = std::fs::remove_dir_all(&rep_dir);
         }
 
         eprintln!("=== Setting up test project (import + analyze) ===");
@@ -135,20 +149,11 @@ pub fn ensure_test_project(project: &str, program: &str) {
             Err(e) => eprintln!("Analyze error: {}", e),
         }
 
-        // Step 3: Stop the bridge that import/analyze left running.
-        // Without this, the first test reuses the leftover bridge (free pass),
-        // but when it stops the bridge, subsequent tests must start fresh ones.
-        // This inconsistency causes the first test to pass while others fail.
-        eprintln!("Step 3: Stopping leftover bridge...");
-        let stop_status = run_cli_with_timeout(
-            &ghidra_bin,
-            &["stop", "--project", project],
-            Duration::from_secs(60),
-        );
-        match stop_status {
-            Ok(status) => eprintln!("Bridge stop finished with status: {}", status),
-            Err(e) => eprintln!("Bridge stop error (may be expected): {}", e),
-        }
+        // NOTE: We intentionally do NOT stop the bridge here.
+        // On macOS, stopping the bridge triggers Ghidra's project close which
+        // can truncate .gpr to 0 bytes and destroy project data. Instead, we
+        // leave the bridge running. DaemonTestHarness::new() will detect the
+        // existing bridge via ensure_bridge_running() and reuse it.
 
         eprintln!("=== Test project setup complete ===");
     });
