@@ -117,6 +117,19 @@ jobs:
           cargo run -- import tests/fixtures/sample_binary --project ci-test --program sample_binary || true
           cargo run -- analyze --project ci-test --program sample_binary || true
           cargo run -- stop --project ci-test || true
+          echo "=== Project directory contents ==="
+          if [ -d "$HOME/Library/Caches/ghidra-cli/projects" ]; then
+            find "$HOME/Library/Caches/ghidra-cli/projects" -type f -exec ls -la {} \; 2>/dev/null || true
+            du -sh "$HOME/Library/Caches/ghidra-cli/projects" 2>/dev/null || true
+          fi
+          if [ -d "$HOME/.cache/ghidra-cli/projects" ]; then
+            find "$HOME/.cache/ghidra-cli/projects" -type f -exec ls -la {} \; 2>/dev/null || true
+            du -sh "$HOME/.cache/ghidra-cli/projects" 2>/dev/null || true
+          fi
+          if [ -d "$HOME/AppData/Local/ghidra-cli/projects" ]; then
+            find "$HOME/AppData/Local/ghidra-cli/projects" -type f 2>/dev/null | head -20 || true
+            du -sh "$HOME/AppData/Local/ghidra-cli/projects" 2>/dev/null || true
+          fi
         shell: bash
         timeout-minutes: 20
 
