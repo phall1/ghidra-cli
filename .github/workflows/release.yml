@@ -12,19 +12,20 @@ jobs:
   test:
     name: Test ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Java 17
+      - name: Install Java 21
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -32,14 +33,26 @@ jobs:
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
 
-      - name: Cache Ghidra
+      - name: Cache Ghidra installation and config
         uses: actions/cache@v4
         with:
           path: |
             ~/.local/share/ghidra-cli
+            ~/.config/ghidra-cli
             ~/Library/Application Support/ghidra-cli
+            ~/Library/Preferences/ghidra-cli
             ~/AppData/Local/ghidra-cli
-          key: ghidra-${{ matrix.os }}-v2
+            ~/AppData/Roaming/ghidra-cli
+          key: ghidra-${{ matrix.os }}-v4
+
+      - name: Cache Ghidra projects
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ghidra-cli/projects
+            ~/Library/Caches/ghidra-cli/projects
+            ~/AppData/Local/ghidra-cli/projects
+          key: ghidra-projects-${{ matrix.os }}-${{ hashFiles('tests/fixtures/sample_binary.rs') }}
 
       - name: Build
         run: cargo build --verbose
@@ -48,13 +61,28 @@ jobs:
         run: rustc --edition 2021 -o tests/fixtures/sample_binary tests/fixtures/sample_binary.rs
 
       - name: Setup Ghidra
-        run: cargo run -- setup --force
+        run: |
+          if cargo run -- doctor 2>&1 | grep -q "analyzeHeadless: OK"; then
+            echo "Ghidra already installed (cache hit), skipping setup"
+          else
+            echo "Ghidra not found, running setup..."
+            cargo run -- setup
+          fi
+        shell: bash
+
+      - name: Create test project
+        run: |
+          cargo run -- import tests/fixtures/sample_binary --project ci-test --program sample_binary || true
+          cargo run -- analyze --project ci-test --program sample_binary || true
+        shell: bash
+        timeout-minutes: 20
 
       - name: Run unit tests
         run: cargo test --lib --verbose
 
       - name: Run integration tests
-        run: cargo test --test '*' --verbose
+        run: cargo test --test '*' --verbose -- --nocapture
+        timeout-minutes: 80
         env:
           RUST_LOG: info
 
