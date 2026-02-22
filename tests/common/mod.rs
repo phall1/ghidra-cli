@@ -45,13 +45,17 @@ pub fn ensure_test_project(project: &str, program: &str) {
         // Check if project already exists with program data (supports CI caching).
         // Verify both .gpr (project descriptor) and .rep (repository data) exist
         // to avoid using incomplete cached projects.
-        let project_dir = dirs::cache_dir()
+        //
+        // Ghidra stores project files at: <projects_dir>/<project_name>.gpr
+        // NOT at <projects_dir>/<project_name>/<project_name>.gpr
+        // because start_bridge passes (project_path.parent(), project_path.file_name())
+        // to analyzeHeadless.
+        let projects_dir = dirs::cache_dir()
             .expect("Could not determine cache directory")
             .join("ghidra-cli")
-            .join("projects")
-            .join(project);
-        let gpr_file = project_dir.join(format!("{}.gpr", project));
-        let rep_dir = project_dir.join(format!("{}.rep", project));
+            .join("projects");
+        let gpr_file = projects_dir.join(format!("{}.gpr", project));
+        let rep_dir = projects_dir.join(format!("{}.rep", project));
 
         if gpr_file.exists() && rep_dir.exists() && rep_dir.is_dir() {
             eprintln!("=== Using cached test project: {:?} ===", gpr_file);
@@ -63,7 +67,7 @@ pub fn ensure_test_project(project: &str, program: &str) {
         }
 
         eprintln!("=== Setting up test project (import + analyze) ===");
-        eprintln!("Project dir: {:?}", project_dir);
+        eprintln!("Project dir: {:?}", projects_dir);
 
         // Step 1: Import the binary
         //
@@ -156,6 +160,10 @@ pub struct DaemonTestHarness {
 
 impl DaemonTestHarness {
     /// Start bridge for testing. Blocks until bridge is ready or timeout.
+    ///
+    /// Calls bridge functions directly (not via CLI subprocess) so that
+    /// detailed error messages (e.g., "program file(s) not found") propagate
+    /// correctly to callers like try_start_daemon().
     pub fn new(project: &str, program: &str) -> Result<Self> {
         let data_dir = get_unique_data_dir();
 
@@ -166,21 +174,24 @@ impl DaemonTestHarness {
             .join("projects")
             .join(project);
 
-        // Start the bridge using the CLI command (which starts Ghidra headless).
-        // Uses Stdio::null() to avoid Windows pipe handle inheritance (see ensure_test_project).
-        let ghidra_bin = assert_cmd::cargo::cargo_bin("ghidra");
-        let status = run_cli_with_timeout(
-            &ghidra_bin,
-            &["start", "--project", project, "--program", program],
-            Duration::from_secs(300),
+        // Load config to find Ghidra installation
+        let config = ghidra_cli::config::Config::load()
+            .context("Failed to load config")?;
+        let ghidra_install_dir = config
+            .ghidra_install_dir
+            .clone()
+            .or_else(|| config.get_ghidra_install_dir().ok())
+            .context("Ghidra installation directory not configured")?;
+
+        // Start the bridge directly via bridge API (not CLI subprocess).
+        // This gives us detailed error messages from Ghidra in the Err value.
+        let port = ghidra_cli::ghidra::bridge::ensure_bridge_running(
+            &project_path,
+            &ghidra_install_dir,
+            ghidra_cli::ghidra::bridge::BridgeStartMode::Process {
+                program_name: program.to_string(),
+            },
         )?;
-
-        if !status.success() {
-            anyhow::bail!("Failed to start bridge (exit status: {})", status);
-        }
-
-        // Read port from port file
-        let port = Self::wait_for_port(&project_path, Duration::from_secs(120))?;
 
         // Store PID now so Drop can wait for it even if restart deletes the PID file
         let pid = ghidra_cli::ghidra::bridge::read_pid_file(&project_path)
@@ -194,43 +205,6 @@ impl DaemonTestHarness {
             project: project.to_string(),
             project_path,
         })
-    }
-
-    /// Wait for the bridge to become available by polling the port file.
-    fn wait_for_port(project_path: &std::path::Path, timeout: Duration) -> Result<u16> {
-        let start = std::time::Instant::now();
-        let mut delay = Duration::from_millis(100);
-
-        // Compute port file path (same logic as bridge.rs)
-        let data_dir = dirs::data_local_dir()
-            .context("Could not determine data directory")?
-            .join("ghidra-cli");
-        let hash = format!(
-            "{:x}",
-            md5::compute(project_path.to_string_lossy().as_bytes())
-        );
-        let port_file = data_dir.join(format!("bridge-{}.port", hash));
-
-        while start.elapsed() < timeout {
-            std::thread::sleep(delay);
-
-            // Try to read port file
-            if port_file.exists() {
-                if let Ok(content) = std::fs::read_to_string(&port_file) {
-                    if let Ok(port) = content.trim().parse::<u16>() {
-                        // Verify we can connect
-                        let client = ghidra_cli::ipc::client::BridgeClient::new(port);
-                        if client.ping().unwrap_or(false) {
-                            return Ok(port);
-                        }
-                    }
-                }
-            }
-
-            delay = std::cmp::min(delay.saturating_mul(2), Duration::from_secs(5));
-        }
-
-        anyhow::bail!("Bridge failed to start within {}s", timeout.as_secs())
     }
 
     /// Get a BridgeClient connected to the test bridge.

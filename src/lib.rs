@@ -2,6 +2,12 @@
 //!
 //! This module exposes internal components needed for integration tests.
 
+#[path = "error.rs"]
+pub mod error;
+
+#[path = "config.rs"]
+pub mod config;
+
 #[path = "ipc/mod.rs"]
 pub mod ipc;
 
