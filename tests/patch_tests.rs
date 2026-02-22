@@ -7,6 +7,7 @@
 //! 4. Using snapshot testing for output format regression detection
 
 use serial_test::serial;
+use std::sync::OnceLock;
 
 #[macro_use]
 mod common;
@@ -14,6 +15,15 @@ use common::{ensure_test_project, get_function_address, ghidra, DaemonTestHarnes
 
 const TEST_PROJECT: &str = "ci-test";
 const TEST_PROGRAM: &str = "sample_binary";
+
+static HARNESS: OnceLock<DaemonTestHarness> = OnceLock::new();
+
+fn harness() -> &'static DaemonTestHarness {
+    HARNESS.get_or_init(|| {
+        ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon")
+    })
+}
 
 /// Test patching bytes at a dynamically resolved address.
 ///
@@ -25,15 +35,12 @@ const TEST_PROGRAM: &str = "sample_binary";
 #[serial]
 fn test_patch_bytes_success() {
     require_ghidra!();
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
-
-    let harness =
-        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
+    let harness = harness();
 
     // Dynamically get a valid code address
-    let main_addr = get_function_address(&harness, TEST_PROJECT, TEST_PROGRAM, "main");
+    let main_addr = get_function_address(harness, TEST_PROJECT, TEST_PROGRAM, "main");
 
-    let result = ghidra(&harness)
+    let result = ghidra(harness)
         .arg("patch")
         .arg("bytes")
         .arg(&main_addr)
@@ -57,14 +64,11 @@ fn test_patch_bytes_success() {
 #[serial]
 fn test_patch_nop_success() {
     require_ghidra!();
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
+    let harness = harness();
 
-    let harness =
-        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
+    let main_addr = get_function_address(harness, TEST_PROJECT, TEST_PROGRAM, "main");
 
-    let main_addr = get_function_address(&harness, TEST_PROJECT, TEST_PROGRAM, "main");
-
-    let result = ghidra(&harness)
+    let result = ghidra(harness)
         .arg("patch")
         .arg("nop")
         .arg(&main_addr)
@@ -87,15 +91,12 @@ fn test_patch_nop_success() {
 #[serial]
 fn test_patch_export() {
     require_ghidra!();
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
-
-    let harness =
-        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
+    let harness = harness();
 
     // Use a unique output path to avoid conflicts
     let output_path = format!("/tmp/ghidra-test-export-{}.bin", uuid::Uuid::new_v4());
 
-    let result = ghidra(&harness)
+    let result = ghidra(harness)
         .arg("patch")
         .arg("export")
         .arg("--output")
@@ -123,16 +124,13 @@ fn test_patch_export() {
 #[serial]
 fn test_patch_at_function_boundary() {
     require_ghidra!();
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
-
-    let harness =
-        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
+    let harness = harness();
 
     // Get any function's entry point
-    let func_addr = get_function_address(&harness, TEST_PROJECT, TEST_PROGRAM, "main");
+    let func_addr = get_function_address(harness, TEST_PROJECT, TEST_PROGRAM, "main");
 
     // Patch with RET instruction (c3 on x86)
-    let result = ghidra(&harness)
+    let result = ghidra(harness)
         .arg("patch")
         .arg("bytes")
         .arg(&func_addr)
@@ -158,13 +156,10 @@ fn test_patch_at_function_boundary() {
 #[serial]
 fn test_patch_invalid_address_fails() {
     require_ghidra!();
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
-
-    let harness =
-        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
+    let harness = harness();
 
     // Use an address that's definitely outside the program's memory
-    let result = ghidra(&harness)
+    let result = ghidra(harness)
         .arg("patch")
         .arg("bytes")
         .arg("0xffffffffffffffff") // Very high address, unlikely to be mapped
@@ -193,14 +188,11 @@ fn test_patch_invalid_address_fails() {
 #[serial]
 fn test_patch_invalid_hex_fails() {
     require_ghidra!();
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
+    let harness = harness();
 
-    let harness =
-        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
+    let main_addr = get_function_address(harness, TEST_PROJECT, TEST_PROGRAM, "main");
 
-    let main_addr = get_function_address(&harness, TEST_PROJECT, TEST_PROGRAM, "main");
-
-    let result = ghidra(&harness)
+    let result = ghidra(harness)
         .arg("patch")
         .arg("bytes")
         .arg(&main_addr)
@@ -218,14 +210,11 @@ fn test_patch_invalid_hex_fails() {
 #[serial]
 fn test_patch_odd_hex_length() {
     require_ghidra!();
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
+    let harness = harness();
 
-    let harness =
-        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
+    let main_addr = get_function_address(harness, TEST_PROJECT, TEST_PROGRAM, "main");
 
-    let main_addr = get_function_address(&harness, TEST_PROJECT, TEST_PROGRAM, "main");
-
-    let _result = ghidra(&harness)
+    let _result = ghidra(harness)
         .arg("patch")
         .arg("bytes")
         .arg(&main_addr)
@@ -248,14 +237,11 @@ fn test_patch_odd_hex_length() {
 #[serial]
 fn test_patch_without_program_arg() {
     require_ghidra!();
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
+    let harness = harness();
 
-    let harness =
-        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
+    let main_addr = get_function_address(harness, TEST_PROJECT, TEST_PROGRAM, "main");
 
-    let main_addr = get_function_address(&harness, TEST_PROJECT, TEST_PROGRAM, "main");
-
-    let result = ghidra(&harness)
+    let result = ghidra(harness)
         .arg("patch")
         .arg("bytes")
         .arg(&main_addr)
@@ -280,14 +266,11 @@ fn test_patch_without_program_arg() {
 #[serial]
 fn test_patch_output_format_structure() {
     require_ghidra!();
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
+    let harness = harness();
 
-    let harness =
-        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
+    let main_addr = get_function_address(harness, TEST_PROJECT, TEST_PROGRAM, "main");
 
-    let main_addr = get_function_address(&harness, TEST_PROJECT, TEST_PROGRAM, "main");
-
-    let result = ghidra(&harness)
+    let result = ghidra(harness)
         .arg("patch")
         .arg("bytes")
         .arg(&main_addr)

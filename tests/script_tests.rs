@@ -4,6 +4,7 @@ use assert_cmd::Command;
 use serial_test::serial;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 #[macro_use]
 mod common;
@@ -11,6 +12,15 @@ use common::{ensure_test_project, DaemonTestHarness};
 
 const TEST_PROJECT: &str = "ci-test";
 const TEST_PROGRAM: &str = "sample_binary";
+
+static HARNESS: OnceLock<DaemonTestHarness> = OnceLock::new();
+
+fn harness() -> &'static DaemonTestHarness {
+    HARNESS.get_or_init(|| {
+        ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon")
+    })
+}
 
 fn get_test_script_path() -> PathBuf {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -39,10 +49,7 @@ print("Test script executed")
 #[serial]
 fn test_script_list() {
     require_ghidra!();
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
-
-    let _harness =
-        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
+    let _harness = harness();
 
     // script list does not accept --project/--program arguments,
     // so it may fail with "no project specified" unless a default is configured
@@ -67,12 +74,9 @@ fn test_script_list() {
 #[serial]
 fn test_script_run() {
     require_ghidra!();
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
-
     let script_path = create_test_script();
 
-    let _harness =
-        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
+    let _harness = harness();
 
     let output = Command::cargo_bin("ghidra")
         .unwrap()
@@ -105,10 +109,7 @@ fn test_script_run() {
 #[serial]
 fn test_script_python_inline() {
     require_ghidra!();
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
-
-    let _harness =
-        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
+    let _harness = harness();
 
     let output = Command::cargo_bin("ghidra")
         .unwrap()
@@ -136,10 +137,7 @@ fn test_script_python_inline() {
 #[serial]
 fn test_script_run_nonexistent() {
     require_ghidra!();
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
-
-    let _harness =
-        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
+    let _harness = harness();
 
     Command::cargo_bin("ghidra")
         .unwrap()

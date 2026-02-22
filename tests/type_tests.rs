@@ -3,6 +3,7 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 use serial_test::serial;
+use std::sync::OnceLock;
 
 #[macro_use]
 mod common;
@@ -11,14 +12,20 @@ use common::{ensure_test_project, get_function_address, DaemonTestHarness};
 const TEST_PROJECT: &str = "ci-test";
 const TEST_PROGRAM: &str = "sample_binary";
 
+static HARNESS: OnceLock<DaemonTestHarness> = OnceLock::new();
+
+fn harness() -> &'static DaemonTestHarness {
+    HARNESS.get_or_init(|| {
+        ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon")
+    })
+}
+
 #[test]
 #[serial]
 fn test_type_list() {
     require_ghidra!();
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
-
-    let harness =
-        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
+    let harness = harness();
 
     Command::cargo_bin("ghidra")
         .unwrap()
@@ -38,10 +45,7 @@ fn test_type_list() {
 #[serial]
 fn test_type_get_primitive() {
     require_ghidra!();
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
-
-    let harness =
-        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
+    let harness = harness();
 
     Command::cargo_bin("ghidra")
         .unwrap()
@@ -63,10 +67,7 @@ fn test_type_get_primitive() {
 #[serial]
 fn test_type_create() {
     require_ghidra!();
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
-
-    let harness =
-        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
+    let harness = harness();
 
     Command::cargo_bin("ghidra")
         .unwrap()
@@ -101,12 +102,9 @@ fn test_type_create() {
 #[serial]
 fn test_type_apply() {
     require_ghidra!();
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
+    let harness = harness();
 
-    let harness =
-        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
-
-    let addr = get_function_address(&harness, TEST_PROJECT, TEST_PROGRAM, "main");
+    let addr = get_function_address(harness, TEST_PROJECT, TEST_PROGRAM, "main");
 
     let output = Command::cargo_bin("ghidra")
         .unwrap()
@@ -138,10 +136,7 @@ fn test_type_apply() {
 #[serial]
 fn test_type_get_nonexistent() {
     require_ghidra!();
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
-
-    let harness =
-        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
+    let harness = harness();
 
     Command::cargo_bin("ghidra")
         .unwrap()

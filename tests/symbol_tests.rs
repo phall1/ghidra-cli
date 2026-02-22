@@ -3,6 +3,7 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 use serial_test::serial;
+use std::sync::OnceLock;
 
 #[macro_use]
 mod common;
@@ -13,14 +14,20 @@ use common::{
 const TEST_PROJECT: &str = "ci-test";
 const TEST_PROGRAM: &str = "sample_binary";
 
+static HARNESS: OnceLock<DaemonTestHarness> = OnceLock::new();
+
+fn harness() -> &'static DaemonTestHarness {
+    HARNESS.get_or_init(|| {
+        ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
+        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon")
+    })
+}
+
 #[test]
 #[serial]
 fn test_symbol_list() {
     require_ghidra!();
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
-
-    let harness =
-        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
+    let harness = harness();
 
     let output = Command::cargo_bin("ghidra")
         .unwrap()
@@ -51,12 +58,9 @@ fn test_symbol_list() {
 #[serial]
 fn test_symbol_create_and_get() {
     require_ghidra!();
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
+    let harness = harness();
 
-    let harness =
-        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
-
-    let addr = get_function_address(&harness, TEST_PROJECT, TEST_PROGRAM, "main");
+    let addr = get_function_address(harness, TEST_PROJECT, TEST_PROGRAM, "main");
 
     Command::cargo_bin("ghidra")
         .unwrap()
@@ -83,20 +87,15 @@ fn test_symbol_create_and_get() {
         .assert()
         .success()
         .stdout(predicate::str::contains("test_symbol"));
-
-    drop(harness);
 }
 
 #[test]
 #[serial]
 fn test_symbol_rename() {
     require_ghidra!();
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
+    let harness = harness();
 
-    let harness =
-        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
-
-    let addrs = get_function_addresses(&harness, TEST_PROJECT, TEST_PROGRAM, 2);
+    let addrs = get_function_addresses(harness, TEST_PROJECT, TEST_PROGRAM, 2);
     let addr = &addrs[1];
 
     // Use unique names to avoid collisions with cached project state
@@ -142,18 +141,13 @@ fn test_symbol_rename() {
         .assert()
         .success()
         .stdout(predicate::str::contains(&*new_name));
-
-    drop(harness);
 }
 
 #[test]
 #[serial]
 fn test_symbol_get_nonexistent() {
     require_ghidra!();
-    ensure_test_project(TEST_PROJECT, TEST_PROGRAM);
-
-    let harness =
-        DaemonTestHarness::new(TEST_PROJECT, TEST_PROGRAM).expect("Failed to start daemon");
+    let harness = harness();
 
     Command::cargo_bin("ghidra")
         .unwrap()
