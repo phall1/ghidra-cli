@@ -90,7 +90,7 @@ jobs:
             ~/.cache/ghidra-cli/projects
             ~/Library/Caches/ghidra-cli/projects
             ~/AppData/Local/ghidra-cli/projects
-          key: ghidra-projects-${{ matrix.os }}-v2-${{ hashFiles('tests/fixtures/sample_binary.rs') }}
+          key: ghidra-projects-${{ matrix.os }}-v3-${{ hashFiles('tests/fixtures/sample_binary.rs') }}
 
       - name: Build
         run: cargo build --verbose
@@ -116,6 +116,7 @@ jobs:
         run: |
           cargo run -- import tests/fixtures/sample_binary --project ci-test --program sample_binary || true
           cargo run -- analyze --project ci-test --program sample_binary || true
+          cargo run -- stop --project ci-test || true
         shell: bash
         timeout-minutes: 20
 
@@ -164,7 +165,7 @@ jobs:
             ~/.cache/ghidra-cli/projects
             ~/Library/Caches/ghidra-cli/projects
             ~/AppData/Local/ghidra-cli/projects
-          key: ghidra-projects-${{ matrix.os }}-v2-${{ hashFiles('tests/fixtures/sample_binary.rs') }}
+          key: ghidra-projects-${{ matrix.os }}-v3-${{ hashFiles('tests/fixtures/sample_binary.rs') }}
 
       - name: Build
         run: cargo build --verbose
@@ -237,7 +238,7 @@ jobs:
             ~/.cache/ghidra-cli/projects
             ~/Library/Caches/ghidra-cli/projects
             ~/AppData/Local/ghidra-cli/projects
-          key: ghidra-projects-${{ matrix.os }}-v2-${{ hashFiles('tests/fixtures/sample_binary.rs') }}
+          key: ghidra-projects-${{ matrix.os }}-v3-${{ hashFiles('tests/fixtures/sample_binary.rs') }}
 
       - name: Build
         run: cargo build --verbose
@@ -310,7 +311,7 @@ jobs:
             ~/.cache/ghidra-cli/projects
             ~/Library/Caches/ghidra-cli/projects
             ~/AppData/Local/ghidra-cli/projects
-          key: ghidra-projects-${{ matrix.os }}-v2-${{ hashFiles('tests/fixtures/sample_binary.rs') }}
+          key: ghidra-projects-${{ matrix.os }}-v3-${{ hashFiles('tests/fixtures/sample_binary.rs') }}
 
       - name: Build
         run: cargo build --verbose

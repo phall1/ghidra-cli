@@ -57,13 +57,21 @@ pub fn ensure_test_project(project: &str, program: &str) {
         let gpr_file = projects_dir.join(format!("{}.gpr", project));
         let rep_dir = projects_dir.join(format!("{}.rep", project));
 
-        if gpr_file.exists() && rep_dir.exists() && rep_dir.is_dir() {
+        // Check that .rep has actual content (not just an empty directory).
+        // If the bridge wasn't stopped before caching, .rep may exist but be empty
+        // because Ghidra hadn't flushed the project database to disk.
+        let rep_has_content = rep_dir.is_dir()
+            && std::fs::read_dir(&rep_dir)
+                .map(|mut entries| entries.next().is_some())
+                .unwrap_or(false);
+
+        if gpr_file.exists() && rep_has_content {
             eprintln!("=== Using cached test project: {:?} ===", gpr_file);
             return;
         }
 
-        if gpr_file.exists() {
-            eprintln!("=== Project .gpr exists but .rep missing, re-importing ===");
+        if gpr_file.exists() && !rep_has_content {
+            eprintln!("=== Project .gpr exists but .rep missing or empty, re-importing ===");
         }
 
         eprintln!("=== Setting up test project (import + analyze) ===");
