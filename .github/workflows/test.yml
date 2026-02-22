@@ -107,6 +107,8 @@ jobs:
             cargo run -- setup
           fi
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create test project (skip if cached)
         run: |
@@ -179,6 +181,8 @@ jobs:
             cargo run -- setup
           fi
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run read-only integration tests
         run: cargo test --test readonly_tests --verbose -- --nocapture
@@ -249,6 +253,8 @@ jobs:
             cargo run -- setup
           fi
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run mutation integration tests
         run: cargo test --test comment_tests --test symbol_tests --test patch_tests --test type_tests --test script_tests --verbose -- --nocapture
@@ -319,6 +325,8 @@ jobs:
             cargo run -- setup
           fi
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run infrastructure tests
         run: cargo test --test daemon_tests --test reliability_tests --test project_tests --verbose -- --nocapture

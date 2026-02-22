@@ -69,6 +69,8 @@ jobs:
             cargo run -- setup
           fi
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create test project
         run: |

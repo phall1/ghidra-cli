@@ -66,8 +66,18 @@ pub fn check_java_requirement() -> Result<()> {
 /// Resolve the download URL for a Ghidra release.
 /// If version is None, fetches the latest release.
 pub async fn resolve_version_url(version: Option<String>) -> Result<(String, String, String)> {
+    let mut headers = reqwest::header::HeaderMap::new();
+    // Use GITHUB_TOKEN if available (avoids 60 req/hour unauthenticated rate limit)
+    if let Ok(token) = std::env::var("GITHUB_TOKEN") {
+        headers.insert(
+            reqwest::header::AUTHORIZATION,
+            format!("Bearer {}", token).parse()?,
+        );
+    }
+
     let client = reqwest::Client::builder()
         .user_agent("ghidra-cli")
+        .default_headers(headers)
         .build()?;
 
     let release: GithubRelease = if let Some(ver) = version {
