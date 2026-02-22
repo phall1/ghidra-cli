@@ -42,7 +42,7 @@ jobs:
         run: cargo test --lib --verbose
 
       - name: Run CLI tests
-        run: cargo test --test e2e --test command_tests --test output_format_integration --verbose
+        run: cargo test --test e2e --test output_format_integration --verbose
 
   # Job 2: Ghidra setup - installs Ghidra and creates test projects to seed caches.
   # This runs once per OS, then test jobs use the cached artifacts.
@@ -183,7 +183,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run read-only integration tests
-        run: cargo test --test readonly_tests --verbose -- --nocapture
+        run: cargo test --test readonly_tests --test command_tests --verbose -- --nocapture
         timeout-minutes: 80
         env:
           RUST_LOG: info
