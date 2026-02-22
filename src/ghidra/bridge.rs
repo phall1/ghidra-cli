@@ -405,6 +405,32 @@ pub fn stop_bridge(project_path: &Path) -> Result<()> {
                     .args(["/PID", &pid.to_string(), "/F", "/T"])
                     .output();
             }
+
+            // Wait for the process to actually die after SIGTERM/taskkill.
+            // Without this, the JVM may still hold the project lock when the
+            // next bridge tries to start (causes intermittent CI failures).
+            for _ in 0..100 {
+                if !is_pid_alive(pid) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+
+            // Last resort: SIGKILL if SIGTERM wasn't enough
+            #[cfg(unix)]
+            if is_pid_alive(pid) {
+                warn!("SIGKILL bridge process {} (SIGTERM didn't work)", pid);
+                unsafe {
+                    libc::kill(pid as i32, libc::SIGKILL);
+                }
+                // Brief wait for SIGKILL to take effect
+                for _ in 0..20 {
+                    if !is_pid_alive(pid) {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+            }
         }
     }
 

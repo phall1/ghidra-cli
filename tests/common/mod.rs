@@ -133,6 +133,7 @@ pub fn ensure_test_project(project: &str, program: &str) {
 /// Tests connect to it via TCP using BridgeClient.
 pub struct DaemonTestHarness {
     port: u16,
+    pid: Option<u32>,
     data_dir: PathBuf,
     project: String,
     project_path: PathBuf,
@@ -166,8 +167,14 @@ impl DaemonTestHarness {
         // Read port from port file
         let port = Self::wait_for_port(&project_path, Duration::from_secs(120))?;
 
+        // Store PID now so Drop can wait for it even if restart deletes the PID file
+        let pid = ghidra_cli::ghidra::bridge::read_pid_file(&project_path)
+            .ok()
+            .flatten();
+
         Ok(Self {
             port,
+            pid,
             data_dir,
             project: project.to_string(),
             project_path,
@@ -234,25 +241,35 @@ impl DaemonTestHarness {
 
 impl Drop for DaemonTestHarness {
     fn drop(&mut self) {
-        // Read PID BEFORE shutdown (Java deletes PID file during shutdown)
-        let pid = ghidra_cli::ghidra::bridge::read_pid_file(&self.project_path)
+        // Read current PID from file (may differ from self.pid if restart changed it)
+        let file_pid = ghidra_cli::ghidra::bridge::read_pid_file(&self.project_path)
             .ok()
             .flatten();
 
         // Use stop_bridge for proper graceful shutdown + force-kill
         let _ = ghidra_cli::ghidra::bridge::stop_bridge(&self.project_path);
 
-        // Wait for process to fully exit and release project lock.
-        // Critical on Windows where JVM cleanup is slow.
-        if let Some(pid) = pid {
-            let max_wait = if cfg!(windows) {
-                Duration::from_secs(30)
-            } else {
-                Duration::from_secs(10)
-            };
+        // Collect all PIDs we need to wait for (original + current, deduplicated)
+        let mut pids_to_wait: Vec<u32> = Vec::new();
+        if let Some(pid) = file_pid {
+            pids_to_wait.push(pid);
+        }
+        if let Some(pid) = self.pid {
+            if !pids_to_wait.contains(&pid) {
+                pids_to_wait.push(pid);
+            }
+        }
+
+        // Wait for ALL known processes to fully exit and release project lock.
+        let max_wait = if cfg!(windows) {
+            Duration::from_secs(30)
+        } else {
+            Duration::from_secs(15)
+        };
+        for pid in &pids_to_wait {
             let start = std::time::Instant::now();
             while start.elapsed() < max_wait {
-                if !ghidra_cli::ghidra::bridge::is_pid_alive(pid) {
+                if !ghidra_cli::ghidra::bridge::is_pid_alive(*pid) {
                     break;
                 }
                 std::thread::sleep(Duration::from_millis(500));

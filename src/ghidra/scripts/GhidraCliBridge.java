@@ -1113,6 +1113,9 @@ public class GhidraCliBridge extends GhidraScript {
 
         try {
             JsonArray results = new JsonArray();
+
+            // Phase 1: Search pre-analyzed string data types from the listing.
+            // This is fast and returns strings Ghidra's analyzer has already classified.
             Listing listing = currentProgram.getListing();
             DataIterator dataIter = listing.getDefinedData(true);
 
@@ -1132,12 +1135,57 @@ public class GhidraCliBridge extends GhidraScript {
                 }
             }
 
+            // Phase 2: If listing search found nothing and we have a pattern,
+            // fall back to raw memory scanning. This catches strings that Ghidra's
+            // analyzer didn't classify as string data types (common on PE binaries).
+            if (results.size() == 0 && !pattern.isEmpty()) {
+                Memory memory = currentProgram.getMemory();
+                byte[] searchBytes = pattern.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+                Address addr = memory.getMinAddress();
+                while (addr != null && results.size() < 100) {
+                    Address found = memory.findBytes(addr, searchBytes, null, true, monitor);
+                    if (found == null) break;
+
+                    // Try to extract the full null-terminated string at this address
+                    String extracted = extractStringAt(memory, found, 4096);
+                    if (extracted != null && !extracted.isEmpty()) {
+                        JsonObject item = new JsonObject();
+                        item.addProperty("address", found.toString());
+                        item.addProperty("value", extracted);
+                        item.addProperty("length", extracted.length());
+                        results.add(item);
+                    }
+
+                    addr = found.add(Math.max(1, extracted != null ? extracted.length() : 1));
+                }
+            }
+
             JsonObject result = new JsonObject();
             result.add("results", results);
             result.addProperty("count", results.size());
             return result;
         } catch (Exception e) {
             return errorResult("Failed to find strings: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Extract a printable string starting at the given address.
+     * Reads until a null byte, non-printable character, or maxLen is reached.
+     */
+    private String extractStringAt(Memory memory, Address addr, int maxLen) {
+        try {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < maxLen; i++) {
+                byte b = memory.getByte(addr.add(i));
+                if (b == 0) break;
+                if (b < 0x20 || b > 0x7e) break; // non-printable ASCII
+                sb.append((char) b);
+            }
+            return sb.length() > 0 ? sb.toString() : null;
+        } catch (Exception e) {
+            return null;
         }
     }
 

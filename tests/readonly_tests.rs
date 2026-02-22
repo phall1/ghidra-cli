@@ -1267,7 +1267,9 @@ fn test_batch_invalid_file() {
 
     result.assert_failure();
     assert!(
-        result.stderr.contains("not found") || result.stderr.contains("No such file"),
+        result.stderr.contains("not found")
+            || result.stderr.contains("No such file")
+            || result.stderr.contains("cannot find"),
         "Should contain file-not-found error. Got: {}",
         result.stderr
     );
