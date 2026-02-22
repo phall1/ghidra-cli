@@ -16,18 +16,13 @@ tests/
 ├── project_tests.rs     # Project: create/list/delete/info
 ├── reliability_tests.rs # Bridge restart recovery, stale file cleanup
 ├── command_tests.rs     # Basic commands: version/doctor/config/init
-├── batch_tests.rs       # Batch command execution
 ├── comment_tests.rs     # Comment operations
-├── diff_tests.rs        # Program diff operations
-├── find_tests.rs        # Search operations
-├── graph_tests.rs       # Call graph operations
-├── program_tests.rs     # Program info/import/export
+├── patch_tests.rs       # Binary patching operations
+├── readonly_tests.rs    # Read-only query tests
 ├── script_tests.rs      # Script execution
-├── stats_tests.rs       # Statistics
 ├── symbol_tests.rs      # Symbol operations
 ├── type_tests.rs        # Type operations
 ├── output_format_integration.rs  # Output format detection
-├── unimplemented_tests.rs  # Graceful error tests for stub commands
 └── e2e.rs               # Lightweight smoke test
 ```
 
@@ -88,7 +83,7 @@ cargo test --test e2e --test command_tests --test output_format_integration
 
 ### Ghidra Installation
 
-Tests assume Ghidra is installed. Use `require_ghidra!()` in tests that need a fast, explicit availability check; it fails the test if `ghidra doctor` fails.
+Tests assume Ghidra is installed. Use `require_ghidra!()` in tests that need a fast, explicit availability check; it skips the test (silent pass) if `ghidra doctor` fails. CI environments must have Ghidra installed.
 
 ### Test Fixtures
 
@@ -122,7 +117,7 @@ fn test_my_command() {
 
 ### Bridge-Dependent Tests
 
-Add to the appropriate test file (e.g., `symbol_tests.rs`, `find_tests.rs`):
+Add to the appropriate test file (e.g., `symbol_tests.rs`, `readonly_tests.rs`):
 
 ```rust
 #[test]

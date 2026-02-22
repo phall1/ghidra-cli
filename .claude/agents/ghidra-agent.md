@@ -48,9 +48,6 @@ Use this subagent when you need to:
 # Import and analyze a binary
 ghidra import <binary-path> --project=<project>
 
-# Quick analysis (all-in-one)
-ghidra quick <binary-path>
-
 # Get program summary
 ghidra summary --program=<binary>
 ```
@@ -382,10 +379,9 @@ export GHIDRA_DEFAULT_PROGRAM=malware.elf
 
 ### Common Issues
 
-1. **Ghidra not found**: Run `ghidra init` or set `GHIDRA_INSTALL_DIR`
+1. **Ghidra not found**: Run `ghidra doctor` to check installation, or set `GHIDRA_INSTALL_DIR`
 2. **Program not specified**: Use `--program=<binary>` or set default
-3. **Analysis timeout**: Increase with `set GHIDRA_TIMEOUT=600`
-4. **Large result set**: Use `--count` first, then filter more aggressively
+3. **Large result set**: Use `--count` first, then filter more aggressively
 
 ### Troubleshooting
 
@@ -480,4 +476,3 @@ The subagent is optimized for:
 
 - Run `ghidra doctor` to check installation
 - See `README.md` for full documentation
-- Check `CLAUDE_SKILL.md` for detailed examples

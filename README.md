@@ -53,7 +53,7 @@ Set the Ghidra installation path:
 ```bash
 export GHIDRA_INSTALL_DIR=/path/to/ghidra
 # Or configure via CLI:
-ghidra config set ghidra_path /path/to/ghidra
+ghidra config set ghidra_install_dir /path/to/ghidra
 ```
 
 ## Quick Start
@@ -62,14 +62,11 @@ ghidra config set ghidra_path /path/to/ghidra
 # Check installation
 ghidra doctor
 
-# Import and analyze a binary (daemon auto-starts)
-ghidra quick ./binary
-
-# Or step by step:
+# Import and analyze a binary (bridge auto-starts)
 ghidra import ./binary --project myproject --program mybinary
 ghidra analyze --project myproject --program mybinary
 
-# Query functions (uses running daemon)
+# Query functions (uses running bridge)
 ghidra function list
 
 # Decompile a function
@@ -92,9 +89,8 @@ ghidra graph calls main --depth 3
 ghidra project create <name>           # Create project
 ghidra project list                    # List projects
 ghidra project delete <name>           # Delete project
-ghidra import <binary> --project <p>   # Import binary (auto-starts daemon)
+ghidra import <binary> --project <p>   # Import binary (auto-starts bridge)
 ghidra analyze --project <p>           # Run analysis
-ghidra quick <binary>                  # Import + analyze in one step
 ```
 
 ### Function Analysis
@@ -102,7 +98,7 @@ ghidra quick <binary>                  # Import + analyze in one step
 ghidra function list                   # List all functions
 ghidra function list --filter "size > 100"  # Filter by size
 ghidra decompile <name-or-addr>        # Decompile function
-ghidra disasm <address> --count 20     # Disassemble instructions
+ghidra disasm <address> --instructions 20  # Disassemble instructions
 ```
 
 ### Symbols & Types
@@ -175,20 +171,20 @@ The bridge keeps Ghidra loaded in memory. It starts automatically when needed, b
 
 ```bash
 # Start bridge with a program loaded
-ghidra daemon start --project myproject --program mybinary
+ghidra start --project myproject --program mybinary
 
 # Check bridge status
-ghidra daemon status --project myproject
+ghidra status --project myproject
 
 # All commands use the bridge automatically
 ghidra function list --project myproject    # Fast!
 ghidra decompile main --project myproject   # Fast!
 
 # Stop bridge
-ghidra daemon stop --project myproject
+ghidra stop --project myproject
 
 # Restart with different program
-ghidra daemon restart --project myproject --program otherbinary
+ghidra restart --project myproject --program otherbinary
 ```
 
 ### Multi-Project Support
@@ -197,8 +193,10 @@ Each project gets its own bridge process and port file, allowing concurrent anal
 
 ```bash
 # Work on multiple projects simultaneously
-ghidra quick ./binary_a --project projA
-ghidra quick ./binary_b --project projB
+ghidra import ./binary_a --project projA
+ghidra analyze --project projA --program binary_a
+ghidra import ./binary_b --project projB
+ghidra analyze --project projB --program binary_b
 
 # Query each independently
 ghidra function list --project projA
@@ -207,9 +205,10 @@ ghidra function list --project projB
 
 ## Output Formats
 
-Default output is human-readable in all contexts. Use flags to request machine formats:
+Default output is human-readable when connected to a terminal. When piped (non-TTY), output auto-detects to compact JSON for machine consumption. Use flags to override:
 
-- **Default**: Compact human-readable format (designed for both humans and AI agents)
+- **Default (TTY)**: Compact human-readable format (designed for both humans and AI agents)
+- **Default (pipe)**: Compact JSON for machine parsing
 - **--json**: Compact JSON for machine parsing
 - **--pretty**: Pretty-printed JSON (indented, multi-line)
 
@@ -244,7 +243,7 @@ ghidra strings list --filter "length > 20"
 Ghidra CLI is designed to work seamlessly with AI coding assistants like Claude Code. The structured output and comprehensive command set make it ideal for automated reverse engineering workflows.
 
 Example workflow with an AI agent:
-1. `ghidra quick suspicious.exe` - Import, analyze, start daemon
+1. `ghidra import suspicious.exe --project analysis` + `ghidra analyze --project analysis` - Import, analyze, start bridge
 2. `ghidra find interesting` - AI analyzes suspicious patterns
 3. `ghidra decompile <func>` - AI examines specific functions
 4. `ghidra x-ref to <addr>` - AI traces data flow
