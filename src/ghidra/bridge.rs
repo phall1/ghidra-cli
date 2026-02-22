@@ -111,6 +111,27 @@ pub fn cleanup_stale_files(project_path: &Path) -> Result<()> {
     if pid_path.exists() {
         std::fs::remove_file(&pid_path).ok();
     }
+
+    // Remove Ghidra project lock files left behind after force-kill.
+    // Ghidra creates {project_name}.lock and {project_name}.lock~ as siblings
+    // of the project directory. If the JVM is killed, these aren't cleaned up
+    // and the next analyzeHeadless invocation may refuse to open the project.
+    if let Some(project_name) = project_path.file_name() {
+        if let Some(parent) = project_path.parent() {
+            let lock_name = format!("{}.lock", project_name.to_string_lossy());
+            let lock_path = parent.join(&lock_name);
+            let lock_tilde = parent.join(format!("{}~", lock_name));
+            if lock_path.exists() {
+                debug!("Removing stale Ghidra lock: {:?}", lock_path);
+                std::fs::remove_file(&lock_path).ok();
+            }
+            if lock_tilde.exists() {
+                debug!("Removing stale Ghidra lock: {:?}", lock_tilde);
+                std::fs::remove_file(&lock_tilde).ok();
+            }
+        }
+    }
+
     Ok(())
 }
 
