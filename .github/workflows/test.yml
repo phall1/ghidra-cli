@@ -80,7 +80,7 @@ jobs:
             ~/Library/Preferences/ghidra-cli
             ~/AppData/Local/ghidra-cli
             ~/AppData/Roaming/ghidra-cli
-          key: ghidra-${{ matrix.os }}-v4
+          key: ghidra-${{ matrix.os }}-v5
 
       - name: Cache Ghidra projects
         id: project-cache
@@ -100,7 +100,9 @@ jobs:
 
       - name: Setup Ghidra (skip if cached)
         run: |
-          if cargo run -- doctor 2>&1 | grep -q "analyzeHeadless: OK"; then
+          DOCTOR_OUTPUT=$(cargo run -- doctor 2>&1 || true)
+          echo "$DOCTOR_OUTPUT"
+          if echo "$DOCTOR_OUTPUT" | grep -q "analyzeHeadless: OK"; then
             echo "Ghidra already installed (cache hit), skipping setup"
           else
             echo "Ghidra not found, running setup..."
@@ -153,7 +155,7 @@ jobs:
             ~/Library/Preferences/ghidra-cli
             ~/AppData/Local/ghidra-cli
             ~/AppData/Roaming/ghidra-cli
-          key: ghidra-${{ matrix.os }}-v4
+          key: ghidra-${{ matrix.os }}-v5
 
       - name: Restore Ghidra projects
         uses: actions/cache@v4
@@ -172,7 +174,9 @@ jobs:
 
       - name: Setup Ghidra (fallback if cache missed)
         run: |
-          if cargo run -- doctor 2>&1 | grep -q "analyzeHeadless: OK"; then
+          DOCTOR_OUTPUT=$(cargo run -- doctor 2>&1 || true)
+          echo "$DOCTOR_OUTPUT"
+          if echo "$DOCTOR_OUTPUT" | grep -q "analyzeHeadless: OK"; then
             echo "Ghidra already installed (cache hit)"
           else
             echo "Cache miss, running setup..."
@@ -224,7 +228,7 @@ jobs:
             ~/Library/Preferences/ghidra-cli
             ~/AppData/Local/ghidra-cli
             ~/AppData/Roaming/ghidra-cli
-          key: ghidra-${{ matrix.os }}-v4
+          key: ghidra-${{ matrix.os }}-v5
 
       - name: Restore Ghidra projects
         uses: actions/cache@v4
@@ -243,7 +247,9 @@ jobs:
 
       - name: Setup Ghidra (fallback if cache missed)
         run: |
-          if cargo run -- doctor 2>&1 | grep -q "analyzeHeadless: OK"; then
+          DOCTOR_OUTPUT=$(cargo run -- doctor 2>&1 || true)
+          echo "$DOCTOR_OUTPUT"
+          if echo "$DOCTOR_OUTPUT" | grep -q "analyzeHeadless: OK"; then
             echo "Ghidra already installed (cache hit)"
           else
             echo "Cache miss, running setup..."
@@ -295,7 +301,7 @@ jobs:
             ~/Library/Preferences/ghidra-cli
             ~/AppData/Local/ghidra-cli
             ~/AppData/Roaming/ghidra-cli
-          key: ghidra-${{ matrix.os }}-v4
+          key: ghidra-${{ matrix.os }}-v5
 
       - name: Restore Ghidra projects
         uses: actions/cache@v4
@@ -314,7 +320,9 @@ jobs:
 
       - name: Setup Ghidra (fallback if cache missed)
         run: |
-          if cargo run -- doctor 2>&1 | grep -q "analyzeHeadless: OK"; then
+          DOCTOR_OUTPUT=$(cargo run -- doctor 2>&1 || true)
+          echo "$DOCTOR_OUTPUT"
+          if echo "$DOCTOR_OUTPUT" | grep -q "analyzeHeadless: OK"; then
             echo "Ghidra already installed (cache hit)"
           else
             echo "Cache miss, running setup..."

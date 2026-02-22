@@ -123,6 +123,21 @@ pub fn ensure_test_project(project: &str, program: &str) {
             Err(e) => eprintln!("Analyze error: {}", e),
         }
 
+        // Step 3: Stop the bridge that import/analyze left running.
+        // Without this, the first test reuses the leftover bridge (free pass),
+        // but when it stops the bridge, subsequent tests must start fresh ones.
+        // This inconsistency causes the first test to pass while others fail.
+        eprintln!("Step 3: Stopping leftover bridge...");
+        let stop_status = run_cli_with_timeout(
+            &ghidra_bin,
+            &["stop", "--project", project],
+            Duration::from_secs(60),
+        );
+        match stop_status {
+            Ok(status) => eprintln!("Bridge stop finished with status: {}", status),
+            Err(e) => eprintln!("Bridge stop error (may be expected): {}", e),
+        }
+
         eprintln!("=== Test project setup complete ===");
     });
 }
@@ -289,14 +304,12 @@ fn get_unique_data_dir() -> PathBuf {
     dir
 }
 
-/// Run a CLI command with timeout, using Stdio::null() to avoid pipe inheritance.
+/// Run a CLI command with timeout.
 ///
-/// On Windows, child processes inherit pipe handles from their parent. When the CLI
-/// spawns analyzeHeadless.bat (which spawns java.exe), the grandchild JVM inherits
-/// the pipe handles. Even after the CLI exits, the pipes remain open because the JVM
-/// holds the inherited handles, causing wait_with_output()/output() to block forever.
-///
-/// Using Stdio::null() avoids creating pipes entirely, so there are no handles to inherit.
+/// Stdout uses Stdio::null() to avoid pipe handle inheritance on Windows, where
+/// grandchild JVM processes inherit pipe handles and block wait_with_output() forever.
+/// Stderr uses Stdio::inherit() so errors are visible in CI logs (inheriting the parent
+/// fd doesn't create a pipe, so there's no blocking issue).
 pub fn run_cli_with_timeout(
     bin: &std::path::Path,
     args: &[&str],
@@ -307,7 +320,7 @@ pub fn run_cli_with_timeout(
     let mut child = Command::new(bin)
         .args(args)
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(Stdio::inherit())
         .spawn()
         .context("Failed to spawn CLI command")?;
 
