@@ -8,7 +8,6 @@
 //! - query_tests.rs (function, strings, memory, decompile, dump)
 //! - unimplemented_tests.rs (graceful error messages)
 
-use assert_cmd::Command;
 use predicates::prelude::*;
 
 mod common;
@@ -17,23 +16,20 @@ mod common;
 #[test]
 fn test_smoke() {
     // Version command should always work
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("version")
         .assert()
         .success()
         .stdout(predicate::str::contains("ghidra-cli"));
 
     // Doctor command verifies installation
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("doctor")
         .assert()
         .success();
 
     // Config list should work
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("config")
         .arg("list")
         .assert()

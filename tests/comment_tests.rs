@@ -1,6 +1,5 @@
 //! Tests for comment operations.
 
-use assert_cmd::Command;
 use predicates::prelude::*;
 use serial_test::serial;
 use std::sync::OnceLock;
@@ -32,8 +31,7 @@ fn test_comment_set_and_get() {
     // Dynamically resolve an address with a code unit
     let addr = get_function_address(harness, TEST_PROJECT, TEST_PROGRAM, "main");
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("comment")
         .arg("set")
         .arg(&addr)
@@ -46,8 +44,7 @@ fn test_comment_set_and_get() {
         .success();
 
     // Get the comment back
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("comment")
         .arg("get")
         .arg(&addr)
@@ -70,8 +67,7 @@ fn test_comment_list() {
     let addrs = get_function_addresses(harness, TEST_PROJECT, TEST_PROGRAM, 2);
     let addr = &addrs[0];
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("comment")
         .arg("set")
         .arg(addr)
@@ -83,8 +79,7 @@ fn test_comment_list() {
         .assert()
         .success();
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("comment")
         .arg("list")
         .arg("--project")
@@ -106,8 +101,7 @@ fn test_comment_delete() {
     let addrs = get_function_addresses(harness, TEST_PROJECT, TEST_PROGRAM, 3);
     let addr = &addrs[addrs.len() - 1];
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("comment")
         .arg("set")
         .arg(addr)
@@ -119,8 +113,7 @@ fn test_comment_delete() {
         .assert()
         .success();
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("comment")
         .arg("delete")
         .arg(addr)
@@ -132,8 +125,7 @@ fn test_comment_delete() {
         .success();
 
     // Verify comment is actually gone
-    let get_result = Command::cargo_bin("ghidra")
-        .unwrap()
+    let get_result = assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("comment")
         .arg("get")
         .arg(addr)

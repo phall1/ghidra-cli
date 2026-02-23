@@ -1,6 +1,5 @@
 //! Tests for symbol operations.
 
-use assert_cmd::Command;
 use predicates::prelude::*;
 use serial_test::serial;
 use std::sync::OnceLock;
@@ -29,8 +28,7 @@ fn test_symbol_list() {
     require_ghidra!();
     let _harness = harness();
 
-    let output = Command::cargo_bin("ghidra")
-        .unwrap()
+    let output = assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("symbol")
         .arg("list")
         .arg("--project")
@@ -60,8 +58,7 @@ fn test_symbol_create_and_get() {
 
     let addr = get_function_address(harness, TEST_PROJECT, TEST_PROGRAM, "main");
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("symbol")
         .arg("create")
         .arg(&addr)
@@ -73,8 +70,7 @@ fn test_symbol_create_and_get() {
         .assert()
         .success();
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("symbol")
         .arg("get")
         .arg("test_symbol")
@@ -100,8 +96,7 @@ fn test_symbol_rename() {
     let old_name = format!("old_sym_{}", std::process::id());
     let new_name = format!("new_sym_{}", std::process::id());
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("symbol")
         .arg("create")
         .arg(addr)
@@ -113,8 +108,7 @@ fn test_symbol_rename() {
         .assert()
         .success();
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("symbol")
         .arg("rename")
         .arg(&old_name)
@@ -127,8 +121,7 @@ fn test_symbol_rename() {
         .success();
 
     // Verify new symbol exists
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("symbol")
         .arg("get")
         .arg(&new_name)
@@ -147,8 +140,7 @@ fn test_symbol_get_nonexistent() {
     require_ghidra!();
     let _harness = harness();
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("symbol")
         .arg("get")
         .arg("nonexistent_symbol_12345")

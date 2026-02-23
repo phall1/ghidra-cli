@@ -1,6 +1,5 @@
 //! Tests for project management commands.
 
-use assert_cmd::Command;
 use predicates::prelude::*;
 use serial_test::serial;
 
@@ -19,8 +18,7 @@ fn test_project_create() {
 
     let project = unique_project_name("create");
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("project")
         .arg("create")
         .arg(&project)
@@ -29,8 +27,7 @@ fn test_project_create() {
         .stdout(predicate::str::contains("created").or(predicate::str::contains("Created")));
 
     // Cleanup
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("project")
         .arg("delete")
         .arg(&project)
@@ -42,8 +39,7 @@ fn test_project_create() {
 fn test_project_list() {
     require_ghidra!();
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("project")
         .arg("list")
         .assert()
@@ -56,16 +52,14 @@ fn test_project_info() {
 
     let project = unique_project_name("info");
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("project")
         .arg("create")
         .arg(&project)
         .assert()
         .success();
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("project")
         .arg("info")
         .arg(&project)
@@ -73,8 +67,7 @@ fn test_project_info() {
         .success();
 
     // Cleanup
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("project")
         .arg("delete")
         .arg(&project)
@@ -88,24 +81,21 @@ fn test_project_lifecycle() {
 
     let project = unique_project_name("lifecycle");
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("project")
         .arg("create")
         .arg(&project)
         .assert()
         .success();
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("project")
         .arg("list")
         .assert()
         .success()
         .stdout(predicate::str::contains(&project));
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("project")
         .arg("delete")
         .arg(&project)
@@ -123,9 +113,9 @@ fn test_import_binary() {
 
     // Use run_cli_with_timeout to avoid Windows pipe handle inheritance.
     // `ghidra import` spawns a JVM whose inherited pipe handles block output() forever.
-    let ghidra_bin = assert_cmd::cargo::cargo_bin("ghidra");
+    let ghidra_bin = assert_cmd::cargo::cargo_bin!("ghidra");
     let status = common::run_cli_with_timeout(
-        &ghidra_bin,
+        ghidra_bin,
         &[
             "import",
             binary.to_str().unwrap(),
@@ -139,8 +129,7 @@ fn test_import_binary() {
     .expect("Failed to run import");
     assert!(status.success(), "Import failed with status: {}", status);
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("project")
         .arg("delete")
         .arg(&project)
@@ -156,9 +145,9 @@ fn test_analyze_program() {
     let project = unique_project_name("analyze");
     let binary = common::fixture_binary();
 
-    let ghidra_bin = assert_cmd::cargo::cargo_bin("ghidra");
+    let ghidra_bin = assert_cmd::cargo::cargo_bin!("ghidra");
     let status = common::run_cli_with_timeout(
-        &ghidra_bin,
+        ghidra_bin,
         &[
             "import",
             binary.to_str().unwrap(),
@@ -173,7 +162,7 @@ fn test_analyze_program() {
     assert!(status.success(), "Import failed with status: {}", status);
 
     let status = common::run_cli_with_timeout(
-        &ghidra_bin,
+        ghidra_bin,
         &[
             "analyze",
             "--project",
@@ -186,8 +175,7 @@ fn test_analyze_program() {
     .expect("Failed to run analyze");
     assert!(status.success(), "Analyze failed with status: {}", status);
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("project")
         .arg("delete")
         .arg(&project)
@@ -201,8 +189,7 @@ fn test_project_delete_nonexistent() {
 
     let project = unique_project_name("missing");
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("project")
         .arg("delete")
         .arg(&project)
@@ -220,9 +207,9 @@ fn test_import_existing_program() {
     let binary = common::fixture_binary();
 
     // Use run_cli_with_timeout to avoid Windows pipe handle inheritance.
-    let ghidra_bin = assert_cmd::cargo::cargo_bin("ghidra");
+    let ghidra_bin = assert_cmd::cargo::cargo_bin!("ghidra");
     let status = common::run_cli_with_timeout(
-        &ghidra_bin,
+        ghidra_bin,
         &[
             "import",
             binary.to_str().unwrap(),
@@ -238,7 +225,7 @@ fn test_import_existing_program() {
 
     // Import again - should still succeed (idempotent or with new name)
     let status = common::run_cli_with_timeout(
-        &ghidra_bin,
+        ghidra_bin,
         &[
             "import",
             binary.to_str().unwrap(),
@@ -256,8 +243,7 @@ fn test_import_existing_program() {
         status
     );
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("project")
         .arg("delete")
         .arg(&project)

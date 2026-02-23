@@ -3,6 +3,8 @@
 //! Defines data structures matching the CLI's JSON output format.
 //! These are used for type-safe parsing and validation in tests.
 
+#![allow(dead_code)]
+
 use serde::Deserialize;
 
 /// Function information from `ghidra function list`.

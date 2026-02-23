@@ -1,6 +1,5 @@
 //! Tests for basic CLI commands that don't require daemon.
 
-use assert_cmd::Command;
 use predicates::prelude::*;
 
 #[macro_use]
@@ -10,8 +9,7 @@ mod common;
 fn test_version() {
     require_ghidra!();
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("version")
         .assert()
         .success()
@@ -22,8 +20,7 @@ fn test_version() {
 fn test_doctor() {
     require_ghidra!();
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("doctor")
         .assert()
         .success()
@@ -34,8 +31,7 @@ fn test_doctor() {
 fn test_config_list() {
     require_ghidra!();
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("config")
         .arg("list")
         .assert()
@@ -47,8 +43,7 @@ fn test_config_list() {
 fn test_config_get() {
     require_ghidra!();
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("config")
         .arg("get")
         .arg("ghidra_install_dir")
@@ -63,8 +58,7 @@ fn test_config_set() {
     let temp = tempfile::tempdir().unwrap();
     let config_path = temp.path().join("config.yaml");
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .env("GHIDRA_CLI_CONFIG", &config_path)
         .arg("config")
         .arg("set")
@@ -81,8 +75,7 @@ fn test_config_reset() {
     let temp = tempfile::tempdir().unwrap();
     let config_path = temp.path().join("config.yaml");
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .env("GHIDRA_CLI_CONFIG", &config_path)
         .arg("config")
         .arg("reset")
@@ -97,8 +90,7 @@ fn test_init() {
     let temp = tempfile::tempdir().unwrap();
     let config_path = temp.path().join("config.yaml");
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .env("GHIDRA_CLI_CONFIG", &config_path)
         .arg("init")
         .assert()
@@ -114,8 +106,7 @@ fn test_set_default_program() {
     let temp = tempfile::tempdir().unwrap();
     let config_path = temp.path().join("config.yaml");
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .env("GHIDRA_CLI_CONFIG", &config_path)
         .arg("set-default")
         .arg("program")
@@ -132,8 +123,7 @@ fn test_set_default_project() {
     let temp = tempfile::tempdir().unwrap();
     let config_path = temp.path().join("config.yaml");
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .env("GHIDRA_CLI_CONFIG", &config_path)
         .arg("set-default")
         .arg("project")

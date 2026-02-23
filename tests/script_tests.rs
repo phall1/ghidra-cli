@@ -1,6 +1,5 @@
 //! Tests for script execution operations.
 
-use assert_cmd::Command;
 use serial_test::serial;
 use std::fs;
 use std::path::PathBuf;
@@ -53,8 +52,7 @@ fn test_script_list() {
 
     // script list does not accept --project/--program arguments,
     // so it may fail with "no project specified" unless a default is configured
-    let output = Command::cargo_bin("ghidra")
-        .unwrap()
+    let output = assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("script")
         .arg("list")
         .output()
@@ -78,8 +76,7 @@ fn test_script_run() {
 
     let _harness = harness();
 
-    let output = Command::cargo_bin("ghidra")
-        .unwrap()
+    let output = assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("script")
         .arg("run")
         .arg(script_path.to_str().unwrap())
@@ -111,8 +108,7 @@ fn test_script_python_inline() {
     require_ghidra!();
     let _harness = harness();
 
-    let output = Command::cargo_bin("ghidra")
-        .unwrap()
+    let output = assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("script")
         .arg("python")
         .arg("output = 'Hello from Python'")
@@ -139,8 +135,7 @@ fn test_script_run_nonexistent() {
     require_ghidra!();
     let _harness = harness();
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("script")
         .arg("run")
         .arg("/nonexistent/script.py")

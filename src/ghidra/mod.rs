@@ -72,8 +72,8 @@ mod tests {
 
         // We can't test this properly without a Ghidra installation
         // Just verify the error is what we expect
-        if result.is_err() {
-            assert!(matches!(result.unwrap_err(), GhidraError::GhidraNotFound));
+        if let Err(e) = result {
+            assert!(matches!(e, GhidraError::GhidraNotFound));
         }
     }
 }

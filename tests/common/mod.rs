@@ -5,6 +5,8 @@
 //! - `helpers`: Fluent test helpers and utilities
 //! - `DaemonTestHarness`: Bridge lifecycle management for tests
 
+#![allow(dead_code, unused_imports)]
+
 pub mod helpers;
 pub mod schemas;
 
@@ -99,9 +101,9 @@ pub fn ensure_test_project(project: &str, program: &str) {
         // When ghidra.exe exits, the pipe stays open (JVM holds inherited handles),
         // so output()/wait_with_output() blocks forever. Using null avoids this.
         eprintln!("Step 1: Importing binary {:?} ...", binary);
-        let ghidra_bin = assert_cmd::cargo::cargo_bin("ghidra");
+        let ghidra_bin = assert_cmd::cargo::cargo_bin!("ghidra");
         let import_status = run_cli_with_timeout(
-            &ghidra_bin,
+            ghidra_bin,
             &[
                 "import",
                 binary.to_str().unwrap(),
@@ -127,7 +129,7 @@ pub fn ensure_test_project(project: &str, program: &str) {
         // Step 2: Analyze the binary (creates code units needed for comments)
         eprintln!("Step 2: Running analysis...");
         let analyze_status = run_cli_with_timeout(
-            &ghidra_bin,
+            ghidra_bin,
             &[
                 "analyze",
                 "--project",
@@ -332,8 +334,7 @@ pub fn run_cli_with_timeout(
 #[macro_export]
 macro_rules! require_ghidra {
     () => {
-        let doctor = assert_cmd::Command::cargo_bin("ghidra")
-            .unwrap()
+        let doctor = assert_cmd::cargo::cargo_bin_cmd!("ghidra")
             .arg("doctor")
             .output()
             .expect("Failed to run ghidra doctor");

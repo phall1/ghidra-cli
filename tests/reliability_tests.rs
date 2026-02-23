@@ -48,8 +48,7 @@ fn test_stale_files_cleaned_on_restart() {
         };
 
         // Verify bridge is working
-        assert_cmd::Command::cargo_bin("ghidra")
-            .unwrap()
+        assert_cmd::cargo::cargo_bin_cmd!("ghidra")
             .arg("ping")
             .arg("--project")
             .arg(TEST_PROJECT)
@@ -70,8 +69,7 @@ fn test_stale_files_cleaned_on_restart() {
         };
 
         // Verify bridge is working
-        assert_cmd::Command::cargo_bin("ghidra")
-            .unwrap()
+        assert_cmd::cargo::cargo_bin_cmd!("ghidra")
             .arg("ping")
             .arg("--project")
             .arg(TEST_PROJECT)
@@ -98,8 +96,7 @@ fn test_recovery_after_crash() {
         };
 
         // Verify it's working
-        assert_cmd::Command::cargo_bin("ghidra")
-            .unwrap()
+        assert_cmd::cargo::cargo_bin_cmd!("ghidra")
             .arg("ping")
             .arg("--project")
             .arg(TEST_PROJECT)
@@ -120,8 +117,7 @@ fn test_recovery_after_crash() {
         };
 
         // Verify new bridge is working
-        assert_cmd::Command::cargo_bin("ghidra")
-            .unwrap()
+        assert_cmd::cargo::cargo_bin_cmd!("ghidra")
             .arg("ping")
             .arg("--project")
             .arg(TEST_PROJECT)
@@ -144,8 +140,7 @@ fn test_bridge_not_ready_error() {
     };
 
     // Ping should work
-    assert_cmd::Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("ping")
         .arg("--project")
         .arg(TEST_PROJECT)

@@ -2,7 +2,8 @@
 //!
 //! Provides a fluent API for running CLI commands with proper assertions.
 
-use assert_cmd::Command;
+#![allow(dead_code)]
+
 use serde::de::DeserializeOwned;
 use std::path::PathBuf;
 
@@ -197,7 +198,7 @@ impl GhidraCommand {
 
     /// Run the command and return result.
     pub fn run(self) -> GhidraResult {
-        let mut cmd = Command::cargo_bin("ghidra").expect("Failed to find ghidra binary");
+        let mut cmd = assert_cmd::cargo::cargo_bin_cmd!("ghidra");
 
         for (key, value) in &self.env_vars {
             cmd.env(key, value);

@@ -1,6 +1,5 @@
 //! Tests for type operations.
 
-use assert_cmd::Command;
 use predicates::prelude::*;
 use serial_test::serial;
 use std::sync::OnceLock;
@@ -27,8 +26,7 @@ fn test_type_list() {
     require_ghidra!();
     let _harness = harness();
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("type")
         .arg("list")
         .arg("--project")
@@ -45,8 +43,7 @@ fn test_type_get_primitive() {
     require_ghidra!();
     let _harness = harness();
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("type")
         .arg("get")
         .arg("int")
@@ -65,8 +62,7 @@ fn test_type_create() {
     require_ghidra!();
     let _harness = harness();
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("type")
         .arg("create")
         .arg("MyTestStruct")
@@ -78,8 +74,7 @@ fn test_type_create() {
         .success();
 
     // Verify created type exists
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("type")
         .arg("get")
         .arg("MyTestStruct")
@@ -100,8 +95,7 @@ fn test_type_apply() {
 
     let addr = get_function_address(harness, TEST_PROJECT, TEST_PROGRAM, "main");
 
-    let output = Command::cargo_bin("ghidra")
-        .unwrap()
+    let output = assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("type")
         .arg("apply")
         .arg(&addr)
@@ -130,8 +124,7 @@ fn test_type_get_nonexistent() {
     require_ghidra!();
     let _harness = harness();
 
-    Command::cargo_bin("ghidra")
-        .unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ghidra")
         .arg("type")
         .arg("get")
         .arg("NonexistentType12345")
