@@ -621,8 +621,8 @@ fn execute_via_bridge(
             }))
         }
         Commands::Query(args) => match args.data_type.as_str() {
-            "functions" => client.list_functions(args.limit.or(default_limit), None),
-            "strings" => client.list_strings(args.limit.or(default_limit)),
+            "functions" => client.list_functions(args.limit.or(default_limit), args.filter.clone()),
+            "strings" => client.list_strings(args.limit.or(default_limit), args.filter.clone()),
             "imports" => client.list_imports(),
             "exports" => client.list_exports(),
             "memory" => client.memory_map(),
@@ -633,7 +633,7 @@ fn execute_via_bridge(
             use cli::FunctionCommands;
             match cmd {
                 FunctionCommands::List(opts) => {
-                    client.list_functions(opts.limit.or(default_limit), None)
+                    client.list_functions(opts.limit.or(default_limit), opts.filter.clone())
                 }
                 FunctionCommands::Decompile(args) => client.decompile(args.target.clone()),
                 FunctionCommands::Get(args) => {
@@ -667,7 +667,7 @@ fn execute_via_bridge(
         Commands::Strings(cmd) => {
             use cli::StringsCommands;
             match cmd {
-                StringsCommands::List(opts) => client.list_strings(opts.limit.or(default_limit)),
+                StringsCommands::List(opts) => client.list_strings(opts.limit.or(default_limit), opts.filter.clone()),
                 StringsCommands::Refs(args) => client.xrefs_to(args.string.clone()),
             }
         }
@@ -703,9 +703,9 @@ fn execute_via_bridge(
                 DumpCommands::Imports(_) => client.list_imports(),
                 DumpCommands::Exports(_) => client.list_exports(),
                 DumpCommands::Functions(opts) => {
-                    client.list_functions(opts.limit.or(default_limit), None)
+                    client.list_functions(opts.limit.or(default_limit), opts.filter.clone())
                 }
-                DumpCommands::Strings(opts) => client.list_strings(opts.limit.or(default_limit)),
+                DumpCommands::Strings(opts) => client.list_strings(opts.limit.or(default_limit), opts.filter.clone()),
             }
         }
         Commands::Summary(_) => client.program_info(),
@@ -744,7 +744,7 @@ fn execute_via_bridge(
         Commands::Symbol(cmd) => {
             use cli::SymbolCommands;
             match cmd {
-                SymbolCommands::List(_) => client.symbol_list(None),
+                SymbolCommands::List(opts) => client.symbol_list(opts.limit.or(default_limit), opts.filter.as_deref()),
                 SymbolCommands::Get(args) => client.symbol_get(&args.name),
                 SymbolCommands::Create(args) => client.symbol_create(&args.address, &args.name),
                 SymbolCommands::Delete(args) => client.symbol_delete(&args.name),
@@ -756,7 +756,7 @@ fn execute_via_bridge(
         Commands::Type(cmd) => {
             use cli::TypeCommands;
             match cmd {
-                TypeCommands::List(opts) => client.type_list(opts.limit.or(default_limit)),
+                TypeCommands::List(opts) => client.type_list(opts.limit.or(default_limit), opts.filter.as_deref()),
                 TypeCommands::Get(args) => client.type_get(&args.name),
                 TypeCommands::Create(args) => client.type_create(&args.definition),
                 TypeCommands::Apply(args) => client.type_apply(&args.address, &args.type_name),
@@ -765,7 +765,7 @@ fn execute_via_bridge(
         Commands::Comment(cmd) => {
             use cli::CommentCommands;
             match cmd {
-                CommentCommands::List(_) => client.comment_list(),
+                CommentCommands::List(opts) => client.comment_list(opts.limit.or(default_limit), opts.filter.as_deref()),
                 CommentCommands::Get(args) => client.comment_get(&args.address),
                 CommentCommands::Set(args) => {
                     client.comment_set(&args.address, &args.text, args.comment_type.as_deref())

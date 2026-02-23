@@ -217,7 +217,7 @@ public class GhidraCliBridge extends GhidraScript {
             case "type_create":     return handleTypeCreate(args);
             case "type_apply":      return handleTypeApply(args);
             // Comment commands
-            case "comment_list":    return handleCommentList();
+            case "comment_list":    return handleCommentList(args);
             case "comment_get":     return handleCommentGet(args);
             case "comment_set":     return handleCommentSet(args);
             case "comment_delete":  return handleCommentDelete(args);
@@ -519,6 +519,7 @@ public class GhidraCliBridge extends GhidraScript {
         }
 
         int limit = getArgInt(args, "limit", 0);
+        String nameFilter = getArgString(args, "filter");
 
         JsonArray strings = new JsonArray();
         Listing listing = currentProgram.getListing();
@@ -532,6 +533,11 @@ public class GhidraCliBridge extends GhidraScript {
             if (data.hasStringValue()) {
                 try {
                     String val = data.getValue().toString();
+
+                    if (nameFilter != null && !val.toLowerCase().contains(nameFilter.toLowerCase())) {
+                        continue;
+                    }
+
                     JsonObject strData = new JsonObject();
                     strData.addProperty("address", data.getAddress().toString());
                     strData.addProperty("value", val);
@@ -1435,13 +1441,17 @@ public class GhidraCliBridge extends GhidraScript {
     private JsonObject handleSymbolList(JsonObject args) {
         if (currentProgram == null) return errorResult("No program loaded");
 
+        int limit = getArgInt(args, "limit", 0);
         String nameFilter = getArgString(args, "filter");
 
         SymbolTable symbolTable = currentProgram.getSymbolTable();
         JsonArray symbols = new JsonArray();
+        int count = 0;
 
         SymbolIterator symIter = symbolTable.getAllSymbols(true);
         while (symIter.hasNext()) {
+            if (limit > 0 && count >= limit) break;
+
             Symbol symbol = symIter.next();
             String name = symbol.getName();
 
@@ -1456,6 +1466,7 @@ public class GhidraCliBridge extends GhidraScript {
             symData.addProperty("source", symbol.getSource().toString());
             symData.addProperty("is_primary", symbol.isPrimary());
             symbols.add(symData);
+            count++;
         }
 
         JsonObject result = new JsonObject();
@@ -1645,6 +1656,7 @@ public class GhidraCliBridge extends GhidraScript {
         if (currentProgram == null) return errorResult("No program loaded");
 
         int limit = getArgInt(args, "limit", 0);
+        String nameFilter = getArgString(args, "filter");
         DataTypeManager dtm = currentProgram.getDataTypeManager();
         JsonArray types = new JsonArray();
 
@@ -1653,6 +1665,11 @@ public class GhidraCliBridge extends GhidraScript {
         while (dtIter.hasNext()) {
             DataType dt = dtIter.next();
             if (limit > 0 && count >= limit) break;
+
+            if (nameFilter != null && !dt.getName().toLowerCase().contains(nameFilter.toLowerCase())) {
+                continue;
+            }
+
             JsonObject typeData = new JsonObject();
             typeData.addProperty("name", dt.getName());
             typeData.addProperty("path", dt.getPathName());
@@ -1818,12 +1835,16 @@ public class GhidraCliBridge extends GhidraScript {
         }
     }
 
-    private JsonObject handleCommentList() {
+    private JsonObject handleCommentList(JsonObject args) {
         if (currentProgram == null) return errorResult("No program loaded");
+
+        int limit = getArgInt(args, "limit", 0);
+        String nameFilter = getArgString(args, "filter");
 
         Listing listing = currentProgram.getListing();
         Memory memory = currentProgram.getMemory();
         JsonArray comments = new JsonArray();
+        int count = 0;
 
         int[][] commentTypes = {
             {CodeUnit.EOL_COMMENT},
@@ -1834,6 +1855,8 @@ public class GhidraCliBridge extends GhidraScript {
         String[] commentNames = {"EOL", "PRE", "POST", "PLATE"};
 
         for (MemoryBlock block : memory.getBlocks()) {
+            if (limit > 0 && count >= limit) break;
+
             ghidra.program.model.address.AddressSet addrSet =
                 new ghidra.program.model.address.AddressSet(block.getStart(), block.getEnd());
 
@@ -1841,18 +1864,27 @@ public class GhidraCliBridge extends GhidraScript {
                 listing.getCommentAddressIterator(addrSet, true);
 
             while (addrIter.hasNext()) {
+                if (limit > 0 && count >= limit) break;
+
                 Address addr = addrIter.next();
                 CodeUnit cu = listing.getCodeUnitAt(addr);
                 if (cu == null) continue;
 
                 for (int i = 0; i < commentNames.length; i++) {
+                    if (limit > 0 && count >= limit) break;
+
                     String text = cu.getComment(commentTypes[i][0]);
                     if (text != null) {
+                        if (nameFilter != null && !text.toLowerCase().contains(nameFilter.toLowerCase())) {
+                            continue;
+                        }
+
                         JsonObject commentObj = new JsonObject();
                         commentObj.addProperty("address", addr.toString());
                         commentObj.addProperty("type", commentNames[i]);
                         commentObj.addProperty("text", text);
                         comments.add(commentObj);
+                        count++;
                     }
                 }
             }
