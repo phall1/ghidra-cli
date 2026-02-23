@@ -42,6 +42,17 @@ fn harness() -> &'static DaemonTestHarness {
     })
 }
 
+fn to_fun_style_target(address: &str) -> String {
+    let base = address
+        .rsplit(':')
+        .next()
+        .unwrap_or(address)
+        .trim_start_matches("0x")
+        .trim_start_matches("0X");
+    let hex: String = base.chars().filter(|c| c.is_ascii_hexdigit()).collect();
+    format!("FUN_{}", hex)
+}
+
 // ============================================================================
 // Function List Tests
 // ============================================================================
@@ -325,6 +336,28 @@ fn test_decompile_by_address() {
     assert!(
         !result.stdout.trim().is_empty(),
         "Decompile should produce output"
+    );
+}
+
+#[test]
+#[serial]
+fn test_decompile_by_fun_style_target() {
+    require_ghidra!();
+    let harness = harness();
+
+    let main_addr = get_function_address(harness, TEST_PROJECT, TEST_PROGRAM, "main");
+    let fun_target = to_fun_style_target(&main_addr);
+
+    let result = ghidra(harness)
+        .arg("decompile")
+        .arg(&fun_target)
+        .with_project(TEST_PROJECT, TEST_PROGRAM)
+        .run();
+
+    result.assert_success();
+    assert!(
+        !result.stdout.trim().is_empty(),
+        "Decompile should produce output for FUN-style target"
     );
 }
 
@@ -1071,6 +1104,26 @@ fn test_diff_functions_different() {
 
     result.assert_success();
     // Self-diff should succeed (output may be empty for identical functions)
+}
+
+#[test]
+#[serial]
+fn test_diff_functions_with_fun_style_targets() {
+    require_ghidra!();
+    let harness = harness();
+
+    let main_addr = get_function_address(harness, TEST_PROJECT, TEST_PROGRAM, "main");
+    let fun_target = to_fun_style_target(&main_addr);
+
+    let result = ghidra(harness)
+        .arg("diff")
+        .arg("functions")
+        .arg(&fun_target)
+        .arg(&fun_target)
+        .with_project(TEST_PROJECT, TEST_PROGRAM)
+        .run();
+
+    result.assert_success();
 }
 
 // ============================================================================

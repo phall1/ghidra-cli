@@ -34,6 +34,8 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -54,6 +56,8 @@ public class GhidraCliBridge extends GhidraScript {
 
     private Gson gson = new GsonBuilder().serializeNulls().create();
     private long startTime;
+    private static final Pattern NAMED_HEX_ADDRESS_PATTERN =
+        Pattern.compile("(?i)^(?:FUN|SUB|LAB|DAT)_([0-9a-f]+)$");
 
     @Override
     public void run() throws Exception {
@@ -280,13 +284,29 @@ public class GhidraCliBridge extends GhidraScript {
             return null;
         }
 
+        String target = addrStr.trim();
+        AddressFactory af = currentProgram.getAddressFactory();
+
         // Try as hex address first (with and without 0x prefix)
-        Address addr = currentProgram.getAddressFactory().getAddress(addrStr);
+        Address addr = af.getAddress(target);
         if (addr != null) {
             return addr;
         }
-        if (addrStr.startsWith("0x") || addrStr.startsWith("0X")) {
-            addr = currentProgram.getAddressFactory().getAddress(addrStr.substring(2));
+        if (target.startsWith("0x") || target.startsWith("0X")) {
+            addr = af.getAddress(target.substring(2));
+            if (addr != null) {
+                return addr;
+            }
+        }
+
+        // Parse common Ghidra auto names like FUN_00401234 as raw addresses.
+        Matcher namedHex = NAMED_HEX_ADDRESS_PATTERN.matcher(target);
+        if (namedHex.matches()) {
+            String hexPart = namedHex.group(1);
+            addr = af.getAddress(hexPart);
+            if (addr == null) {
+                addr = af.getAddress("0x" + hexPart);
+            }
             if (addr != null) {
                 return addr;
             }
@@ -294,7 +314,7 @@ public class GhidraCliBridge extends GhidraScript {
 
         // Try as symbol/function name via SymbolTable
         SymbolTable st = currentProgram.getSymbolTable();
-        SymbolIterator syms = st.getSymbols(addrStr);
+        SymbolIterator syms = st.getSymbols(target);
         while (syms.hasNext()) {
             Symbol sym = syms.next();
             Address symAddr = sym.getAddress();
@@ -305,7 +325,7 @@ public class GhidraCliBridge extends GhidraScript {
         }
 
         // Try global symbols (may include exports)
-        List<Symbol> globalSyms = st.getGlobalSymbols(addrStr);
+        List<Symbol> globalSyms = st.getGlobalSymbols(target);
         for (Symbol sym : globalSyms) {
             Address symAddr = sym.getAddress();
             if (symAddr != null && !symAddr.isExternalAddress()) {
@@ -318,7 +338,7 @@ public class GhidraCliBridge extends GhidraScript {
         FunctionIterator iter = fm.getFunctions(true);
         while (iter.hasNext()) {
             Function func = iter.next();
-            if (func.getName().equals(addrStr)) {
+            if (func.getName().equals(target)) {
                 return func.getEntryPoint();
             }
         }
@@ -1280,26 +1300,17 @@ public class GhidraCliBridge extends GhidraScript {
     private JsonObject handleFindCalls(JsonObject args) {
         if (currentProgram == null) return errorResult("No program loaded");
 
-        String funcName = getArgString(args, "function");
-        if (funcName == null || funcName.isEmpty()) {
-            return errorResult("No function name provided");
+        String functionTarget = getArgString(args, "function");
+        if (functionTarget == null || functionTarget.isEmpty()) {
+            return errorResult("No function target provided");
         }
 
         try {
             FunctionManager fm = currentProgram.getFunctionManager();
-            Function targetFunc = null;
-
-            FunctionIterator iter = fm.getFunctions(true);
-            while (iter.hasNext()) {
-                Function func = iter.next();
-                if (func.getName().equals(funcName)) {
-                    targetFunc = func;
-                    break;
-                }
-            }
+            Function targetFunc = findFunctionByNameOrAddress(functionTarget);
 
             if (targetFunc == null) {
-                return errorResult("Function not found: " + funcName);
+                return errorResult("Function not found: " + functionTarget);
             }
 
             ReferenceManager refMgr = currentProgram.getReferenceManager();
@@ -1321,7 +1332,7 @@ public class GhidraCliBridge extends GhidraScript {
             JsonObject result = new JsonObject();
             result.add("results", results);
             result.addProperty("count", results.size());
-            result.addProperty("target", funcName);
+            result.addProperty("target", functionTarget);
             return result;
         } catch (Exception e) {
             return errorResult("Failed to find calls: " + e.getMessage());
@@ -2057,16 +2068,18 @@ public class GhidraCliBridge extends GhidraScript {
     }
 
     private Function findFunctionByNameOrAddress(String nameOrAddr) {
+        if (currentProgram == null || nameOrAddr == null || nameOrAddr.isEmpty()) {
+            return null;
+        }
+
         FunctionManager fm = currentProgram.getFunctionManager();
 
-        // Try as address
-        boolean looksLikeAddr = nameOrAddr.startsWith("0x") ||
-            nameOrAddr.chars().allMatch(c -> "0123456789abcdefABCDEF".indexOf(c) >= 0);
-        if (looksLikeAddr) {
-            Address addr = currentProgram.getAddressFactory().getAddress(nameOrAddr);
-            if (addr != null) {
-                Function f = fm.getFunctionAt(addr);
-                if (f != null) return f;
+        // Resolve addresses, symbols, and auto names like FUN_00401234.
+        Address addr = resolveAddress(nameOrAddr);
+        if (addr != null) {
+            Function f = fm.getFunctionContaining(addr);
+            if (f != null) {
+                return f;
             }
         }
 
@@ -2277,25 +2290,18 @@ public class GhidraCliBridge extends GhidraScript {
     private JsonObject handleDiffFunctions(JsonObject args) {
         if (currentProgram == null) return errorResult("No program loaded");
 
-        String func1Name = getArgString(args, "func1");
-        String func2Name = getArgString(args, "func2");
-        if (func1Name == null || func2Name == null) {
+        String func1Target = getArgString(args, "func1");
+        String func2Target = getArgString(args, "func2");
+        if (func1Target == null || func2Target == null) {
             return errorResult("func1 and func2 required");
         }
 
         try {
-            FunctionManager fm = currentProgram.getFunctionManager();
-            Function func1 = null, func2 = null;
+            Function func1 = findFunctionByNameOrAddress(func1Target);
+            Function func2 = findFunctionByNameOrAddress(func2Target);
 
-            FunctionIterator iter = fm.getFunctions(true);
-            while (iter.hasNext()) {
-                Function f = iter.next();
-                if (f.getName().equals(func1Name)) func1 = f;
-                if (f.getName().equals(func2Name)) func2 = f;
-            }
-
-            if (func1 == null) return errorResult("Function not found: " + func1Name);
-            if (func2 == null) return errorResult("Function not found: " + func2Name);
+            if (func1 == null) return errorResult("Function not found: " + func1Target);
+            if (func2 == null) return errorResult("Function not found: " + func2Target);
 
             DecompInterface decompiler = new DecompInterface();
             try {
@@ -2305,8 +2311,8 @@ public class GhidraCliBridge extends GhidraScript {
                 DecompileResults res1 = decompiler.decompileFunction(func1, 30, mon);
                 DecompileResults res2 = decompiler.decompileFunction(func2, 30, mon);
 
-                if (!res1.decompileCompleted()) return errorResult("Failed to decompile " + func1Name);
-                if (!res2.decompileCompleted()) return errorResult("Failed to decompile " + func2Name);
+                if (!res1.decompileCompleted()) return errorResult("Failed to decompile " + func1Target);
+                if (!res2.decompileCompleted()) return errorResult("Failed to decompile " + func2Target);
 
                 String code1 = res1.getDecompiledFunction().getC();
                 String code2 = res2.getDecompiledFunction().getC();
@@ -2330,12 +2336,12 @@ public class GhidraCliBridge extends GhidraScript {
                 }
 
                 JsonObject f1Info = new JsonObject();
-                f1Info.addProperty("name", func1Name);
+                f1Info.addProperty("name", func1.getName());
                 f1Info.addProperty("lines", lines1.length);
                 f1Info.addProperty("code", code1);
 
                 JsonObject f2Info = new JsonObject();
-                f2Info.addProperty("name", func2Name);
+                f2Info.addProperty("name", func2.getName());
                 f2Info.addProperty("lines", lines2.length);
                 f2Info.addProperty("code", code2);
 
