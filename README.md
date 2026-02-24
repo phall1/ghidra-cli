@@ -79,7 +79,7 @@ ghidra find string "password"
 ghidra x-ref to 0x401000
 
 # Generate call graph
-ghidra graph calls main --depth 3
+ghidra graph callers main --depth 3
 ```
 
 ## Commands
@@ -104,7 +104,7 @@ ghidra disasm <address> --instructions 20  # Disassemble instructions
 ### Symbols & Types
 ```bash
 ghidra symbol list                     # List symbols
-ghidra symbol create <name> <addr>     # Create symbol
+ghidra symbol create <addr> <name>     # Create symbol
 ghidra symbol rename <old> <new>       # Rename symbol
 ghidra type list                       # List data types
 ghidra type get <name>                 # Get type details
@@ -127,9 +127,9 @@ ghidra find interesting                # Find interesting patterns
 
 ### Call Graphs
 ```bash
-ghidra graph calls <func>              # Full call graph
-ghidra graph callers <func>            # Who calls this?
-ghidra graph callees <func>            # What does this call?
+ghidra graph calls                     # Full call graph
+ghidra graph callers <func>            # Who calls this? (--depth optional)
+ghidra graph callees <func>            # What does this call? (--depth optional)
 ghidra graph export dot                # Export to DOT format
 ```
 
@@ -137,15 +137,19 @@ ghidra graph export dot                # Export to DOT format
 ```bash
 ghidra patch bytes <addr> "90 90"      # Patch bytes
 ghidra patch nop <addr> --count 5      # NOP out instructions
-ghidra patch export                    # Export as patch file
+ghidra patch export -o patched.bin     # Export patched binary
 ```
+
+Note: `patch nop --count` is currently parsed by the CLI, but runtime uses single-address NOP behavior.
 
 ### Comments
 ```bash
 ghidra comment get <address>           # Get comment
-ghidra comment set <addr> "note"       # Set comment
+ghidra comment set <addr> "note" --comment-type EOL  # Set comment
 ghidra comment list                    # List all comments
 ```
+
+Note: `--comment-type` currently falls back to `EOL` due client/bridge argument key mismatch.
 
 ### Scripts
 ```bash
@@ -248,7 +252,7 @@ Example workflow with an AI agent:
 3. `ghidra decompile <func>` - AI examines specific functions
 4. `ghidra x-ref to <addr>` - AI traces data flow
 5. `ghidra patch nop <addr>` - AI patches anti-debug code
-6. `ghidra patch export` - Export patched binary
+6. `ghidra patch export -o patched.bin` - Export patched binary
 
 ## Troubleshooting
 

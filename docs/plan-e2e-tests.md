@@ -1,5 +1,8 @@
 # E2E Test Coverage Plan
 
+> Historical planning document: this plan captures prior design decisions and may not match current test architecture exactly.
+> For current test behavior and commands, see `tests/README.md`.
+
 ## Overview
 
 This plan addresses the critical E2E test coverage gap in ghidra-cli. Currently only 4 of 60+ CLI commands have active tests. The plan implements a modular test structure with daemon lifecycle management, enabling comprehensive testing of all CLI functionality including the 51+ untested commands.

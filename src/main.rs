@@ -628,20 +628,25 @@ fn execute_via_bridge(
             "memory" => client.memory_map(),
             other => anyhow::bail!("Query type '{}' not supported", other),
         },
-        Commands::Decompile(args) => client.decompile(args.target.clone()),
+        Commands::Decompile(args) => client.decompile(args.resolved_target().to_string()),
         Commands::Function(cmd) => {
             use cli::FunctionCommands;
             match cmd {
                 FunctionCommands::List(opts) => {
                     client.list_functions(opts.limit.or(default_limit), opts.filter.clone())
                 }
-                FunctionCommands::Decompile(args) => client.decompile(args.target.clone()),
-                FunctionCommands::Get(args) => {
-                    client.send_command("get_function", Some(json!({"address": args.target})))
+                FunctionCommands::Decompile(args) => {
+                    client.decompile(args.resolved_target().to_string())
                 }
-                FunctionCommands::Disasm(args) => client.disasm(&args.target, None),
-                FunctionCommands::Calls(args) => client.find_calls(&args.target),
-                FunctionCommands::XRefs(args) => client.xrefs_to(args.target.clone()),
+                FunctionCommands::Get(args) => {
+                    client.send_command(
+                        "get_function",
+                        Some(json!({"address": args.resolved_target()})),
+                    )
+                }
+                FunctionCommands::Disasm(args) => client.disasm(args.resolved_target(), None),
+                FunctionCommands::Calls(args) => client.find_calls(args.resolved_target()),
+                FunctionCommands::XRefs(args) => client.xrefs_to(args.resolved_target().to_string()),
                 FunctionCommands::Rename(args) => client.send_command(
                     "rename_function",
                     Some(json!({
@@ -659,7 +664,7 @@ fn execute_via_bridge(
                 FunctionCommands::Delete(args) => client.send_command(
                     "delete_function",
                     Some(json!({
-                        "address": args.target,
+                        "address": args.resolved_target(),
                     })),
                 ),
             }
@@ -712,8 +717,8 @@ fn execute_via_bridge(
         Commands::XRef(cmd) => {
             use cli::XRefCommands;
             match cmd {
-                XRefCommands::To(args) => client.xrefs_to(args.address.clone()),
-                XRefCommands::From(args) => client.xrefs_from(args.address.clone()),
+                XRefCommands::To(args) => client.xrefs_to(args.resolved_target().to_string()),
+                XRefCommands::From(args) => client.xrefs_from(args.resolved_target().to_string()),
                 XRefCommands::List(_) => client.send_command("xrefs_list", None),
             }
         }
@@ -777,8 +782,12 @@ fn execute_via_bridge(
             use cli::GraphCommands;
             match cmd {
                 GraphCommands::Calls(opts) => client.graph_calls(opts.limit.or(default_limit)),
-                GraphCommands::Callers(args) => client.graph_callers(&args.function, args.depth),
-                GraphCommands::Callees(args) => client.graph_callees(&args.function, args.depth),
+                GraphCommands::Callers(args) => {
+                    client.graph_callers(args.resolved_target(), args.depth)
+                }
+                GraphCommands::Callees(args) => {
+                    client.graph_callees(args.resolved_target(), args.depth)
+                }
                 GraphCommands::Export(args) => client.graph_export(&args.format),
             }
         }
@@ -788,7 +797,7 @@ fn execute_via_bridge(
                 FindCommands::String(args) => client.find_string(&args.pattern),
                 FindCommands::Bytes(args) => client.find_bytes(&args.hex),
                 FindCommands::Function(args) => client.find_function(&args.pattern),
-                FindCommands::Calls(args) => client.find_calls(&args.function),
+                FindCommands::Calls(args) => client.find_calls(args.resolved_target()),
                 FindCommands::Crypto(_) => client.find_crypto(),
                 FindCommands::Interesting(_) => client.find_interesting(),
             }
@@ -819,7 +828,7 @@ fn execute_via_bridge(
                 ScriptCommands::List => client.script_list(),
             }
         }
-        Commands::Disasm(args) => client.disasm(&args.address, args.num_instructions),
+        Commands::Disasm(args) => client.disasm(args.resolved_target(), args.num_instructions),
         Commands::Batch(args) => {
             // Read batch file and execute each command locally
             let content = std::fs::read_to_string(&args.script_file)

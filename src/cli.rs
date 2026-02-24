@@ -312,10 +312,23 @@ pub enum FunctionCommands {
 
 #[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct FunctionGetArgs {
-    /// Function address or name
-    pub target: String,
+    /// Function target (name/address/FUN_...)
+    #[arg(value_name = "TARGET", required_unless_present = "target")]
+    pub positional_target: Option<String>,
+    /// Function target (name | 0xaddr | FUN_<hex>)
+    #[arg(long = "target", value_name = "TARGET")]
+    pub target: Option<String>,
     #[command(flatten)]
     pub options: QueryOptions,
+}
+
+impl FunctionGetArgs {
+    pub fn resolved_target(&self) -> &str {
+        self.target
+            .as_deref()
+            .or(self.positional_target.as_deref())
+            .expect("clap should ensure target is provided")
+    }
 }
 
 #[derive(Args, Clone, Serialize, Deserialize, Debug)]
@@ -436,9 +449,23 @@ pub enum XRefCommands {
 
 #[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct XRefArgs {
-    pub address: String,
+    /// XRef target (name | 0xaddr | FUN_<hex>)
+    #[arg(value_name = "TARGET", required_unless_present = "target")]
+    pub positional_target: Option<String>,
+    /// XRef target (name | 0xaddr | FUN_<hex>)
+    #[arg(long = "target", value_name = "TARGET")]
+    pub target: Option<String>,
     #[command(flatten)]
     pub options: QueryOptions,
+}
+
+impl XRefArgs {
+    pub fn resolved_target(&self) -> &str {
+        self.target
+            .as_deref()
+            .or(self.positional_target.as_deref())
+            .expect("clap should ensure target is provided")
+    }
 }
 
 #[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
@@ -555,9 +582,23 @@ pub struct FindFunctionArgs {
 
 #[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct FindCallsArgs {
-    pub function: String,
+    /// Function target (name | 0xaddr | FUN_<hex>)
+    #[arg(value_name = "TARGET", required_unless_present = "target")]
+    pub positional_target: Option<String>,
+    /// Function target (name | 0xaddr | FUN_<hex>)
+    #[arg(long = "target", value_name = "TARGET")]
+    pub target: Option<String>,
     #[command(flatten)]
     pub options: QueryOptions,
+}
+
+impl FindCallsArgs {
+    pub fn resolved_target(&self) -> &str {
+        self.target
+            .as_deref()
+            .or(self.positional_target.as_deref())
+            .expect("clap should ensure target is provided")
+    }
 }
 
 #[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
@@ -576,11 +617,25 @@ pub enum GraphCommands {
 
 #[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct GraphFunctionArgs {
-    pub function: String,
+    /// Function target (name | 0xaddr | FUN_<hex>)
+    #[arg(value_name = "TARGET", required_unless_present = "target")]
+    pub positional_target: Option<String>,
+    /// Function target (name | 0xaddr | FUN_<hex>)
+    #[arg(long = "target", value_name = "TARGET")]
+    pub target: Option<String>,
     #[arg(long)]
     pub depth: Option<usize>,
     #[command(flatten)]
     pub options: QueryOptions,
+}
+
+impl GraphFunctionArgs {
+    pub fn resolved_target(&self) -> &str {
+        self.target
+            .as_deref()
+            .or(self.positional_target.as_deref())
+            .expect("clap should ensure target is provided")
+    }
 }
 
 #[derive(Args, Clone, Serialize, Deserialize, Debug)]
@@ -594,19 +649,47 @@ pub struct GraphExportArgs {
 
 #[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct DecompileArgs {
-    pub target: String,
+    /// Function target (name | 0xaddr | FUN_<hex>)
+    #[arg(value_name = "TARGET", required_unless_present = "target")]
+    pub positional_target: Option<String>,
+    /// Function target (name | 0xaddr | FUN_<hex>)
+    #[arg(long = "target", value_name = "TARGET")]
+    pub target: Option<String>,
     #[command(flatten)]
     pub options: QueryOptions,
 }
 
+impl DecompileArgs {
+    pub fn resolved_target(&self) -> &str {
+        self.target
+            .as_deref()
+            .or(self.positional_target.as_deref())
+            .expect("clap should ensure target is provided")
+    }
+}
+
 #[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct DisasmArgs {
-    pub address: String,
+    /// Disassembly target (name | 0xaddr | FUN_<hex>)
+    #[arg(value_name = "TARGET", required_unless_present = "target")]
+    pub positional_target: Option<String>,
+    /// Disassembly target (name | 0xaddr | FUN_<hex>)
+    #[arg(long = "target", value_name = "TARGET")]
+    pub target: Option<String>,
     /// Number of instructions to disassemble
     #[arg(long = "instructions", short = 'n')]
     pub num_instructions: Option<usize>,
     #[command(flatten)]
     pub options: QueryOptions,
+}
+
+impl DisasmArgs {
+    pub fn resolved_target(&self) -> &str {
+        self.target
+            .as_deref()
+            .or(self.positional_target.as_deref())
+            .expect("clap should ensure target is provided")
+    }
 }
 
 #[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
@@ -837,4 +920,31 @@ pub struct SetupArgs {
     /// Skip Java check
     #[arg(long)]
     pub force: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_decompile_target_flag() {
+        let cli = Cli::try_parse_from(["ghidra", "decompile", "--target", "FUN_00401000"])
+            .expect("decompile --target should parse");
+        match cli.command {
+            Commands::Decompile(args) => assert_eq!(args.resolved_target(), "FUN_00401000"),
+            _ => panic!("expected decompile command"),
+        }
+    }
+
+    #[test]
+    fn parses_function_get_positional_target() {
+        let cli = Cli::try_parse_from(["ghidra", "function", "get", "main"])
+            .expect("function get positional target should parse");
+        match cli.command {
+            Commands::Function(FunctionCommands::Get(args)) => {
+                assert_eq!(args.resolved_target(), "main");
+            }
+            _ => panic!("expected function get command"),
+        }
+    }
 }

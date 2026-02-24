@@ -1,5 +1,8 @@
 # Plan: Complete All Stub Commands
 
+> Historical planning document: parts of this plan assume an older daemon-centric architecture and may not match the current implementation.
+> For current behavior, use `README.md`, `AGENTS.md`, and the CLI help output.
+
 ## Overview
 
 ghidra-cli has 39 stub commands that output "not yet implemented". This plan implements all stub commands using a hybrid approach: grouped by category with shared helpers per group. Each category becomes a deployable unit with its own Ghidra bridge Python scripts, daemon routing, and E2E tests.

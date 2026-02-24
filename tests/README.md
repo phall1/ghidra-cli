@@ -76,7 +76,7 @@ cargo test --test command_tests test_version
 
 Run tests that don't need Ghidra:
 ```bash
-cargo test --test e2e --test command_tests --test output_format_integration
+cargo test --test e2e --test output_format_integration
 ```
 
 ## Test Requirements

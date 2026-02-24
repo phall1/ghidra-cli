@@ -1,5 +1,8 @@
 # Ghidra-CLI Open Source Release Plan (Daemon-Only Architecture)
 
+> Historical planning document: this does not reflect the current implementation.
+> Current architecture is direct CLI-to-Java bridge (`GhidraCliBridge.java`) as documented in `README.md` and `AGENTS.md`.
+
 ## Overview
 
 Prepare ghidra-cli for open source release with a **daemon-only architecture**. Binary analysis is slow enough that a persistent Ghidra process (via daemon) is always preferable to spawning new processes per command.

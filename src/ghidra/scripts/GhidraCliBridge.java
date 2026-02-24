@@ -30,6 +30,7 @@ import ghidra.util.task.TaskMonitor;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -188,6 +189,10 @@ public class GhidraCliBridge extends GhidraScript {
             case "ping":            return handlePing();
             case "program_info":    return handleProgramInfo();
             case "list_functions":  return handleListFunctions(args);
+            case "get_function":    return handleGetFunction(args);
+            case "rename_function": return handleRenameFunction(args);
+            case "create_function": return handleCreateFunction(args);
+            case "delete_function": return handleDeleteFunction(args);
             case "decompile":       return handleDecompile(args);
             case "list_strings":    return handleListStrings(args);
             case "list_imports":    return handleListImports();
@@ -479,6 +484,242 @@ public class GhidraCliBridge extends GhidraScript {
         return result;
     }
 
+    private JsonObject functionToJson(Function func) {
+        JsonObject funcData = new JsonObject();
+        funcData.addProperty("name", func.getName());
+        funcData.addProperty("address", func.getEntryPoint().toString());
+        funcData.addProperty("size", func.getBody().getNumAddresses());
+        funcData.addProperty("entry_point", func.getEntryPoint().toString());
+
+        String sig = null;
+        try {
+            sig = func.getPrototypeString(false, false);
+        } catch (Exception e) {
+            // ignore
+        }
+        if (sig != null) {
+            funcData.addProperty("signature", sig);
+        } else {
+            funcData.add("signature", JsonNull.INSTANCE);
+        }
+
+        funcData.addProperty("calling_convention", func.getCallingConventionName());
+
+        String comment = func.getComment();
+        if (comment != null) {
+            funcData.addProperty("comment", comment);
+        } else {
+            funcData.add("comment", JsonNull.INSTANCE);
+        }
+
+        return funcData;
+    }
+
+    private String buildFunctionTargetHint(String target) {
+        if (currentProgram == null || target == null || target.isEmpty()) {
+            return "Function not found";
+        }
+
+        String query = target.toLowerCase();
+        List<String> containsMatches = new ArrayList<>();
+        List<String> fuzzyMatches = new ArrayList<>();
+        FunctionIterator iter = currentProgram.getFunctionManager().getFunctions(true);
+
+        while (iter.hasNext()) {
+            Function func = iter.next();
+            String name = func.getName();
+            String lname = name.toLowerCase();
+
+            if (lname.contains(query)) {
+                containsMatches.add(name);
+            } else if (query.length() >= 3 && levenshteinDistance(lname, query) <= 3) {
+                fuzzyMatches.add(name);
+            }
+        }
+
+        Collections.sort(containsMatches);
+        Collections.sort(fuzzyMatches);
+
+        List<String> suggestions = new ArrayList<>();
+        for (String name : containsMatches) {
+            suggestions.add(name);
+            if (suggestions.size() >= 5) break;
+        }
+        if (suggestions.size() < 5) {
+            for (String name : fuzzyMatches) {
+                if (!suggestions.contains(name)) suggestions.add(name);
+                if (suggestions.size() >= 5) break;
+            }
+        }
+
+        StringBuilder hint = new StringBuilder();
+        hint.append("Cannot resolve function target: ").append(target)
+            .append(". Try: ghidra function list --filter ").append(target);
+        if (!suggestions.isEmpty()) {
+            hint.append(". Closest matches: ").append(String.join(", ", suggestions));
+        }
+        return hint.toString();
+    }
+
+    private int levenshteinDistance(String a, String b) {
+        int n = a.length();
+        int m = b.length();
+        int[][] dp = new int[n + 1][m + 1];
+
+        for (int i = 0; i <= n; i++) dp[i][0] = i;
+        for (int j = 0; j <= m; j++) dp[0][j] = j;
+
+        for (int i = 1; i <= n; i++) {
+            for (int j = 1; j <= m; j++) {
+                int cost = a.charAt(i - 1) == b.charAt(j - 1) ? 0 : 1;
+                dp[i][j] = Math.min(
+                    Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1),
+                    dp[i - 1][j - 1] + cost
+                );
+            }
+        }
+        return dp[n][m];
+    }
+
+    private JsonObject handleGetFunction(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String target = getArgString(args, "address");
+        if (target == null || target.isEmpty()) {
+            return errorResult("Function target required");
+        }
+
+        Address addr = resolveAddress(target);
+        if (addr == null) {
+            return errorResult(buildFunctionTargetHint(target));
+        }
+
+        Function func = currentProgram.getFunctionManager().getFunctionContaining(addr);
+        if (func == null) {
+            return errorResult("No function at target " + target + ". Try: ghidra function list --filter " + target);
+        }
+        return functionToJson(func);
+    }
+
+    private JsonObject handleRenameFunction(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String oldTarget = getArgString(args, "old_name");
+        String newName = getArgString(args, "new_name");
+        if (oldTarget == null || newName == null || oldTarget.isEmpty() || newName.isEmpty()) {
+            return errorResult("old_name and new_name required");
+        }
+
+        try {
+            Function func = findFunctionByNameOrAddress(oldTarget);
+            if (func == null) {
+                return errorResult(buildFunctionTargetHint(oldTarget));
+            }
+
+            int txId = currentProgram.startTransaction("Rename function");
+            try {
+                String oldName = func.getName();
+                func.setName(newName, SourceType.USER_DEFINED);
+                currentProgram.endTransaction(txId, true);
+
+                JsonObject result = new JsonObject();
+                result.addProperty("status", "renamed");
+                result.addProperty("old_name", oldName);
+                result.addProperty("new_name", newName);
+                result.addProperty("address", func.getEntryPoint().toString());
+                return result;
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+        } catch (Exception e) {
+            return errorResult("Failed to rename function: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleCreateFunction(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String target = getArgString(args, "address");
+        String requestedName = getArgString(args, "name");
+        if (target == null || target.isEmpty()) {
+            return errorResult("Function target required");
+        }
+
+        try {
+            Address addr = resolveAddress(target);
+            if (addr == null) {
+                return errorResult("Invalid function target: " + target + ". Expected address/symbol/FUN_<hex>.");
+            }
+
+            FunctionManager fm = currentProgram.getFunctionManager();
+            if (fm.getFunctionContaining(addr) != null) {
+                return errorResult("Function already exists at " + addr.toString());
+            }
+
+            String functionName = (requestedName == null || requestedName.isEmpty())
+                ? ("FUN_" + addr.toString().replace(":", ""))
+                : requestedName;
+
+            int txId = currentProgram.startTransaction("Create function");
+            try {
+                Function created = fm.createFunction(functionName, addr, null, SourceType.USER_DEFINED);
+                if (created == null) {
+                    currentProgram.endTransaction(txId, false);
+                    return errorResult("Failed to create function at " + addr.toString());
+                }
+                currentProgram.endTransaction(txId, true);
+
+                JsonObject result = new JsonObject();
+                result.addProperty("status", "created");
+                result.addProperty("name", created.getName());
+                result.addProperty("address", created.getEntryPoint().toString());
+                return result;
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+        } catch (Exception e) {
+            return errorResult("Failed to create function: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleDeleteFunction(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String target = getArgString(args, "address");
+        if (target == null || target.isEmpty()) {
+            return errorResult("Function target required");
+        }
+
+        try {
+            FunctionManager fm = currentProgram.getFunctionManager();
+            Function func = findFunctionByNameOrAddress(target);
+            if (func == null) {
+                return errorResult(buildFunctionTargetHint(target));
+            }
+
+            Address entry = func.getEntryPoint();
+            String name = func.getName();
+            int txId = currentProgram.startTransaction("Delete function");
+            try {
+                fm.removeFunction(entry);
+                currentProgram.endTransaction(txId, true);
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+
+            JsonObject result = new JsonObject();
+            result.addProperty("status", "deleted");
+            result.addProperty("name", name);
+            result.addProperty("address", entry.toString());
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to delete function: " + e.getMessage());
+        }
+    }
+
     private JsonObject handleDecompile(JsonObject args) {
         if (currentProgram == null) {
             return errorResult("No program loaded");
@@ -491,7 +732,7 @@ public class GhidraCliBridge extends GhidraScript {
 
         Address addr = resolveAddress(addrStr);
         if (addr == null) {
-            return errorResult("Cannot resolve address or function name: " + addrStr);
+            return errorResult(buildFunctionTargetHint(addrStr));
         }
 
         FunctionManager fm = currentProgram.getFunctionManager();
@@ -672,7 +913,7 @@ public class GhidraCliBridge extends GhidraScript {
 
         Address addr = resolveAddress(addrStr);
         if (addr == null) {
-            return errorResult("Cannot resolve address or function name: " + addrStr);
+            return errorResult(buildFunctionTargetHint(addrStr));
         }
 
         JsonArray xrefs = new JsonArray();
@@ -719,7 +960,7 @@ public class GhidraCliBridge extends GhidraScript {
 
         Address addr = resolveAddress(addrStr);
         if (addr == null) {
-            return errorResult("Cannot resolve address or function name: " + addrStr);
+            return errorResult(buildFunctionTargetHint(addrStr));
         }
 
         JsonArray xrefs = new JsonArray();
@@ -1310,7 +1551,7 @@ public class GhidraCliBridge extends GhidraScript {
             Function targetFunc = findFunctionByNameOrAddress(functionTarget);
 
             if (targetFunc == null) {
-                return errorResult("Function not found: " + functionTarget);
+                return errorResult(buildFunctionTargetHint(functionTarget));
             }
 
             ReferenceManager refMgr = currentProgram.getReferenceManager();
@@ -2100,7 +2341,7 @@ public class GhidraCliBridge extends GhidraScript {
         int depth = getArgInt(args, "depth", 1);
 
         Function targetFunc = findFunctionByNameOrAddress(funcName);
-        if (targetFunc == null) return errorResult("Function not found: " + funcName);
+        if (targetFunc == null) return errorResult(buildFunctionTargetHint(funcName));
 
         ReferenceManager refMgr = currentProgram.getReferenceManager();
         FunctionManager fm = currentProgram.getFunctionManager();
@@ -2151,7 +2392,7 @@ public class GhidraCliBridge extends GhidraScript {
         int depth = getArgInt(args, "depth", 1);
 
         Function targetFunc = findFunctionByNameOrAddress(funcName);
-        if (targetFunc == null) return errorResult("Function not found: " + funcName);
+        if (targetFunc == null) return errorResult(buildFunctionTargetHint(funcName));
 
         ReferenceManager refMgr = currentProgram.getReferenceManager();
         FunctionManager fm = currentProgram.getFunctionManager();
@@ -2300,8 +2541,8 @@ public class GhidraCliBridge extends GhidraScript {
             Function func1 = findFunctionByNameOrAddress(func1Target);
             Function func2 = findFunctionByNameOrAddress(func2Target);
 
-            if (func1 == null) return errorResult("Function not found: " + func1Target);
-            if (func2 == null) return errorResult("Function not found: " + func2Target);
+            if (func1 == null) return errorResult(buildFunctionTargetHint(func1Target));
+            if (func2 == null) return errorResult(buildFunctionTargetHint(func2Target));
 
             DecompInterface decompiler = new DecompInterface();
             try {
