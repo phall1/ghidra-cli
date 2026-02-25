@@ -544,7 +544,51 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
                 }
             }
 
-            execute_via_bridge(&client, &cli.command, cli.quiet, config.default_limit)?
+            match execute_via_bridge(&client, &cli.command, cli.quiet, config.default_limit) {
+                Ok(value) => value,
+                Err(err) if is_unknown_command_error(&err) => {
+                    if !cli.quiet {
+                        eprintln!(
+                            "Bridge command not supported by running instance. Restarting bridge and retrying..."
+                        );
+                    }
+
+                    // Running bridge may be from an older script; force restart to load
+                    // the embedded bridge matching this CLI version.
+                    let _ = bridge::stop_bridge(&project_path);
+                    let mode = if let Some(program) = extract_program_from_command(&cli.command)
+                        .or_else(|| config.get_default_program())
+                    {
+                        BridgeStartMode::Process {
+                            program_name: program,
+                        }
+                    } else {
+                        BridgeStartMode::Project
+                    };
+                    let port =
+                        bridge::ensure_bridge_running(&project_path, &ghidra_install_dir, mode)?;
+                    let retry_client = BridgeClient::new(port);
+
+                    if let Some(requested_program) = extract_program_from_command(&cli.command) {
+                        if let Ok(info) = retry_client.program_info() {
+                            let current = info.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                            if current != requested_program {
+                                retry_client.open_program(&requested_program)?;
+                            }
+                        } else {
+                            retry_client.open_program(&requested_program)?;
+                        }
+                    }
+
+                    execute_via_bridge(
+                        &retry_client,
+                        &cli.command,
+                        cli.quiet,
+                        config.default_limit,
+                    )?
+                }
+                Err(err) => return Err(err),
+            }
         }
     };
 
@@ -595,6 +639,10 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn is_unknown_command_error(err: &anyhow::Error) -> bool {
+    err.to_string().contains("Unknown command:")
+}
+
 /// Execute a command via the bridge client.
 fn execute_via_bridge(
     client: &BridgeClient,
@@ -638,15 +686,15 @@ fn execute_via_bridge(
                 FunctionCommands::Decompile(args) => {
                     client.decompile(args.resolved_target().to_string())
                 }
-                FunctionCommands::Get(args) => {
-                    client.send_command(
-                        "get_function",
-                        Some(json!({"address": args.resolved_target()})),
-                    )
-                }
+                FunctionCommands::Get(args) => client.send_command(
+                    "get_function",
+                    Some(json!({"address": args.resolved_target()})),
+                ),
                 FunctionCommands::Disasm(args) => client.disasm(args.resolved_target(), None),
                 FunctionCommands::Calls(args) => client.find_calls(args.resolved_target()),
-                FunctionCommands::XRefs(args) => client.xrefs_to(args.resolved_target().to_string()),
+                FunctionCommands::XRefs(args) => {
+                    client.xrefs_to(args.resolved_target().to_string())
+                }
                 FunctionCommands::Rename(args) => client.send_command(
                     "rename_function",
                     Some(json!({
@@ -672,7 +720,9 @@ fn execute_via_bridge(
         Commands::Strings(cmd) => {
             use cli::StringsCommands;
             match cmd {
-                StringsCommands::List(opts) => client.list_strings(opts.limit.or(default_limit), opts.filter.clone()),
+                StringsCommands::List(opts) => {
+                    client.list_strings(opts.limit.or(default_limit), opts.filter.clone())
+                }
                 StringsCommands::Refs(args) => client.xrefs_to(args.string.clone()),
             }
         }
@@ -710,7 +760,9 @@ fn execute_via_bridge(
                 DumpCommands::Functions(opts) => {
                     client.list_functions(opts.limit.or(default_limit), opts.filter.clone())
                 }
-                DumpCommands::Strings(opts) => client.list_strings(opts.limit.or(default_limit), opts.filter.clone()),
+                DumpCommands::Strings(opts) => {
+                    client.list_strings(opts.limit.or(default_limit), opts.filter.clone())
+                }
             }
         }
         Commands::Summary(_) => client.program_info(),
@@ -749,7 +801,9 @@ fn execute_via_bridge(
         Commands::Symbol(cmd) => {
             use cli::SymbolCommands;
             match cmd {
-                SymbolCommands::List(opts) => client.symbol_list(opts.limit.or(default_limit), opts.filter.as_deref()),
+                SymbolCommands::List(opts) => {
+                    client.symbol_list(opts.limit.or(default_limit), opts.filter.as_deref())
+                }
                 SymbolCommands::Get(args) => client.symbol_get(&args.name),
                 SymbolCommands::Create(args) => client.symbol_create(&args.address, &args.name),
                 SymbolCommands::Delete(args) => client.symbol_delete(&args.name),
@@ -761,7 +815,9 @@ fn execute_via_bridge(
         Commands::Type(cmd) => {
             use cli::TypeCommands;
             match cmd {
-                TypeCommands::List(opts) => client.type_list(opts.limit.or(default_limit), opts.filter.as_deref()),
+                TypeCommands::List(opts) => {
+                    client.type_list(opts.limit.or(default_limit), opts.filter.as_deref())
+                }
                 TypeCommands::Get(args) => client.type_get(&args.name),
                 TypeCommands::Create(args) => client.type_create(&args.definition),
                 TypeCommands::Apply(args) => client.type_apply(&args.address, &args.type_name),
@@ -770,7 +826,9 @@ fn execute_via_bridge(
         Commands::Comment(cmd) => {
             use cli::CommentCommands;
             match cmd {
-                CommentCommands::List(opts) => client.comment_list(opts.limit.or(default_limit), opts.filter.as_deref()),
+                CommentCommands::List(opts) => {
+                    client.comment_list(opts.limit.or(default_limit), opts.filter.as_deref())
+                }
                 CommentCommands::Get(args) => client.comment_get(&args.address),
                 CommentCommands::Set(args) => {
                     client.comment_set(&args.address, &args.text, args.comment_type.as_deref())
