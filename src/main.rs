@@ -126,6 +126,7 @@ fn requires_bridge(command: &Commands) -> bool {
             | Commands::Batch(_)
             | Commands::Stats(_)
             | Commands::Program(_)
+            | Commands::Rename(_)
     )
 }
 
@@ -228,6 +229,7 @@ fn extract_project_from_command(command: &Commands) -> Option<String> {
             cli::DiffCommands::Functions(args) => args.project.clone(),
         },
         Commands::Batch(args) => args.project.clone(),
+        Commands::Rename(args) => args.project.clone(),
         _ => None,
     }
 }
@@ -328,6 +330,7 @@ fn extract_program_from_command(command: &Commands) -> Option<String> {
             cli::ProgramCommands::Export(args) => args.program.clone(),
         },
         Commands::Batch(args) => args.program.clone(),
+        Commands::Rename(args) => args.program.clone(),
         _ => None,
     }
 }
@@ -771,7 +774,9 @@ fn execute_via_bridge(
             match cmd {
                 XRefCommands::To(args) => client.xrefs_to(args.resolved_target().to_string()),
                 XRefCommands::From(args) => client.xrefs_from(args.resolved_target().to_string()),
-                XRefCommands::List(_) => client.send_command("xrefs_list", None),
+                XRefCommands::List(args) => {
+                    client.send_command("xrefs_list", Some(json!({"address": args.resolved_target()})))
+                }
             }
         }
         Commands::Program(cmd) => {
@@ -919,6 +924,7 @@ fn execute_via_bridge(
             }))
         }
         Commands::Stats(_) => client.stats(),
+        Commands::Rename(args) => client.symbol_rename(&args.old_name, &args.new_name),
         _ => anyhow::bail!("Command not supported"),
     }
 }

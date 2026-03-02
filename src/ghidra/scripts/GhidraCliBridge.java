@@ -200,6 +200,7 @@ public class GhidraCliBridge extends GhidraScript {
             case "memory_map":      return handleMemoryMap();
             case "xrefs_to":        return handleXrefsTo(args);
             case "xrefs_from":      return handleXrefsFrom(args);
+            case "xrefs_list":      return handleXrefsList(args);
             case "import":          return handleImport(args);
             case "analyze":         return handleAnalyze(args);
             case "list_programs":   return handleListPrograms();
@@ -967,16 +968,93 @@ public class GhidraCliBridge extends GhidraScript {
         ReferenceManager refMgr = currentProgram.getReferenceManager();
         FunctionManager fm = currentProgram.getFunctionManager();
 
-        Reference[] refs = refMgr.getReferencesFrom(addr);
-        for (Reference ref : refs) {
-            Address toAddr = ref.getToAddress();
-            Function fromFunc = fm.getFunctionContaining(addr);
-            Function toFunc = fm.getFunctionContaining(toAddr);
+        // If address is a function entry point, scan the entire function body
+        Function func = fm.getFunctionAt(addr);
+        if (func != null) {
+            ghidra.program.model.address.AddressSetView body = func.getBody();
+            ghidra.program.model.address.AddressIterator addrIter = body.getAddresses(true);
+            while (addrIter.hasNext()) {
+                Address instrAddr = addrIter.next();
+                Reference[] refs = refMgr.getReferencesFrom(instrAddr);
+                for (Reference ref : refs) {
+                    Address toAddr = ref.getToAddress();
+                    Function toFunc = fm.getFunctionContaining(toAddr);
+
+                    JsonObject xrefData = new JsonObject();
+                    xrefData.addProperty("from", instrAddr.toString());
+                    xrefData.addProperty("to", toAddr.toString());
+                    xrefData.addProperty("ref_type", ref.getReferenceType().toString());
+                    xrefData.addProperty("from_function", func.getName());
+                    if (toFunc != null) {
+                        xrefData.addProperty("to_function", toFunc.getName());
+                    } else {
+                        xrefData.add("to_function", JsonNull.INSTANCE);
+                    }
+                    xrefs.add(xrefData);
+                }
+            }
+        } else {
+            // Not a function entry point — just get refs from this single address
+            Reference[] refs = refMgr.getReferencesFrom(addr);
+            for (Reference ref : refs) {
+                Address toAddr = ref.getToAddress();
+                Function fromFunc = fm.getFunctionContaining(addr);
+                Function toFunc = fm.getFunctionContaining(toAddr);
+
+                JsonObject xrefData = new JsonObject();
+                xrefData.addProperty("from", addr.toString());
+                xrefData.addProperty("to", toAddr.toString());
+                xrefData.addProperty("ref_type", ref.getReferenceType().toString());
+                if (fromFunc != null) {
+                    xrefData.addProperty("from_function", fromFunc.getName());
+                } else {
+                    xrefData.add("from_function", JsonNull.INSTANCE);
+                }
+                if (toFunc != null) {
+                    xrefData.addProperty("to_function", toFunc.getName());
+                } else {
+                    xrefData.add("to_function", JsonNull.INSTANCE);
+                }
+                xrefs.add(xrefData);
+            }
+        }
+
+        JsonObject result = new JsonObject();
+        result.add("xrefs", xrefs);
+        result.addProperty("count", xrefs.size());
+        return result;
+    }
+
+    private JsonObject handleXrefsList(JsonObject args) {
+        if (currentProgram == null) {
+            return errorResult("No program loaded");
+        }
+
+        String addrStr = getArgString(args, "address");
+        if (addrStr == null || addrStr.isEmpty()) {
+            return errorResult("No address provided");
+        }
+
+        Address addr = resolveAddress(addrStr);
+        if (addr == null) {
+            return errorResult(buildFunctionTargetHint(addrStr));
+        }
+
+        JsonArray xrefs = new JsonArray();
+        ReferenceManager refMgr = currentProgram.getReferenceManager();
+        FunctionManager fm = currentProgram.getFunctionManager();
+
+        // References TO the target address
+        for (Reference ref : refMgr.getReferencesTo(addr)) {
+            Address fromAddr = ref.getFromAddress();
+            Function fromFunc = fm.getFunctionContaining(fromAddr);
+            Function toFunc = fm.getFunctionContaining(addr);
 
             JsonObject xrefData = new JsonObject();
-            xrefData.addProperty("from", addr.toString());
-            xrefData.addProperty("to", toAddr.toString());
+            xrefData.addProperty("from", fromAddr.toString());
+            xrefData.addProperty("to", addr.toString());
             xrefData.addProperty("ref_type", ref.getReferenceType().toString());
+            xrefData.addProperty("direction", "to");
             if (fromFunc != null) {
                 xrefData.addProperty("from_function", fromFunc.getName());
             } else {
@@ -988,6 +1066,59 @@ public class GhidraCliBridge extends GhidraScript {
                 xrefData.add("to_function", JsonNull.INSTANCE);
             }
             xrefs.add(xrefData);
+        }
+
+        // References FROM the target — if it's a function, scan the entire body
+        Function func = fm.getFunctionAt(addr);
+        if (func != null) {
+            ghidra.program.model.address.AddressSetView body = func.getBody();
+            ghidra.program.model.address.AddressIterator addrIter = body.getAddresses(true);
+            while (addrIter.hasNext()) {
+                Address instrAddr = addrIter.next();
+                Reference[] refs = refMgr.getReferencesFrom(instrAddr);
+                for (Reference ref : refs) {
+                    Address toAddr = ref.getToAddress();
+                    Function toFunc = fm.getFunctionContaining(toAddr);
+
+                    JsonObject xrefData = new JsonObject();
+                    xrefData.addProperty("from", instrAddr.toString());
+                    xrefData.addProperty("to", toAddr.toString());
+                    xrefData.addProperty("ref_type", ref.getReferenceType().toString());
+                    xrefData.addProperty("direction", "from");
+                    xrefData.addProperty("from_function", func.getName());
+                    if (toFunc != null) {
+                        xrefData.addProperty("to_function", toFunc.getName());
+                    } else {
+                        xrefData.add("to_function", JsonNull.INSTANCE);
+                    }
+                    xrefs.add(xrefData);
+                }
+            }
+        } else {
+            // Not a function entry — just get refs from this single address
+            Reference[] refs = refMgr.getReferencesFrom(addr);
+            for (Reference ref : refs) {
+                Address toAddr = ref.getToAddress();
+                Function fromFunc = fm.getFunctionContaining(addr);
+                Function toFunc = fm.getFunctionContaining(toAddr);
+
+                JsonObject xrefData = new JsonObject();
+                xrefData.addProperty("from", addr.toString());
+                xrefData.addProperty("to", toAddr.toString());
+                xrefData.addProperty("ref_type", ref.getReferenceType().toString());
+                xrefData.addProperty("direction", "from");
+                if (fromFunc != null) {
+                    xrefData.addProperty("from_function", fromFunc.getName());
+                } else {
+                    xrefData.add("from_function", JsonNull.INSTANCE);
+                }
+                if (toFunc != null) {
+                    xrefData.addProperty("to_function", toFunc.getName());
+                } else {
+                    xrefData.add("to_function", JsonNull.INSTANCE);
+                }
+                xrefs.add(xrefData);
+            }
         }
 
         JsonObject result = new JsonObject();

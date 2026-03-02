@@ -405,19 +405,14 @@ fn test_xref_to() {
 
     result.assert_success();
 
-    if let Some(xrefs) = result.try_json::<Vec<XRef>>() {
-        if let Some(xref) = xrefs.iter().find(|x| {
-            x.from_function
-                .as_deref()
-                .is_some_and(|f| f.contains("main"))
-        }) {
-            eprintln!("Found xref from main: {:?}", xref);
-        } else {
-            eprintln!(
-                "No xref from main found (may vary by platform). Xrefs: {:?}",
-                xrefs
-            );
-        }
+    let xrefs: Vec<XRef> = result.json();
+    assert!(
+        !xrefs.is_empty(),
+        "add_numbers should have incoming cross-references (called by main)"
+    );
+    // Every xref should point TO the target address
+    for xref in &xrefs {
+        assert_eq!(xref.to, addr, "xref 'to' field should match target address");
     }
 }
 
@@ -439,10 +434,59 @@ fn test_xref_from() {
 
     result.assert_success();
 
-    // main should have outgoing xrefs, but don't hard-fail if format differs
-    if let Some(xrefs) = result.try_json::<Vec<XRef>>() {
-        eprintln!("Found {} xrefs from main", xrefs.len());
+    let xrefs: Vec<XRef> = result.json();
+    assert!(
+        !xrefs.is_empty(),
+        "main should have outgoing cross-references (calls other functions)"
+    );
+    // Every xref should originate FROM within main
+    for xref in &xrefs {
+        assert!(
+            xref.from_function
+                .as_deref()
+                .is_some_and(|f| f.contains("main")),
+            "xref from_function should be main, got: {:?}",
+            xref.from_function
+        );
     }
+}
+
+#[test]
+#[serial]
+fn test_xref_list() {
+    require_ghidra!();
+    let harness = harness();
+
+    let addr = get_function_address(harness, TEST_PROJECT, TEST_PROGRAM, "add_numbers");
+
+    let result = ghidra(harness)
+        .arg("xref")
+        .arg("list")
+        .arg(&addr)
+        .with_project(TEST_PROJECT, TEST_PROGRAM)
+        .json_format()
+        .run();
+
+    result.assert_success();
+
+    let xrefs: Vec<XRef> = result.json();
+    assert!(
+        !xrefs.is_empty(),
+        "add_numbers should have cross-references in list view"
+    );
+    // Should have both directions when function has incoming refs and outgoing refs
+    let has_to = xrefs.iter().any(|x| x.direction.as_deref() == Some("to"));
+    let has_from = xrefs.iter().any(|x| x.direction.as_deref() == Some("from"));
+    // add_numbers is called by main, so it must have "to" xrefs
+    assert!(has_to, "xref list should include incoming (to) references");
+    // add_numbers has a function body, so it should have "from" xrefs too
+    // (at minimum, stack/register references)
+    eprintln!(
+        "xref list: {} total, has_to={}, has_from={}",
+        xrefs.len(),
+        has_to,
+        has_from
+    );
 }
 
 // ============================================================================

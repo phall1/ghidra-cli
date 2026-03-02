@@ -179,6 +179,10 @@ pub enum Commands {
 
     /// Download and setup Ghidra automatically
     Setup(SetupArgs),
+
+    /// Rename a symbol (shortcut for `symbol rename`)
+    #[command(alias = "mv")]
+    Rename(RenameArgs),
 }
 
 #[derive(Args, Clone, Serialize, Deserialize, Debug)]

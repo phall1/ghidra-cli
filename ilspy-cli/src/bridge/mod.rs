@@ -1,3 +1,4 @@
+pub mod embedded;
 pub mod ffi;
 pub mod types;
 
@@ -181,13 +182,10 @@ impl IlSpyBridge {
             }
         }
 
-        // 3. Relative to cargo manifest dir (development)
-        if let Ok(manifest) = std::env::var("CARGO_MANIFEST_DIR") {
-            let dev_path = PathBuf::from(&manifest)
-                .join("target")
-                .join("bridge");
-            if dev_path.join("IlSpyBridge.dll").exists() {
-                return Ok(dev_path);
+        // 3. Extract embedded bridge DLLs to cache directory
+        if let Some(extracted) = embedded::extract_bridge() {
+            if extracted.join("IlSpyBridge.dll").exists() {
+                return Ok(extracted);
             }
         }
 
