@@ -4,7 +4,7 @@
 //! starts a TCP socket server. The CLI connects directly to this server
 //! to execute commands. No intermediate daemon process is needed.
 
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -135,6 +135,67 @@ pub fn cleanup_stale_files(project_path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// RAII guard that removes the startup lock file on drop.
+struct StartupLockGuard {
+    path: PathBuf,
+}
+
+impl Drop for StartupLockGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+/// Acquire a per-project startup lock so concurrent callers don't each spawn
+/// their own analyzeHeadless (which would cause "Unable to lock project!").
+///
+/// The lock file contains the holder's PID so stale locks (from crashed
+/// processes) are detected and cleaned up automatically.
+///
+/// Blocks until the lock is acquired or the 60-second timeout expires.
+fn acquire_startup_lock(project_path: &Path) -> Result<StartupLockGuard> {
+    let data_dir = get_data_dir()?;
+    let hash = project_hash(project_path);
+    let lock_path = data_dir.join(format!("bridge-{}.starting", hash));
+    let pid = std::process::id().to_string();
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+
+    loop {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&lock_path)
+        {
+            Ok(mut f) => {
+                let _ = f.write_all(pid.as_bytes());
+                debug!("Acquired startup lock: {:?}", lock_path);
+                return Ok(StartupLockGuard { path: lock_path });
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                // If the holder process is dead, remove the stale lock and retry.
+                if let Ok(content) = std::fs::read_to_string(&lock_path) {
+                    if let Ok(holder_pid) = content.trim().parse::<u32>() {
+                        if !is_pid_alive(holder_pid) {
+                            debug!("Removing stale startup lock from dead PID {}", holder_pid);
+                            let _ = std::fs::remove_file(&lock_path);
+                            continue;
+                        }
+                    }
+                }
+                if std::time::Instant::now() > deadline {
+                    anyhow::bail!(
+                        "Timed out waiting for bridge startup lock \
+                         (another process may be starting the bridge)"
+                    );
+                }
+                debug!("Waiting for startup lock...");
+                std::thread::sleep(Duration::from_millis(200));
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+}
+
 /// Check if a bridge is running for the given project.
 ///
 /// Verifies: port file exists, PID is alive, TCP connect succeeds.
@@ -164,28 +225,35 @@ pub fn is_bridge_running(project_path: &Path) -> Option<u16> {
 
 /// Ensure a bridge is running for the given project.
 /// Returns the port number to connect to.
+///
+/// Safe for concurrent callers: uses a per-project startup lock so that
+/// only one process spawns analyzeHeadless. The others wait and reuse the
+/// bridge that the winner started.
 pub fn ensure_bridge_running(
     project_path: &Path,
     ghidra_install_dir: &Path,
     mode: BridgeStartMode,
 ) -> Result<u16> {
-    // Check if already running
-    if let Ok(Some(port)) = read_port_file(project_path) {
-        if let Ok(Some(pid)) = read_pid_file(project_path) {
-            if is_pid_alive(pid) {
-                // Verify TCP connect (with timeout to avoid long hangs on Windows)
-                let addr: std::net::SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
-                if TcpStream::connect_timeout(&addr, Duration::from_secs(5)).is_ok() {
-                    info!("Bridge already running on port {}", port);
-                    return Ok(port);
-                }
-            }
-        }
-        // Stale files - clean up
-        cleanup_stale_files(project_path)?;
+    // Fast path (no lock): if the bridge is clearly running, return immediately.
+    if let Some(port) = is_bridge_running(project_path) {
+        info!("Bridge already running on port {}", port);
+        return Ok(port);
     }
 
-    // Start a new bridge
+    // Slow path: acquire the per-project startup lock so that concurrent
+    // callers don't each launch their own analyzeHeadless (which would fail
+    // with "Unable to lock project!" because Ghidra uses an exclusive lock).
+    let _lock = acquire_startup_lock(project_path)?;
+
+    // Re-check under the lock: another process may have started the bridge
+    // while we were waiting.
+    if let Some(port) = is_bridge_running(project_path) {
+        info!("Bridge already running on port {} (detected after lock)", port);
+        return Ok(port);
+    }
+
+    // Clean up any stale port/pid/lock files before starting fresh.
+    cleanup_stale_files(project_path)?;
     start_bridge(project_path, ghidra_install_dir, mode)
 }
 

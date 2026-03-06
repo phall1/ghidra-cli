@@ -71,8 +71,11 @@ public class GhidraCliBridge extends GhidraScript {
         }
         String portFilePath = scriptArgs[0];
 
-        // Bind to dynamic port on localhost only
-        ServerSocket serverSocket = new ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"));
+        // Bind to dynamic port on localhost only.
+        // Backlog of 50 lets many concurrent agents queue connections while one
+        // is being served (the accept loop is intentionally single-threaded to
+        // keep Ghidra API access serialized).
+        ServerSocket serverSocket = new ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"));
         int port = serverSocket.getLocalPort();
 
         // Write port file

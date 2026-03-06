@@ -1,6 +1,6 @@
 [package]
 name = "ilspy-cli"
-version = "0.1.0"
+version = "0.1.9"
 edition = "2021"
 authors = ["Alexander Kiselev"]
 description = "Agent-friendly .NET decompilation CLI using ILSpy (ICSharpCode.Decompiler)"
