@@ -135,6 +135,8 @@ fn requires_bridge(command: &Commands) -> bool {
             | Commands::Typedef(_)
             | Commands::ParseC(_)
             | Commands::Bookmark(_)
+            | Commands::Pcode(_)
+            | Commands::Analyzer(_)
     )
 }
 
@@ -265,6 +267,15 @@ fn extract_project_from_command(command: &Commands) -> Option<String> {
             cli::BookmarkCommands::Add(args) => args.project.clone(),
             cli::BookmarkCommands::Delete(args) => args.project.clone(),
         },
+        Commands::Pcode(cmd) => match cmd {
+            cli::PcodeCommands::At(args) => args.project.clone(),
+            cli::PcodeCommands::Function(args) => args.project.clone(),
+        },
+        Commands::Analyzer(cmd) => match cmd {
+            cli::AnalyzerCommands::List(args) => args.project.clone(),
+            cli::AnalyzerCommands::Set(args) => args.project.clone(),
+            cli::AnalyzerCommands::Run(args) => args.project.clone(),
+        },
         _ => None,
     }
 }
@@ -392,6 +403,15 @@ fn extract_program_from_command(command: &Commands) -> Option<String> {
             cli::BookmarkCommands::List(args) => args.program.clone(),
             cli::BookmarkCommands::Add(args) => args.program.clone(),
             cli::BookmarkCommands::Delete(args) => args.program.clone(),
+        },
+        Commands::Pcode(cmd) => match cmd {
+            cli::PcodeCommands::At(args) => args.program.clone(),
+            cli::PcodeCommands::Function(args) => args.program.clone(),
+        },
+        Commands::Analyzer(cmd) => match cmd {
+            cli::AnalyzerCommands::List(args) => args.program.clone(),
+            cli::AnalyzerCommands::Set(args) => args.program.clone(),
+            cli::AnalyzerCommands::Run(args) => args.program.clone(),
         },
         _ => None,
     }
@@ -1060,6 +1080,21 @@ fn execute_via_bridge(
                 BookmarkCommands::Delete(args) => {
                     client.bookmark_delete(&args.address, args.bookmark_type.as_deref())
                 }
+            }
+        }
+        Commands::Pcode(cmd) => {
+            use cli::PcodeCommands;
+            match cmd {
+                PcodeCommands::At(args) => client.pcode_at(&args.address),
+                PcodeCommands::Function(args) => client.pcode_function(&args.function, args.high),
+            }
+        }
+        Commands::Analyzer(cmd) => {
+            use cli::AnalyzerCommands;
+            match cmd {
+                AnalyzerCommands::List(_) => client.analyzer_list(),
+                AnalyzerCommands::Set(args) => client.analyzer_set(&args.name, args.enabled),
+                AnalyzerCommands::Run(_) => client.analyze_run(),
             }
         }
         _ => anyhow::bail!("Command not supported"),

@@ -385,6 +385,28 @@ struct BookmarkDeleteParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+struct PcodeAtParams {
+    /// Address to get PCode for (hex, e.g. "0x401000")
+    address: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct PcodeFunctionParams {
+    /// Function name or address
+    function: String,
+    /// If true, use high-level PCode from the decompiler; if false, use raw PCode from the listing
+    high: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct AnalyzerSetParams {
+    /// Analyzer name (as shown in analyzer list)
+    name: String,
+    /// Enable (true) or disable (false)
+    enabled: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 struct VariableListParams {
     /// Function name or address containing the variables
     function: String,
@@ -889,6 +911,35 @@ impl GhidraServer {
     #[tool(description = "Delete bookmark(s) at an address. Optionally filter by type to delete only specific bookmark types.")]
     async fn delete_bookmark(&self, Parameters(p): Parameters<BookmarkDeleteParams>) -> Result<CallToolResult, McpError> {
         self.call_bridge(|c| c.bookmark_delete(&p.address, p.bookmark_type.as_deref()))
+    }
+
+    // === PCode ===
+
+    #[tool(description = "Get raw PCode (Ghidra's intermediate representation) at a specific address. Shows the low-level operations for a single instruction.")]
+    async fn get_pcode_at(&self, Parameters(p): Parameters<PcodeAtParams>) -> Result<CallToolResult, McpError> {
+        self.call_bridge(|c| c.pcode_at(&p.address))
+    }
+
+    #[tool(description = "Get PCode for an entire function. Set high=true for decompiler-level (high) PCode with SSA form, or high=false for raw listing-level PCode.")]
+    async fn get_pcode_function(&self, Parameters(p): Parameters<PcodeFunctionParams>) -> Result<CallToolResult, McpError> {
+        self.call_bridge(|c| c.pcode_function(&p.function, p.high.unwrap_or(false)))
+    }
+
+    // === Analysis Control ===
+
+    #[tool(description = "List all available analyzers and whether they are enabled or disabled.")]
+    async fn list_analyzers(&self, #[allow(unused)] _p: Parameters<EmptyParams>) -> Result<CallToolResult, McpError> {
+        self.call_bridge(|c| c.analyzer_list())
+    }
+
+    #[tool(description = "Enable or disable a specific analyzer by name. Use list_analyzers to see available analyzer names.")]
+    async fn set_analyzer(&self, Parameters(p): Parameters<AnalyzerSetParams>) -> Result<CallToolResult, McpError> {
+        self.call_bridge(|c| c.analyzer_set(&p.name, p.enabled))
+    }
+
+    #[tool(description = "Re-run auto-analysis on the current program. Useful after making changes (defining functions, applying types) to let Ghidra propagate analysis.")]
+    async fn run_analysis(&self, #[allow(unused)] _p: Parameters<EmptyParams>) -> Result<CallToolResult, McpError> {
+        self.call_bridge(|c| c.analyze_run())
     }
 
     // === Batch ===
