@@ -57,6 +57,16 @@ cargo install --path .
 - **Java 17+** - Required by Ghidra
 - **Rust 1.70+** - For building from source
 
+### Toolchain via mise (recommended)
+
+```bash
+mise install
+mise run bootstrap
+mise run verify
+```
+
+This installs Rust + Java + just from `.mise.toml`, then runs the idempotent local bootstrap.
+
 Set the Ghidra installation path:
 ```bash
 export GHIDRA_INSTALL_DIR=/path/to/ghidra
@@ -89,6 +99,32 @@ ghidra x-ref to 0x401000
 # Generate call graph
 ghidra graph callers main --depth 3
 ```
+
+## One-Time Dev Setup
+
+If you are working on this repo locally, use one bootstrap command instead of manual path tweaking:
+
+```bash
+mise run bootstrap
+```
+
+If you do not use `mise`, run `just bootstrap` directly.
+
+This configures `ghidra_install_dir` and `ghidra_project_dir`, validates Java, and runs `ghidra doctor`.
+
+Useful commands:
+
+```bash
+mise run test-bin        # unit tests in src/main.rs
+mise run test-no-run     # compile all tests without executing
+mise run test-all        # run all integration suites
+mise run verify          # formatting + fast test gate
+mise run test-analysis   # run analysis integration suite
+mise run test-mcp        # run MCP integration suite
+mise run test-workflow   # run workflow integration suite
+```
+
+Equivalent `just` commands are available if you prefer not to use mise.
 
 ## Commands
 

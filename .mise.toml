@@ -1,0 +1,37 @@
+[tools]
+rust = "stable"
+java = "temurin-21"
+just = "latest"
+
+[tasks.bootstrap]
+run = "just bootstrap"
+
+[tasks.verify]
+run = "just verify"
+
+[tasks.test-all]
+run = "just test-all"
+
+[tasks.doctor]
+run = "just doctor"
+
+[tasks.build]
+run = "just build"
+
+[tasks.fmt-check]
+run = "just fmt-check"
+
+[tasks.test-bin]
+run = "just test-bin"
+
+[tasks.test-no-run]
+run = "just test-no-run"
+
+[tasks.test-analysis]
+run = "just test-analysis"
+
+[tasks.test-mcp]
+run = "just test-mcp"
+
+[tasks.test-workflow]
+run = "just test-workflow"

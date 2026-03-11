@@ -776,19 +776,15 @@ public class GhidraCliBridge extends GhidraScript {
                 return errorResult(buildFunctionTargetHint(target));
             }
 
-            ghidra.program.model.data.FunctionDefinitionDataType funcDef =
-                new ghidra.program.model.data.FunctionDefinitionDataType("tmpSig");
-
+            ghidra.program.model.data.FunctionDefinitionDataType funcDef;
             try {
-                ghidra.app.util.cparser.C.CParserUtils.CParseResults parseResults =
-                    ghidra.app.util.cparser.C.CParserUtils.parseSignature(null, currentProgram, signature);
-
-                if (parseResults != null && parseResults.failedMessage == null && parseResults.functionDefinition != null) {
-                    funcDef = parseResults.functionDefinition;
-                } else {
-                    String msg = (parseResults != null && parseResults.failedMessage != null)
-                        ? parseResults.failedMessage : "Could not parse";
-                    return errorResult("Invalid signature '" + signature + "': " + msg);
+                funcDef = ghidra.app.util.cparser.C.CParserUtils.parseSignature(
+                    (ghidra.app.services.DataTypeManagerService) null,
+                    currentProgram,
+                    signature
+                );
+                if (funcDef == null) {
+                    return errorResult("Invalid signature '" + signature + "': Could not parse");
                 }
             } catch (Exception parseEx) {
                 return errorResult("Failed to parse signature '" + signature + "': " + parseEx.getMessage());
@@ -841,7 +837,7 @@ public class GhidraCliBridge extends GhidraScript {
             }
 
             DataTypeManager dtm = currentProgram.getDataTypeManager();
-            DataType dt = resolveDataType(dtm, typeName);
+            DataType dt = resolveDataType(typeName);
             if (dt == null) {
                 return errorResult("Unknown data type: " + typeName);
             }
@@ -2768,7 +2764,7 @@ public class GhidraCliBridge extends GhidraScript {
             }
 
             DataTypeManager dtm = currentProgram.getDataTypeManager();
-            DataType newDt = resolveDataType(dtm, typeName);
+            DataType newDt = resolveDataType(typeName);
             if (newDt == null) {
                 return errorResult("Unknown data type: " + typeName);
             }
@@ -2893,7 +2889,7 @@ public class GhidraCliBridge extends GhidraScript {
 
         try {
             DataTypeManager dtm = currentProgram.getDataTypeManager();
-            DataType baseDt = resolveDataType(dtm, baseTypeName);
+            DataType baseDt = resolveDataType(baseTypeName);
             if (baseDt == null) {
                 return errorResult("Unknown base type: " + baseTypeName);
             }
@@ -2971,9 +2967,10 @@ public class GhidraCliBridge extends GhidraScript {
         BookmarkManager bm = currentProgram.getBookmarkManager();
         JsonArray bookmarks = new JsonArray();
 
-        String[] types = bm.getBookmarkTypes();
+        BookmarkType[] types = bm.getBookmarkTypes();
         int count = 0;
-        for (String type : types) {
+        for (BookmarkType typeObj : types) {
+            String type = typeObj.getTypeString();
             if (typeFilter != null && !typeFilter.isEmpty() && !type.equalsIgnoreCase(typeFilter)) {
                 continue;
             }
