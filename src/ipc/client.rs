@@ -606,6 +606,32 @@ impl BridgeClient {
         )
     }
 
+    pub fn pcode_at(&self, address: &str) -> Result<serde_json::Value> {
+        self.send_command("pcode_at", Some(json!({"address": address})))
+    }
+
+    pub fn pcode_function(&self, function: &str, high: bool) -> Result<serde_json::Value> {
+        self.send_command(
+            "pcode_function",
+            Some(json!({"function": function, "high": high})),
+        )
+    }
+
+    pub fn analyzer_list(&self) -> Result<serde_json::Value> {
+        self.send_command("analyzer_list", None)
+    }
+
+    pub fn analyzer_set(&self, name: &str, enabled: bool) -> Result<serde_json::Value> {
+        self.send_command(
+            "analyzer_set",
+            Some(json!({"name": name, "enabled": enabled})),
+        )
+    }
+
+    pub fn analyze_run(&self) -> Result<serde_json::Value> {
+        self.send_command("analyze_run", None)
+    }
+
     pub fn program_close(&self) -> Result<serde_json::Value> {
         self.send_command("close_program", None)
     }
