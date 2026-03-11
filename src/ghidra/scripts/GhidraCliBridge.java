@@ -229,6 +229,13 @@ public class GhidraCliBridge extends GhidraScript {
             case "type_get":        return handleTypeGet(args);
             case "type_create":     return handleTypeCreate(args);
             case "type_apply":      return handleTypeApply(args);
+            // Struct commands
+            case "struct_list":         return handleStructList(args);
+            case "struct_get":          return handleStructGet(args);
+            case "struct_create":       return handleStructCreate(args);
+            case "struct_add_field":    return handleStructAddField(args);
+            case "struct_rename_field": return handleStructRenameField(args);
+            case "struct_delete":       return handleStructDelete(args);
             // Comment commands
             case "comment_list":    return handleCommentList(args);
             case "comment_get":     return handleCommentGet(args);
@@ -2206,6 +2213,257 @@ public class GhidraCliBridge extends GhidraScript {
             return result;
         } catch (Exception e) {
             return errorResult("Failed to apply type: " + e.getMessage());
+        }
+    }
+
+    // --- Struct Handlers ---
+
+    private DataType resolveDataType(String typeName) {
+        if (typeName == null) return null;
+        switch (typeName.toLowerCase()) {
+            case "int":     return ghidra.program.model.data.IntegerDataType.dataType;
+            case "byte":    return ghidra.program.model.data.ByteDataType.dataType;
+            case "char":    return ghidra.program.model.data.CharDataType.dataType;
+            case "short":   return ghidra.program.model.data.ShortDataType.dataType;
+            case "long":    return ghidra.program.model.data.LongDataType.dataType;
+            case "float":   return ghidra.program.model.data.FloatDataType.dataType;
+            case "double":  return ghidra.program.model.data.DoubleDataType.dataType;
+            case "void":    return ghidra.program.model.data.VoidDataType.dataType;
+            case "pointer": return ghidra.program.model.data.PointerDataType.dataType;
+            default: break;
+        }
+        if (currentProgram != null) {
+            DataTypeManager dtm = currentProgram.getDataTypeManager();
+            Iterator<DataType> iter = dtm.getAllDataTypes();
+            while (iter.hasNext()) {
+                DataType dt = iter.next();
+                if (dt.getName().equals(typeName)) return dt;
+            }
+        }
+        return null;
+    }
+
+    private Structure findStructByName(String name) {
+        if (currentProgram == null || name == null) return null;
+        DataTypeManager dtm = currentProgram.getDataTypeManager();
+        Iterator<DataType> iter = dtm.getAllDataTypes();
+        while (iter.hasNext()) {
+            DataType dt = iter.next();
+            if (dt instanceof Structure && dt.getName().equals(name)) {
+                return (Structure) dt;
+            }
+        }
+        return null;
+    }
+
+    private JsonObject handleStructList(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        int limit = getArgInt(args, "limit", 0);
+        String nameFilter = getArgString(args, "filter");
+        DataTypeManager dtm = currentProgram.getDataTypeManager();
+        JsonArray structs = new JsonArray();
+        int count = 0;
+
+        Iterator<DataType> iter = dtm.getAllDataTypes();
+        while (iter.hasNext()) {
+            DataType dt = iter.next();
+            if (!(dt instanceof Structure)) continue;
+            if (limit > 0 && count >= limit) break;
+            if (nameFilter != null && !dt.getName().toLowerCase().contains(nameFilter.toLowerCase())) continue;
+
+            Structure s = (Structure) dt;
+            JsonObject obj = new JsonObject();
+            obj.addProperty("name", s.getName());
+            obj.addProperty("size", s.getLength());
+            obj.addProperty("numFields", s.getNumComponents());
+            obj.addProperty("category", s.getCategoryPath().toString());
+            String desc = s.getDescription();
+            obj.addProperty("description", desc != null ? desc : "");
+            structs.add(obj);
+            count++;
+        }
+
+        JsonObject result = new JsonObject();
+        result.add("structures", structs);
+        result.addProperty("count", structs.size());
+        return result;
+    }
+
+    private JsonObject handleStructGet(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String name = getArgString(args, "name");
+        if (name == null) return errorResult("Struct name required");
+
+        Structure s = findStructByName(name);
+        if (s == null) return errorResult("Structure not found: " + name);
+
+        JsonObject result = new JsonObject();
+        result.addProperty("name", s.getName());
+        result.addProperty("size", s.getLength());
+        result.addProperty("category", s.getCategoryPath().toString());
+        String desc = s.getDescription();
+        result.addProperty("description", desc != null ? desc : "");
+        result.addProperty("alignment", s.getAlignment());
+
+        JsonArray fields = new JsonArray();
+        for (DataTypeComponent comp : s.getComponents()) {
+            JsonObject f = new JsonObject();
+            f.addProperty("name", comp.getFieldName());
+            f.addProperty("offset", comp.getOffset());
+            f.addProperty("size", comp.getLength());
+            f.addProperty("type", comp.getDataType().getName());
+            String comment = comp.getComment();
+            f.addProperty("comment", comment != null ? comment : "");
+            fields.add(f);
+        }
+        result.add("fields", fields);
+        return result;
+    }
+
+    private JsonObject handleStructCreate(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String name = getArgString(args, "name");
+        if (name == null) return errorResult("Struct name required");
+        int size = getArgInt(args, "size", 0);
+        String category = getArgString(args, "category");
+
+        try {
+            DataTypeManager dtm = currentProgram.getDataTypeManager();
+            int txId = currentProgram.startTransaction("Create structure");
+            try {
+                StructureDataType newStruct;
+                if (category != null) {
+                    newStruct = new StructureDataType(new ghidra.program.model.data.CategoryPath(category), name, size);
+                } else {
+                    newStruct = new StructureDataType(name, size);
+                }
+                dtm.addDataType(newStruct, null);
+                currentProgram.endTransaction(txId, true);
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+
+            JsonObject result = new JsonObject();
+            result.addProperty("status", "created");
+            result.addProperty("name", name);
+            result.addProperty("size", size);
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to create structure: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleStructAddField(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String structName = getArgString(args, "struct_name");
+        String fieldName = getArgString(args, "field_name");
+        String fieldType = getArgString(args, "field_type");
+        if (structName == null || fieldName == null || fieldType == null) {
+            return errorResult("struct_name, field_name, and field_type required");
+        }
+
+        try {
+            Structure s = findStructByName(structName);
+            if (s == null) return errorResult("Structure not found: " + structName);
+
+            DataType dt = resolveDataType(fieldType);
+            if (dt == null) return errorResult("Unknown field type: " + fieldType);
+
+            int txId = currentProgram.startTransaction("Add struct field");
+            try {
+                s.add(dt, dt.getLength(), fieldName, null);
+                currentProgram.endTransaction(txId, true);
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+
+            JsonObject result = new JsonObject();
+            result.addProperty("status", "added");
+            result.addProperty("struct_name", structName);
+            result.addProperty("field_name", fieldName);
+            result.addProperty("field_type", fieldType);
+            result.addProperty("struct_size", s.getLength());
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to add field: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleStructRenameField(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String structName = getArgString(args, "struct_name");
+        String oldName = getArgString(args, "old_name");
+        String newName = getArgString(args, "new_name");
+        if (structName == null || oldName == null || newName == null) {
+            return errorResult("struct_name, old_name, and new_name required");
+        }
+
+        try {
+            Structure s = findStructByName(structName);
+            if (s == null) return errorResult("Structure not found: " + structName);
+
+            DataTypeComponent target = null;
+            for (DataTypeComponent comp : s.getComponents()) {
+                if (oldName.equals(comp.getFieldName())) {
+                    target = comp;
+                    break;
+                }
+            }
+            if (target == null) return errorResult("Field not found: " + oldName);
+
+            int txId = currentProgram.startTransaction("Rename struct field");
+            try {
+                target.setFieldName(newName);
+                currentProgram.endTransaction(txId, true);
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+
+            JsonObject result = new JsonObject();
+            result.addProperty("status", "renamed");
+            result.addProperty("struct_name", structName);
+            result.addProperty("old_name", oldName);
+            result.addProperty("new_name", newName);
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to rename field: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleStructDelete(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String name = getArgString(args, "name");
+        if (name == null) return errorResult("Struct name required");
+
+        try {
+            Structure s = findStructByName(name);
+            if (s == null) return errorResult("Structure not found: " + name);
+
+            DataTypeManager dtm = currentProgram.getDataTypeManager();
+            int txId = currentProgram.startTransaction("Delete structure");
+            try {
+                dtm.remove(s, monitor);
+                currentProgram.endTransaction(txId, true);
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+
+            JsonObject result = new JsonObject();
+            result.addProperty("status", "deleted");
+            result.addProperty("name", name);
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to delete structure: " + e.getMessage());
         }
     }
 

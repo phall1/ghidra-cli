@@ -394,6 +394,71 @@ impl BridgeClient {
         self.send_command("script_list", None)
     }
 
+    pub fn struct_list(
+        &self,
+        limit: Option<usize>,
+        filter: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "struct_list",
+            Some(json!({"limit": limit, "filter": filter})),
+        )
+    }
+
+    pub fn struct_get(&self, name: &str) -> Result<serde_json::Value> {
+        self.send_command("struct_get", Some(json!({"name": name})))
+    }
+
+    pub fn struct_create(
+        &self,
+        name: &str,
+        size: Option<usize>,
+        category: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "struct_create",
+            Some(json!({"name": name, "size": size, "category": category})),
+        )
+    }
+
+    pub fn struct_add_field(
+        &self,
+        struct_name: &str,
+        field_name: &str,
+        field_type: &str,
+        size: Option<usize>,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "struct_add_field",
+            Some(json!({
+                "struct_name": struct_name,
+                "field_name": field_name,
+                "field_type": field_type,
+                "size": size,
+            })),
+        )
+    }
+
+    pub fn struct_rename_field(
+        &self,
+        struct_name: &str,
+        old_name: &str,
+        new_name: &str,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "struct_rename_field",
+            Some(json!({
+                "struct_name": struct_name,
+                "old_name": old_name,
+                "new_name": new_name,
+            })),
+        )
+    }
+
+    pub fn struct_delete(&self, name: &str) -> Result<serde_json::Value> {
+        self.send_command("struct_delete", Some(json!({"name": name})))
+    }
+
     pub fn program_close(&self) -> Result<serde_json::Value> {
         self.send_command("close_program", None)
     }
