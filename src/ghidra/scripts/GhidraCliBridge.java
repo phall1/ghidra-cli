@@ -202,6 +202,8 @@ public class GhidraCliBridge extends GhidraScript {
             case "rename_function": return handleRenameFunction(args);
             case "create_function": return handleCreateFunction(args);
             case "delete_function": return handleDeleteFunction(args);
+            case "set_function_signature": return handleSetFunctionSignature(args);
+            case "set_return_type":        return handleSetReturnType(args);
             case "decompile":       return handleDecompile(args);
             case "list_strings":    return handleListStrings(args);
             case "list_imports":    return handleListImports();
@@ -738,6 +740,111 @@ public class GhidraCliBridge extends GhidraScript {
             return result;
         } catch (Exception e) {
             return errorResult("Failed to delete function: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleSetFunctionSignature(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String target = getArgString(args, "function");
+        String signature = getArgString(args, "signature");
+        if (target == null || target.isEmpty()) return errorResult("function name or address required");
+        if (signature == null || signature.isEmpty()) return errorResult("signature required");
+
+        try {
+            Function func = findFunctionByNameOrAddress(target);
+            if (func == null) {
+                return errorResult(buildFunctionTargetHint(target));
+            }
+
+            ghidra.program.model.data.FunctionDefinitionDataType funcDef =
+                new ghidra.program.model.data.FunctionDefinitionDataType("tmpSig");
+
+            try {
+                ghidra.app.util.cparser.C.CParserUtils.CParseResults parseResults =
+                    ghidra.app.util.cparser.C.CParserUtils.parseSignature(null, currentProgram, signature);
+
+                if (parseResults != null && parseResults.failedMessage == null && parseResults.functionDefinition != null) {
+                    funcDef = parseResults.functionDefinition;
+                } else {
+                    String msg = (parseResults != null && parseResults.failedMessage != null)
+                        ? parseResults.failedMessage : "Could not parse";
+                    return errorResult("Invalid signature '" + signature + "': " + msg);
+                }
+            } catch (Exception parseEx) {
+                return errorResult("Failed to parse signature '" + signature + "': " + parseEx.getMessage());
+            }
+
+            int txId = currentProgram.startTransaction("Set function signature");
+            try {
+                ghidra.app.cmd.function.ApplyFunctionSignatureCmd cmd =
+                    new ghidra.app.cmd.function.ApplyFunctionSignatureCmd(
+                        func.getEntryPoint(),
+                        funcDef,
+                        SourceType.USER_DEFINED
+                    );
+                boolean success = cmd.applyTo(currentProgram);
+                if (!success) {
+                    currentProgram.endTransaction(txId, false);
+                    String statusMsg = cmd.getStatusMsg();
+                    return errorResult("Failed to apply signature: " + (statusMsg != null ? statusMsg : "unknown error"));
+                }
+                currentProgram.endTransaction(txId, true);
+
+                func = currentProgram.getFunctionManager().getFunctionAt(func.getEntryPoint());
+                JsonObject result = new JsonObject();
+                result.addProperty("status", "signature_set");
+                result.addProperty("function", func.getName());
+                result.addProperty("address", func.getEntryPoint().toString());
+                result.addProperty("signature", func.getPrototypeString(false, false));
+                return result;
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+        } catch (Exception e) {
+            return errorResult("Failed to set function signature: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleSetReturnType(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String target = getArgString(args, "function");
+        String typeName = getArgString(args, "type");
+        if (target == null || target.isEmpty()) return errorResult("function name or address required");
+        if (typeName == null || typeName.isEmpty()) return errorResult("type required");
+
+        try {
+            Function func = findFunctionByNameOrAddress(target);
+            if (func == null) {
+                return errorResult(buildFunctionTargetHint(target));
+            }
+
+            DataTypeManager dtm = currentProgram.getDataTypeManager();
+            DataType dt = resolveDataType(dtm, typeName);
+            if (dt == null) {
+                return errorResult("Unknown data type: " + typeName);
+            }
+
+            int txId = currentProgram.startTransaction("Set return type");
+            try {
+                func.setReturnType(dt, SourceType.USER_DEFINED);
+                currentProgram.endTransaction(txId, true);
+
+                JsonObject result = new JsonObject();
+                result.addProperty("status", "return_type_set");
+                result.addProperty("function", func.getName());
+                result.addProperty("address", func.getEntryPoint().toString());
+                result.addProperty("return_type", dt.getDisplayName());
+                result.addProperty("signature", func.getPrototypeString(false, false));
+                return result;
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+        } catch (Exception e) {
+            return errorResult("Failed to set return type: " + e.getMessage());
         }
     }
 

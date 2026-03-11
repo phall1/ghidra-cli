@@ -498,6 +498,40 @@ impl BridgeClient {
         )
     }
 
+    pub fn create_function(&self, address: &str, name: Option<&str>) -> Result<serde_json::Value> {
+        self.send_command(
+            "create_function",
+            Some(json!({"address": address, "name": name})),
+        )
+    }
+
+    pub fn delete_function(&self, target: &str) -> Result<serde_json::Value> {
+        self.send_command("delete_function", Some(json!({"address": target})))
+    }
+
+    #[allow(dead_code)]
+    pub fn get_function(&self, target: &str) -> Result<serde_json::Value> {
+        self.send_command("get_function", Some(json!({"address": target})))
+    }
+
+    pub fn set_function_signature(
+        &self,
+        function: &str,
+        signature: &str,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "set_function_signature",
+            Some(json!({"function": function, "signature": signature})),
+        )
+    }
+
+    pub fn set_return_type(&self, function: &str, return_type: &str) -> Result<serde_json::Value> {
+        self.send_command(
+            "set_return_type",
+            Some(json!({"function": function, "type": return_type})),
+        )
+    }
+
     pub fn program_close(&self) -> Result<serde_json::Value> {
         self.send_command("close_program", None)
     }
