@@ -336,6 +336,55 @@ struct StructDeleteParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+struct EnumCreateParams {
+    name: String,
+    size: Option<usize>,
+    category: Option<String>,
+    members: Option<Vec<EnumMember>>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, serde::Serialize)]
+struct EnumMember {
+    name: String,
+    value: i64,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct TypedefCreateParams {
+    name: String,
+    base_type: String,
+    category: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct ParseCTypeParams {
+    code: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct BookmarkListParams {
+    #[serde(rename = "type")]
+    bookmark_type: Option<String>,
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct BookmarkAddParams {
+    address: String,
+    #[serde(rename = "type")]
+    bookmark_type: Option<String>,
+    category: Option<String>,
+    comment: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct BookmarkDeleteParams {
+    address: String,
+    #[serde(rename = "type")]
+    bookmark_type: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 struct VariableListParams {
     /// Function name or address containing the variables
     function: String,
@@ -805,6 +854,41 @@ impl GhidraServer {
     #[tool(description = "Change the data type of a local variable or parameter. Accepts built-in types (int, long, char, byte, etc.) or any type defined in the program's data type manager.")]
     async fn retype_variable(&self, Parameters(p): Parameters<VariableRetypeParams>) -> Result<CallToolResult, McpError> {
         self.call_bridge(|c| c.variable_retype(&p.function, &p.variable, &p.new_type))
+    }
+
+    // === Data Type Management ===
+
+    #[tool(description = "Create an enum data type with named integer values. Members are [{name, value}, ...].")]
+    async fn create_enum(&self, Parameters(p): Parameters<EnumCreateParams>) -> Result<CallToolResult, McpError> {
+        let members = p.members.map(|m| serde_json::json!(m));
+        self.call_bridge(|c| c.enum_create(&p.name, p.size, p.category.as_deref(), members.as_ref()))
+    }
+
+    #[tool(description = "Create a typedef (type alias) for an existing data type. Example: typedef int DWORD")]
+    async fn create_typedef(&self, Parameters(p): Parameters<TypedefCreateParams>) -> Result<CallToolResult, McpError> {
+        self.call_bridge(|c| c.typedef_create(&p.name, &p.base_type, p.category.as_deref()))
+    }
+
+    #[tool(description = "Parse a C type definition string and add the resulting type to the program. Supports struct, union, enum, typedef definitions.")]
+    async fn parse_c_type(&self, Parameters(p): Parameters<ParseCTypeParams>) -> Result<CallToolResult, McpError> {
+        self.call_bridge(|c| c.parse_c_type(&p.code))
+    }
+
+    // === Bookmarks ===
+
+    #[tool(description = "List bookmarks in the program. Bookmarks mark interesting addresses with type (Note/Warning/Error/Analysis), category, and comment.")]
+    async fn list_bookmarks(&self, Parameters(p): Parameters<BookmarkListParams>) -> Result<CallToolResult, McpError> {
+        self.call_bridge(|c| c.bookmark_list(p.bookmark_type.as_deref(), p.limit))
+    }
+
+    #[tool(description = "Add a bookmark at an address to mark it for later review. Types: Note (default), Warning, Error, Analysis.")]
+    async fn add_bookmark(&self, Parameters(p): Parameters<BookmarkAddParams>) -> Result<CallToolResult, McpError> {
+        self.call_bridge(|c| c.bookmark_add(&p.address, p.bookmark_type.as_deref(), p.category.as_deref(), p.comment.as_deref()))
+    }
+
+    #[tool(description = "Delete bookmark(s) at an address. Optionally filter by type to delete only specific bookmark types.")]
+    async fn delete_bookmark(&self, Parameters(p): Parameters<BookmarkDeleteParams>) -> Result<CallToolResult, McpError> {
+        self.call_bridge(|c| c.bookmark_delete(&p.address, p.bookmark_type.as_deref()))
     }
 
     // === Batch ===

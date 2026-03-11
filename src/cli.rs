@@ -75,6 +75,19 @@ pub enum Commands {
     #[command(subcommand, alias = "var")]
     Variable(VariableCommands),
 
+    /// Enum operations (create)
+    #[command(subcommand, alias = "en")]
+    Enum(EnumCommands),
+    /// Typedef operations (create)
+    #[command(subcommand)]
+    Typedef(TypedefCommands),
+    /// Parse a C type definition and add it to the program
+    #[command(alias = "parse-c")]
+    ParseC(ParseCTypeArgs),
+    /// Bookmark operations (list, add, delete)
+    #[command(subcommand, alias = "bm")]
+    Bookmark(BookmarkCommands),
+
     /// Comment operations
     #[command(subcommand, alias = "comments")]
     Comment(CommentCommands),
@@ -679,6 +692,118 @@ pub struct VariableRetypeArgs {
     pub variable: String,
     /// New data type (e.g. int, long, char*, pointer, or any defined type)
     pub new_type: String,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
+pub enum EnumCommands {
+    /// Create a new enum type with optional members
+    Create(EnumCreateArgs),
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct EnumCreateArgs {
+    /// Enum name
+    pub name: String,
+    /// Size in bytes (default: 4)
+    #[arg(long, default_value = "4")]
+    pub size: usize,
+    /// Category path (e.g. "/MyTypes")
+    #[arg(long)]
+    pub category: Option<String>,
+    /// Members as JSON array: '[{"name":"X","value":0}]'
+    #[arg(long)]
+    pub members: Option<String>,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
+pub enum TypedefCommands {
+    /// Create a typedef alias for an existing type
+    Create(TypedefCreateArgs),
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct TypedefCreateArgs {
+    /// Typedef name
+    pub name: String,
+    /// Base type name
+    pub base_type: String,
+    /// Category path
+    #[arg(long)]
+    pub category: Option<String>,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct ParseCTypeArgs {
+    /// C type definition (e.g. "struct foo { int x; int y; }")
+    pub code: String,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
+pub enum BookmarkCommands {
+    /// List bookmarks
+    #[command(alias = "ls")]
+    List(BookmarkListArgs),
+    /// Add a bookmark at an address
+    Add(BookmarkAddArgs),
+    /// Delete bookmark(s) at an address
+    Delete(BookmarkDeleteArgs),
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct BookmarkListArgs {
+    /// Filter by bookmark type (e.g. Note, Warning, Error, Analysis)
+    #[arg(long, name = "type")]
+    pub bookmark_type: Option<String>,
+    #[arg(long)]
+    pub limit: Option<usize>,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct BookmarkAddArgs {
+    /// Address to bookmark
+    pub address: String,
+    /// Bookmark type (default: Note)
+    #[arg(long, name = "type", default_value = "Note")]
+    pub bookmark_type: String,
+    /// Category label
+    #[arg(long)]
+    pub category: Option<String>,
+    /// Comment text
+    #[arg(long)]
+    pub comment: Option<String>,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct BookmarkDeleteArgs {
+    /// Address of bookmark to delete
+    pub address: String,
+    /// Only delete bookmarks of this type
+    #[arg(long, name = "type")]
+    pub bookmark_type: Option<String>,
     #[arg(long)]
     pub program: Option<String>,
     #[arg(long)]

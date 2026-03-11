@@ -131,6 +131,10 @@ fn requires_bridge(command: &Commands) -> bool {
             | Commands::Rename(_)
             | Commands::Struct(_)
             | Commands::Variable(_)
+            | Commands::Enum(_)
+            | Commands::Typedef(_)
+            | Commands::ParseC(_)
+            | Commands::Bookmark(_)
     )
 }
 
@@ -249,6 +253,18 @@ fn extract_project_from_command(command: &Commands) -> Option<String> {
             cli::VariableCommands::Rename(args) => args.project.clone(),
             cli::VariableCommands::Retype(args) => args.project.clone(),
         },
+        Commands::Enum(cmd) => match cmd {
+            cli::EnumCommands::Create(args) => args.project.clone(),
+        },
+        Commands::Typedef(cmd) => match cmd {
+            cli::TypedefCommands::Create(args) => args.project.clone(),
+        },
+        Commands::ParseC(args) => args.project.clone(),
+        Commands::Bookmark(cmd) => match cmd {
+            cli::BookmarkCommands::List(args) => args.project.clone(),
+            cli::BookmarkCommands::Add(args) => args.project.clone(),
+            cli::BookmarkCommands::Delete(args) => args.project.clone(),
+        },
         _ => None,
     }
 }
@@ -364,6 +380,18 @@ fn extract_program_from_command(command: &Commands) -> Option<String> {
             cli::VariableCommands::List(args) => args.program.clone(),
             cli::VariableCommands::Rename(args) => args.program.clone(),
             cli::VariableCommands::Retype(args) => args.program.clone(),
+        },
+        Commands::Enum(cmd) => match cmd {
+            cli::EnumCommands::Create(args) => args.program.clone(),
+        },
+        Commands::Typedef(cmd) => match cmd {
+            cli::TypedefCommands::Create(args) => args.program.clone(),
+        },
+        Commands::ParseC(args) => args.program.clone(),
+        Commands::Bookmark(cmd) => match cmd {
+            cli::BookmarkCommands::List(args) => args.program.clone(),
+            cli::BookmarkCommands::Add(args) => args.program.clone(),
+            cli::BookmarkCommands::Delete(args) => args.program.clone(),
         },
         _ => None,
     }
@@ -997,6 +1025,40 @@ fn execute_via_bridge(
                 }
                 VariableCommands::Retype(args) => {
                     client.variable_retype(&args.function, &args.variable, &args.new_type)
+                }
+            }
+        }
+        Commands::Enum(cmd) => {
+            use cli::EnumCommands;
+            match cmd {
+                EnumCommands::Create(args) => {
+                    let members: Option<serde_json::Value> = args.members
+                        .as_ref()
+                        .and_then(|m| serde_json::from_str(m).ok());
+                    client.enum_create(&args.name, Some(args.size), args.category.as_deref(), members.as_ref())
+                }
+            }
+        }
+        Commands::Typedef(cmd) => {
+            use cli::TypedefCommands;
+            match cmd {
+                TypedefCommands::Create(args) => {
+                    client.typedef_create(&args.name, &args.base_type, args.category.as_deref())
+                }
+            }
+        }
+        Commands::ParseC(args) => client.parse_c_type(&args.code),
+        Commands::Bookmark(cmd) => {
+            use cli::BookmarkCommands;
+            match cmd {
+                BookmarkCommands::List(args) => {
+                    client.bookmark_list(args.bookmark_type.as_deref(), args.limit)
+                }
+                BookmarkCommands::Add(args) => {
+                    client.bookmark_add(&args.address, Some(args.bookmark_type.as_str()), args.category.as_deref(), args.comment.as_deref())
+                }
+                BookmarkCommands::Delete(args) => {
+                    client.bookmark_delete(&args.address, args.bookmark_type.as_deref())
                 }
             }
         }
