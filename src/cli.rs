@@ -183,6 +183,16 @@ pub enum Commands {
     /// Rename a symbol (shortcut for `symbol rename`)
     #[command(alias = "mv")]
     Rename(RenameArgs),
+
+    /// Start MCP server for LLM integration (stdio transport)
+    Mcp {
+        /// Project path
+        #[arg(long)]
+        project: Option<String>,
+        /// Program name to load
+        #[arg(long)]
+        program: Option<String>,
+    },
 }
 
 #[derive(Args, Clone, Serialize, Deserialize, Debug)]

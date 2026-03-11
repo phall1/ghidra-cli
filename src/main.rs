@@ -5,6 +5,7 @@ mod filter;
 mod format;
 mod ghidra;
 mod ipc;
+mod mcp;
 mod query;
 
 use clap::Parser;
@@ -72,6 +73,7 @@ fn main() {
         | Commands::Restart { .. }
         | Commands::Status { .. }
         | Commands::Ping { .. } => handle_bridge_command(cli),
+        Commands::Mcp { .. } => handle_mcp_command(cli),
         _ => run_command(cli),
     };
 
@@ -945,7 +947,53 @@ fn handle_bridge_command(cli: Cli) -> anyhow::Result<()> {
     }
 }
 
-/// Start the bridge for a project.
+fn handle_mcp_command(cli: Cli) -> anyhow::Result<()> {
+    let (project, program) = match cli.command {
+        Commands::Mcp { project, program } => (project, program),
+        _ => unreachable!(),
+    };
+
+    let config = Config::load()?;
+    let project_path = resolve_project_path(&project, &config)?;
+    let ghidra_install_dir = config
+        .ghidra_install_dir
+        .clone()
+        .or_else(|| config.get_ghidra_install_dir().ok())
+        .ok_or_else(|| {
+            anyhow::anyhow!("Ghidra installation directory not configured. Run 'ghidra setup' first.")
+        })?;
+
+    let mode = if let Some(prog) = &program {
+        BridgeStartMode::Process {
+            program_name: prog.clone(),
+        }
+    } else {
+        BridgeStartMode::Project
+    };
+
+    let port = bridge::ensure_bridge_running(&project_path, &ghidra_install_dir, mode)?;
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| anyhow::anyhow!("Failed to build tokio runtime: {}", e))?;
+
+    let ghidra_install_str = ghidra_install_dir
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Invalid ghidra install dir path"))?
+        .to_string();
+
+    let project_path_str = project_path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Invalid project path"))?
+        .to_string();
+
+    rt.block_on(async {
+        let server = mcp::GhidraServer::new(port, project_path_str, ghidra_install_str);
+        server.run_stdio().await
+    })
+}
+
 fn handle_bridge_start(project: Option<String>, program: Option<String>) -> anyhow::Result<()> {
     let config = Config::load()?;
     let project_path = resolve_project_path(&project, &config)?;
