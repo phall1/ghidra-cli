@@ -82,7 +82,6 @@ pub enum Commands {
     #[command(subcommand)]
     Typedef(TypedefCommands),
     /// Parse a C type definition and add it to the program
-    #[command(alias = "parse-c")]
     ParseC(ParseCTypeArgs),
     /// Bookmark operations (list, add, delete)
     #[command(subcommand, alias = "bm")]
