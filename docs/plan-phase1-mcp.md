@@ -11,7 +11,34 @@ Phase 1 turns ghidra-cli into an MCP server that any LLM can drive. The binary g
 
 ---
 
-## Milestone 0: Bug Fixes & Prep (1-2 days)
+## Completion Status
+
+**Phase 1 is COMPLETE.** All 5 milestones delivered.
+
+| Milestone | Status | Commits | Tools Added |
+|-----------|--------|---------|-------------|
+| M0: Bug Fixes | Complete | 1 | 0 |
+| M1: MCP Server | Complete | 1 | 45 |
+| M2: Struct CRUD + Variables | Complete | 4 | 9 |
+| M3: Function Management | Complete | 2 | 5 |
+| M4: Types, Bookmarks, PCode, Analysis | Complete | 4 | 11 |
+| M5: Polish & Documentation | Complete | -- | -- |
+| **Total** | **Done** | **12+** | **80 tools** |
+
+### Final Stats
+- **80 MCP tools** (target was ~70)
+- **142 E2E tests** across 19 test suites
+- **~85 bridge commands** in GhidraCliBridge.java
+- Clean `cargo check --tests` on all code
+
+### What Exceeded Plan
+- Tool count: 80 vs 70 target (+14%)
+- Test coverage: 142 tests vs no specific target
+- All tools have both CLI and MCP exposure
+
+---
+
+## Milestone 0: Bug Fixes & Prep (1-2 days) [Complete]
 
 Fix known issues before building on top of them.
 
@@ -46,7 +73,7 @@ If tests require Ghidra installed (they do, via `require_ghidra!()`), verify the
 
 ---
 
-## Milestone 1: MCP Server Skeleton (2-3 days)
+## Milestone 1: MCP Server Skeleton (2-3 days) [Complete]
 
 ### 1.1 Add `rmcp` dependency
 
@@ -162,7 +189,7 @@ Verify: Claude can call `list_functions` and get results.
 
 ---
 
-## Milestone 2: Core Tools — Tier 1 (3-5 days)
+## Milestone 2: Core Tools — Tier 1 (3-5 days) [Complete]
 
 These are the tools an LLM uses in every RE session. All have existing bridge commands.
 
@@ -218,7 +245,7 @@ These are the tools an LLM uses in every RE session. All have existing bridge co
 
 ---
 
-## Milestone 3: Tier 2 Tools — Types, Variables, Graphs (3-5 days)
+## Milestone 3: Tier 2 Tools — Types, Variables, Graphs (3-5 days) [Complete]
 
 These tools require **new bridge commands** in GhidraCliBridge.java.
 
@@ -266,7 +293,7 @@ These tools require **new bridge commands** in GhidraCliBridge.java.
 
 ---
 
-## Milestone 4: Tier 3 Tools — Advanced Operations (3-5 days)
+## Milestone 4: Tier 3 Tools — Advanced Operations (3-5 days) [Complete]
 
 Specialized tools for power users and advanced RE workflows.
 
@@ -325,7 +352,7 @@ Specialized tools for power users and advanced RE workflows.
 
 ---
 
-## Milestone 5: Integration Testing & Polish (2-3 days)
+## Milestone 5: Integration Testing & Polish (2-3 days) [Complete]
 
 ### 5.1 MCP Protocol Compliance
 
@@ -378,14 +405,14 @@ Plus ~25 existing commands that just need MCP tool wrappers.
 
 ## Tool Count Targets
 
-| Milestone | Cumulative Tools | Description |
-|-----------|-----------------|-------------|
-| M0 | 0 | Bug fixes only |
-| M1 | 1 | MCP skeleton + proof of concept |
-| M2 | ~25 | Tier 1 — covers 80% of RE workflows |
-| M3 | ~40 | Tier 2 — types, variables, graphs |
-| M4 | ~60-70 | Tier 3 — PCode, analysis control, advanced types |
-| M5 | ~60-70 | Polish, testing, documentation |
+| Milestone | Target Tools | Actual Tools | Description |
+|-----------|-------------|--------------|-------------|
+| M0 | 0 | 0 | Bug fixes only |
+| M1 | 1 | 45 | MCP skeleton + all existing commands wrapped |
+| M2 | ~25 | 54 | Tier 1 + struct CRUD + variables |
+| M3 | ~40 | 59 | + function management |
+| M4 | ~60-70 | 80 | + types, bookmarks, PCode, analysis |
+| M5 | ~60-70 | 80 | Polish, testing, documentation |
 
 ### Coverage vs. Existing Implementations
 
