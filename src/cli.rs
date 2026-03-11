@@ -67,6 +67,10 @@ pub enum Commands {
     #[command(subcommand, alias = "types")]
     Type(TypeCommands),
 
+    /// Struct/structure operations
+    #[command(subcommand, alias = "structs", alias = "structure")]
+    Struct(StructCommands),
+
     /// Comment operations
     #[command(subcommand, alias = "comments")]
     Comment(CommentCommands),
@@ -515,6 +519,78 @@ pub struct CreateTypeArgs {
 pub struct ApplyTypeArgs {
     pub address: String,
     pub type_name: String,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
+pub enum StructCommands {
+    /// List all structures
+    #[command(alias = "ls")]
+    List(QueryOptions),
+    /// Get structure details
+    #[command(alias = "show")]
+    Get(StructGetArgs),
+    /// Create a new structure
+    Create(StructCreateArgs),
+    /// Add a field to a structure
+    #[command(alias = "add")]
+    AddField(StructAddFieldArgs),
+    /// Rename a field in a structure
+    RenameField(StructRenameFieldArgs),
+    /// Delete a structure
+    Delete(StructDeleteArgs),
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct StructGetArgs {
+    pub name: String,
+    #[command(flatten)]
+    pub options: QueryOptions,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct StructCreateArgs {
+    pub name: String,
+    #[arg(long)]
+    pub size: Option<usize>,
+    #[arg(long)]
+    pub category: Option<String>,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct StructAddFieldArgs {
+    pub struct_name: String,
+    pub field_name: String,
+    pub field_type: String,
+    #[arg(long)]
+    pub size: Option<usize>,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct StructRenameFieldArgs {
+    pub struct_name: String,
+    pub old_name: String,
+    pub new_name: String,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct StructDeleteArgs {
+    pub name: String,
     #[arg(long)]
     pub program: Option<String>,
     #[arg(long)]

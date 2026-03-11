@@ -298,6 +298,44 @@ struct GraphExportParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+struct StructListParams {
+    limit: Option<usize>,
+    filter: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct StructGetParams {
+    name: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct StructCreateParams {
+    name: String,
+    size: Option<usize>,
+    category: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct StructAddFieldParams {
+    struct_name: String,
+    field_name: String,
+    field_type: String,
+    size: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct StructRenameFieldParams {
+    struct_name: String,
+    old_name: String,
+    new_name: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct StructDeleteParams {
+    name: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 struct BatchParams {
     commands: Vec<String>,
 }
@@ -627,6 +665,38 @@ impl GhidraServer {
     #[tool(description = "List all exported functions/symbols")]
     async fn list_exports(&self, #[allow(unused)] _p: Parameters<EmptyParams>) -> Result<CallToolResult, McpError> {
         self.call_bridge(|c| c.list_exports())
+    }
+
+    // === Structures ===
+
+    #[tool(description = "List all structures (C structs) defined in the program's data type manager")]
+    async fn list_structures(&self, Parameters(p): Parameters<StructListParams>) -> Result<CallToolResult, McpError> {
+        self.call_bridge(|c| c.struct_list(p.limit, p.filter.as_deref()))
+    }
+
+    #[tool(description = "Get detailed information about a structure including all fields, offsets, and types")]
+    async fn get_structure(&self, Parameters(p): Parameters<StructGetParams>) -> Result<CallToolResult, McpError> {
+        self.call_bridge(|c| c.struct_get(&p.name))
+    }
+
+    #[tool(description = "Create a new empty structure. Optionally specify initial size and category path.")]
+    async fn create_structure(&self, Parameters(p): Parameters<StructCreateParams>) -> Result<CallToolResult, McpError> {
+        self.call_bridge(|c| c.struct_create(&p.name, p.size, p.category.as_deref()))
+    }
+
+    #[tool(description = "Add a field to an existing structure. field_type can be: int, byte, char, short, long, float, double, void, pointer, or any existing type name.")]
+    async fn add_struct_field(&self, Parameters(p): Parameters<StructAddFieldParams>) -> Result<CallToolResult, McpError> {
+        self.call_bridge(|c| c.struct_add_field(&p.struct_name, &p.field_name, &p.field_type, p.size))
+    }
+
+    #[tool(description = "Rename a field within a structure")]
+    async fn rename_struct_field(&self, Parameters(p): Parameters<StructRenameFieldParams>) -> Result<CallToolResult, McpError> {
+        self.call_bridge(|c| c.struct_rename_field(&p.struct_name, &p.old_name, &p.new_name))
+    }
+
+    #[tool(description = "Delete a structure from the program's data type manager")]
+    async fn delete_structure(&self, Parameters(p): Parameters<StructDeleteParams>) -> Result<CallToolResult, McpError> {
+        self.call_bridge(|c| c.struct_delete(&p.name))
     }
 
     // === Batch ===

@@ -129,6 +129,7 @@ fn requires_bridge(command: &Commands) -> bool {
             | Commands::Stats(_)
             | Commands::Program(_)
             | Commands::Rename(_)
+            | Commands::Struct(_)
     )
 }
 
@@ -232,6 +233,14 @@ fn extract_project_from_command(command: &Commands) -> Option<String> {
         },
         Commands::Batch(args) => args.project.clone(),
         Commands::Rename(args) => args.project.clone(),
+        Commands::Struct(cmd) => match cmd {
+            cli::StructCommands::List(opts) => opts.project.clone(),
+            cli::StructCommands::Get(args) => args.options.project.clone(),
+            cli::StructCommands::Create(args) => args.project.clone(),
+            cli::StructCommands::AddField(args) => args.project.clone(),
+            cli::StructCommands::RenameField(args) => args.project.clone(),
+            cli::StructCommands::Delete(args) => args.project.clone(),
+        },
         _ => None,
     }
 }
@@ -333,6 +342,14 @@ fn extract_program_from_command(command: &Commands) -> Option<String> {
         },
         Commands::Batch(args) => args.program.clone(),
         Commands::Rename(args) => args.program.clone(),
+        Commands::Struct(cmd) => match cmd {
+            cli::StructCommands::List(opts) => opts.program.clone(),
+            cli::StructCommands::Get(args) => args.options.program.clone(),
+            cli::StructCommands::Create(args) => args.program.clone(),
+            cli::StructCommands::AddField(args) => args.program.clone(),
+            cli::StructCommands::RenameField(args) => args.program.clone(),
+            cli::StructCommands::Delete(args) => args.program.clone(),
+        },
         _ => None,
     }
 }
@@ -404,6 +421,11 @@ fn extract_query_options(command: &Commands) -> Option<QueryOptions> {
             cli::FindCommands::Calls(args) => Some(args.options.clone()),
             cli::FindCommands::Crypto(opts) => Some(opts.clone()),
             cli::FindCommands::Interesting(opts) => Some(opts.clone()),
+        },
+        Commands::Struct(cmd) => match cmd {
+            cli::StructCommands::List(opts) => Some(opts.clone()),
+            cli::StructCommands::Get(args) => Some(args.options.clone()),
+            _ => None,
         },
         _ => None,
     }
@@ -927,6 +949,25 @@ fn execute_via_bridge(
         }
         Commands::Stats(_) => client.stats(),
         Commands::Rename(args) => client.symbol_rename(&args.old_name, &args.new_name),
+        Commands::Struct(cmd) => {
+            use cli::StructCommands;
+            match cmd {
+                StructCommands::List(opts) => {
+                    client.struct_list(opts.limit.or(default_limit), opts.filter.as_deref())
+                }
+                StructCommands::Get(args) => client.struct_get(&args.name),
+                StructCommands::Create(args) => {
+                    client.struct_create(&args.name, args.size, args.category.as_deref())
+                }
+                StructCommands::AddField(args) => {
+                    client.struct_add_field(&args.struct_name, &args.field_name, &args.field_type, args.size)
+                }
+                StructCommands::RenameField(args) => {
+                    client.struct_rename_field(&args.struct_name, &args.old_name, &args.new_name)
+                }
+                StructCommands::Delete(args) => client.struct_delete(&args.name),
+            }
+        }
         _ => anyhow::bail!("Command not supported"),
     }
 }
@@ -1459,6 +1500,7 @@ fn unwrap_bridge_response(value: serde_json::Value) -> Vec<serde_json::Value> {
         "instructions",
         "sections",
         "references",
+        "structures",
     ];
 
     // Metadata keys that accompany array keys (not data themselves)
