@@ -459,6 +459,45 @@ impl BridgeClient {
         self.send_command("struct_delete", Some(json!({"name": name})))
     }
 
+    pub fn variable_list(&self, function: &str, limit: Option<usize>) -> Result<serde_json::Value> {
+        self.send_command(
+            "variable_list",
+            Some(json!({"function": function, "limit": limit})),
+        )
+    }
+
+    pub fn variable_rename(
+        &self,
+        function: &str,
+        old_name: &str,
+        new_name: &str,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "variable_rename",
+            Some(json!({
+                "function": function,
+                "old_name": old_name,
+                "new_name": new_name,
+            })),
+        )
+    }
+
+    pub fn variable_retype(
+        &self,
+        function: &str,
+        variable: &str,
+        new_type: &str,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "variable_retype",
+            Some(json!({
+                "function": function,
+                "variable": variable,
+                "new_type": new_type,
+            })),
+        )
+    }
+
     pub fn program_close(&self) -> Result<serde_json::Value> {
         self.send_command("close_program", None)
     }

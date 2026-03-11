@@ -25,6 +25,12 @@ import ghidra.program.model.listing.*;
 import ghidra.program.model.mem.Memory;
 import ghidra.program.model.mem.MemoryBlock;
 import ghidra.program.model.symbol.*;
+import ghidra.program.model.pcode.HighFunction;
+import ghidra.program.model.pcode.HighSymbol;
+import ghidra.program.model.pcode.HighFunctionDBUtil;
+import ghidra.program.model.pcode.HighFunctionDBUtil.ReturnCommitOption;
+import ghidra.program.model.pcode.LocalSymbolMap;
+import ghidra.program.model.pcode.HighVariable;
 import ghidra.util.task.ConsoleTaskMonitor;
 import ghidra.util.task.TaskMonitor;
 
@@ -236,6 +242,10 @@ public class GhidraCliBridge extends GhidraScript {
             case "struct_add_field":    return handleStructAddField(args);
             case "struct_rename_field": return handleStructRenameField(args);
             case "struct_delete":       return handleStructDelete(args);
+            // Variable commands
+            case "variable_list":     return handleVariableList(args);
+            case "variable_rename":   return handleVariableRename(args);
+            case "variable_retype":   return handleVariableRetype(args);
             // Comment commands
             case "comment_list":    return handleCommentList(args);
             case "comment_get":     return handleCommentGet(args);
@@ -2464,6 +2474,234 @@ public class GhidraCliBridge extends GhidraScript {
             return result;
         } catch (Exception e) {
             return errorResult("Failed to delete structure: " + e.getMessage());
+        }
+    }
+
+    // --- Variable Handlers ---
+
+    private boolean checkFullCommit(HighSymbol highSymbol, HighFunction hfunction) {
+        if (highSymbol != null && !highSymbol.isParameter()) {
+            return false;
+        }
+        Function function = hfunction.getFunction();
+        Parameter[] parameters = function.getParameters();
+        LocalSymbolMap localSymbolMap = hfunction.getLocalSymbolMap();
+        int numParams = localSymbolMap.getNumParams();
+        if (numParams != parameters.length) {
+            return true;
+        }
+        for (int i = 0; i < numParams; i++) {
+            HighSymbol param = localSymbolMap.getParamSymbol(i);
+            if (param.getCategoryIndex() != i) {
+                return true;
+            }
+            VariableStorage storage = param.getStorage();
+            if (0 != storage.compareTo(parameters[i].getVariableStorage())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private JsonObject handleVariableList(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String target = getArgString(args, "function");
+        if (target == null || target.isEmpty()) {
+            return errorResult("function name or address required");
+        }
+
+        try {
+            Function func = findFunctionByNameOrAddress(target);
+            if (func == null) {
+                return errorResult(buildFunctionTargetHint(target));
+            }
+
+            DecompInterface decomp = new DecompInterface();
+            try {
+                decomp.openProgram(currentProgram);
+                DecompileResults results = decomp.decompileFunction(func, 30, new ConsoleTaskMonitor());
+                if (!results.decompileCompleted()) {
+                    return errorResult("Decompilation failed for " + func.getName());
+                }
+
+                HighFunction hf = results.getHighFunction();
+                LocalSymbolMap lsm = hf.getLocalSymbolMap();
+
+                JsonArray variables = new JsonArray();
+                Iterator<HighSymbol> it = lsm.getSymbols();
+                while (it.hasNext()) {
+                    HighSymbol sym = it.next();
+                    JsonObject varObj = new JsonObject();
+                    varObj.addProperty("name", sym.getName());
+                    varObj.addProperty("data_type", sym.getDataType().getDisplayName());
+                    varObj.addProperty("size", sym.getSize());
+                    varObj.addProperty("is_parameter", sym.isParameter());
+                    varObj.addProperty("storage", sym.getStorage().toString());
+                    if (sym.isParameter()) {
+                        varObj.addProperty("parameter_index", sym.getCategoryIndex());
+                    }
+                    variables.add(varObj);
+                }
+
+                JsonObject result = new JsonObject();
+                result.addProperty("function", func.getName());
+                result.addProperty("address", func.getEntryPoint().toString());
+                result.addProperty("count", variables.size());
+                result.add("variables", variables);
+                return result;
+            } finally {
+                decomp.dispose();
+            }
+        } catch (Exception e) {
+            return errorResult("Failed to list variables: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleVariableRename(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String target = getArgString(args, "function");
+        String oldName = getArgString(args, "old_name");
+        String newName = getArgString(args, "new_name");
+        if (target == null || target.isEmpty()) return errorResult("function name or address required");
+        if (oldName == null || oldName.isEmpty()) return errorResult("old_name required");
+        if (newName == null || newName.isEmpty()) return errorResult("new_name required");
+
+        try {
+            Function func = findFunctionByNameOrAddress(target);
+            if (func == null) {
+                return errorResult(buildFunctionTargetHint(target));
+            }
+
+            DecompInterface decomp = new DecompInterface();
+            try {
+                decomp.openProgram(currentProgram);
+                DecompileResults results = decomp.decompileFunction(func, 30, new ConsoleTaskMonitor());
+                if (!results.decompileCompleted()) {
+                    return errorResult("Decompilation failed for " + func.getName());
+                }
+
+                HighFunction hf = results.getHighFunction();
+                HighSymbol sym = null;
+                Iterator<HighSymbol> it = hf.getLocalSymbolMap().getSymbols();
+                while (it.hasNext()) {
+                    HighSymbol s = it.next();
+                    if (s.getName().equals(oldName)) {
+                        sym = s;
+                        break;
+                    }
+                }
+                if (sym == null) {
+                    return errorResult("Variable not found: " + oldName);
+                }
+
+                boolean commitRequired = checkFullCommit(sym, hf);
+                int txId = currentProgram.startTransaction("Rename Variable");
+                try {
+                    if (commitRequired) {
+                        HighFunctionDBUtil.commitParamsToDatabase(
+                            hf, false, ReturnCommitOption.NO_COMMIT,
+                            func.getSignatureSource());
+                    }
+                    HighFunctionDBUtil.updateDBVariable(sym, newName, null, SourceType.USER_DEFINED);
+                    currentProgram.endTransaction(txId, true);
+
+                    JsonObject result = new JsonObject();
+                    result.addProperty("status", "renamed");
+                    result.addProperty("function", func.getName());
+                    result.addProperty("old_name", oldName);
+                    result.addProperty("new_name", newName);
+                    return result;
+                } catch (Exception e) {
+                    currentProgram.endTransaction(txId, false);
+                    throw e;
+                }
+            } finally {
+                decomp.dispose();
+            }
+        } catch (Exception e) {
+            return errorResult("Failed to rename variable: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleVariableRetype(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String target = getArgString(args, "function");
+        String varName = getArgString(args, "variable");
+        String typeName = getArgString(args, "new_type");
+        if (target == null || target.isEmpty()) return errorResult("function name or address required");
+        if (varName == null || varName.isEmpty()) return errorResult("variable name required");
+        if (typeName == null || typeName.isEmpty()) return errorResult("new_type required");
+
+        try {
+            Function func = findFunctionByNameOrAddress(target);
+            if (func == null) {
+                return errorResult(buildFunctionTargetHint(target));
+            }
+
+            DataTypeManager dtm = currentProgram.getDataTypeManager();
+            DataType newDt = resolveDataType(dtm, typeName);
+            if (newDt == null) {
+                return errorResult("Unknown data type: " + typeName);
+            }
+            if (newDt.getDataTypeManager() != dtm) {
+                newDt = dtm.resolve(newDt, null);
+            }
+
+            DecompInterface decomp = new DecompInterface();
+            try {
+                decomp.openProgram(currentProgram);
+                DecompileResults results = decomp.decompileFunction(func, 30, new ConsoleTaskMonitor());
+                if (!results.decompileCompleted()) {
+                    return errorResult("Decompilation failed for " + func.getName());
+                }
+
+                HighFunction hf = results.getHighFunction();
+                HighSymbol sym = null;
+                Iterator<HighSymbol> it = hf.getLocalSymbolMap().getSymbols();
+                while (it.hasNext()) {
+                    HighSymbol s = it.next();
+                    if (s.getName().equals(varName)) {
+                        sym = s;
+                        break;
+                    }
+                }
+                if (sym == null) {
+                    return errorResult("Variable not found: " + varName);
+                }
+
+                boolean commitRequired = checkFullCommit(sym, hf);
+                int txId = currentProgram.startTransaction("Retype Variable");
+                boolean success = false;
+                try {
+                    if (commitRequired) {
+                        boolean useDataTypes = func.getSignatureSource() != SourceType.DEFAULT;
+                        HighFunctionDBUtil.commitParamsToDatabase(
+                            hf, useDataTypes, ReturnCommitOption.NO_COMMIT,
+                            SourceType.USER_DEFINED);
+                    }
+                    HighFunctionDBUtil.updateDBVariable(sym, null, newDt, SourceType.USER_DEFINED);
+                    success = true;
+                    currentProgram.endTransaction(txId, true);
+
+                    JsonObject result = new JsonObject();
+                    result.addProperty("status", "retyped");
+                    result.addProperty("function", func.getName());
+                    result.addProperty("variable", varName);
+                    result.addProperty("old_type", sym.getDataType().getDisplayName());
+                    result.addProperty("new_type", newDt.getDisplayName());
+                    return result;
+                } catch (Exception e) {
+                    currentProgram.endTransaction(txId, false);
+                    throw e;
+                }
+            } finally {
+                decomp.dispose();
+            }
+        } catch (Exception e) {
+            return errorResult("Failed to retype variable: " + e.getMessage());
         }
     }
 
