@@ -248,6 +248,14 @@ public class GhidraCliBridge extends GhidraScript {
             case "variable_list":     return handleVariableList(args);
             case "variable_rename":   return handleVariableRename(args);
             case "variable_retype":   return handleVariableRetype(args);
+            // Data type commands
+            case "enum_create":       return handleEnumCreate(args);
+            case "typedef_create":    return handleTypedefCreate(args);
+            case "parse_c_type":      return handleParseCType(args);
+            // Bookmark commands
+            case "bookmark_list":    return handleBookmarkList(args);
+            case "bookmark_add":     return handleBookmarkAdd(args);
+            case "bookmark_delete":  return handleBookmarkDelete(args);
             // Comment commands
             case "comment_list":    return handleCommentList(args);
             case "comment_get":     return handleCommentGet(args);
@@ -2809,6 +2817,259 @@ public class GhidraCliBridge extends GhidraScript {
             }
         } catch (Exception e) {
             return errorResult("Failed to retype variable: " + e.getMessage());
+        }
+    }
+
+    // --- Data Type Creation Handlers ---
+
+    private JsonObject handleEnumCreate(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String name = getArgString(args, "name");
+        int size = getArgInt(args, "size", 4);
+        String category = getArgString(args, "category");
+        if (name == null || name.isEmpty()) return errorResult("name required");
+
+        try {
+            DataTypeManager dtm = currentProgram.getDataTypeManager();
+            CategoryPath catPath = (category != null && !category.isEmpty())
+                ? new CategoryPath(category) : CategoryPath.ROOT;
+
+            EnumDataType enumDt = new EnumDataType(catPath, name, size);
+
+            JsonElement membersElem = args.get("members");
+            if (membersElem != null && membersElem.isJsonArray()) {
+                for (JsonElement m : membersElem.getAsJsonArray()) {
+                    if (m.isJsonObject()) {
+                        JsonObject member = m.getAsJsonObject();
+                        String mName = member.has("name") ? member.get("name").getAsString() : null;
+                        long mValue = member.has("value") ? member.get("value").getAsLong() : 0;
+                        if (mName != null && !mName.isEmpty()) {
+                            enumDt.add(mName, mValue);
+                        }
+                    }
+                }
+            }
+
+            int txId = currentProgram.startTransaction("Create enum");
+            try {
+                DataType added = dtm.addDataType(enumDt, null);
+                currentProgram.endTransaction(txId, true);
+
+                JsonObject result = new JsonObject();
+                result.addProperty("status", "created");
+                result.addProperty("name", added.getName());
+                result.addProperty("size", added.getLength());
+                result.addProperty("category", added.getCategoryPath().getPath());
+                return result;
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+        } catch (Exception e) {
+            return errorResult("Failed to create enum: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleTypedefCreate(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String name = getArgString(args, "name");
+        String baseTypeName = getArgString(args, "base_type");
+        String category = getArgString(args, "category");
+        if (name == null || name.isEmpty()) return errorResult("name required");
+        if (baseTypeName == null || baseTypeName.isEmpty()) return errorResult("base_type required");
+
+        try {
+            DataTypeManager dtm = currentProgram.getDataTypeManager();
+            DataType baseDt = resolveDataType(dtm, baseTypeName);
+            if (baseDt == null) {
+                return errorResult("Unknown base type: " + baseTypeName);
+            }
+
+            CategoryPath catPath = (category != null && !category.isEmpty())
+                ? new CategoryPath(category) : CategoryPath.ROOT;
+
+            TypedefDataType typedefDt = new TypedefDataType(catPath, name, baseDt);
+
+            int txId = currentProgram.startTransaction("Create typedef");
+            try {
+                DataType added = dtm.addDataType(typedefDt, null);
+                currentProgram.endTransaction(txId, true);
+
+                JsonObject result = new JsonObject();
+                result.addProperty("status", "created");
+                result.addProperty("name", added.getName());
+                result.addProperty("base_type", baseDt.getDisplayName());
+                result.addProperty("category", added.getCategoryPath().getPath());
+                return result;
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+        } catch (Exception e) {
+            return errorResult("Failed to create typedef: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleParseCType(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String cCode = getArgString(args, "code");
+        if (cCode == null || cCode.isEmpty()) return errorResult("code required (C type definition)");
+
+        try {
+            DataTypeManager dtm = currentProgram.getDataTypeManager();
+            ghidra.app.util.cparser.C.CParser parser = new ghidra.app.util.cparser.C.CParser(dtm);
+
+            int txId = currentProgram.startTransaction("Parse C type");
+            try {
+                DataType parsed = parser.parse(cCode);
+                if (parsed != null) {
+                    DataType added = dtm.addDataType(parsed, null);
+                    currentProgram.endTransaction(txId, true);
+
+                    JsonObject result = new JsonObject();
+                    result.addProperty("status", "created");
+                    result.addProperty("name", added.getName());
+                    result.addProperty("size", added.getLength());
+                    result.addProperty("category", added.getCategoryPath().getPath());
+                    result.addProperty("description", added.getDescription());
+                    return result;
+                } else {
+                    currentProgram.endTransaction(txId, false);
+                    return errorResult("Failed to parse C type definition");
+                }
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+        } catch (Exception e) {
+            return errorResult("Failed to parse C type: " + e.getMessage());
+        }
+    }
+
+    // --- Bookmark Handlers ---
+
+    private JsonObject handleBookmarkList(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String typeFilter = getArgString(args, "type");
+        int limit = getArgInt(args, "limit", 0);
+
+        BookmarkManager bm = currentProgram.getBookmarkManager();
+        JsonArray bookmarks = new JsonArray();
+
+        String[] types = bm.getBookmarkTypes();
+        int count = 0;
+        for (String type : types) {
+            if (typeFilter != null && !typeFilter.isEmpty() && !type.equalsIgnoreCase(typeFilter)) {
+                continue;
+            }
+            Iterator<Bookmark> iter = bm.getBookmarksIterator(type);
+            while (iter.hasNext()) {
+                if (limit > 0 && count >= limit) break;
+                Bookmark bookmark = iter.next();
+                JsonObject bobj = new JsonObject();
+                bobj.addProperty("address", bookmark.getAddress().toString());
+                bobj.addProperty("type", bookmark.getTypeString());
+                bobj.addProperty("category", bookmark.getCategory());
+                bobj.addProperty("comment", bookmark.getComment());
+                bookmarks.add(bobj);
+                count++;
+            }
+            if (limit > 0 && count >= limit) break;
+        }
+
+        JsonObject result = new JsonObject();
+        result.addProperty("count", bookmarks.size());
+        result.add("bookmarks", bookmarks);
+        return result;
+    }
+
+    private JsonObject handleBookmarkAdd(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String addrStr = getArgString(args, "address");
+        String type = getArgString(args, "type");
+        String category = getArgString(args, "category");
+        String comment = getArgString(args, "comment");
+        if (addrStr == null || addrStr.isEmpty()) return errorResult("address required");
+
+        if (type == null || type.isEmpty()) type = "Note";
+        if (category == null) category = "";
+        if (comment == null) comment = "";
+
+        try {
+            Address addr = resolveAddress(addrStr);
+            if (addr == null) {
+                return errorResult("Invalid address: " + addrStr);
+            }
+
+            BookmarkManager bm = currentProgram.getBookmarkManager();
+            int txId = currentProgram.startTransaction("Add bookmark");
+            try {
+                Bookmark bookmark = bm.setBookmark(addr, type, category, comment);
+                currentProgram.endTransaction(txId, true);
+
+                JsonObject result = new JsonObject();
+                result.addProperty("status", "added");
+                result.addProperty("address", addr.toString());
+                result.addProperty("type", bookmark.getTypeString());
+                result.addProperty("category", bookmark.getCategory());
+                result.addProperty("comment", bookmark.getComment());
+                return result;
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+        } catch (Exception e) {
+            return errorResult("Failed to add bookmark: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleBookmarkDelete(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String addrStr = getArgString(args, "address");
+        String type = getArgString(args, "type");
+        if (addrStr == null || addrStr.isEmpty()) return errorResult("address required");
+
+        try {
+            Address addr = resolveAddress(addrStr);
+            if (addr == null) {
+                return errorResult("Invalid address: " + addrStr);
+            }
+
+            BookmarkManager bm = currentProgram.getBookmarkManager();
+
+            Bookmark[] bookmarksAtAddr = bm.getBookmarks(addr);
+            if (bookmarksAtAddr.length == 0) {
+                return errorResult("No bookmarks at address: " + addrStr);
+            }
+
+            int txId = currentProgram.startTransaction("Delete bookmark");
+            try {
+                int deleted = 0;
+                for (Bookmark bookmark : bookmarksAtAddr) {
+                    if (type == null || type.isEmpty() || bookmark.getTypeString().equalsIgnoreCase(type)) {
+                        bm.removeBookmark(bookmark);
+                        deleted++;
+                    }
+                }
+                currentProgram.endTransaction(txId, true);
+
+                JsonObject result = new JsonObject();
+                result.addProperty("status", "deleted");
+                result.addProperty("address", addr.toString());
+                result.addProperty("deleted_count", deleted);
+                return result;
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+        } catch (Exception e) {
+            return errorResult("Failed to delete bookmark: " + e.getMessage());
         }
     }
 

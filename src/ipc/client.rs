@@ -459,6 +459,80 @@ impl BridgeClient {
         self.send_command("struct_delete", Some(json!({"name": name})))
     }
 
+    pub fn enum_create(
+        &self,
+        name: &str,
+        size: Option<usize>,
+        category: Option<&str>,
+        members: Option<&serde_json::Value>,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "enum_create",
+            Some(json!({
+                "name": name,
+                "size": size,
+                "category": category,
+                "members": members,
+            })),
+        )
+    }
+
+    pub fn typedef_create(
+        &self,
+        name: &str,
+        base_type: &str,
+        category: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "typedef_create",
+            Some(json!({"name": name, "base_type": base_type, "category": category})),
+        )
+    }
+
+    pub fn parse_c_type(&self, code: &str) -> Result<serde_json::Value> {
+        self.send_command("parse_c_type", Some(json!({"code": code})))
+    }
+
+    pub fn bookmark_list(
+        &self,
+        bookmark_type: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "bookmark_list",
+            Some(json!({"type": bookmark_type, "limit": limit})),
+        )
+    }
+
+    pub fn bookmark_add(
+        &self,
+        address: &str,
+        bookmark_type: Option<&str>,
+        category: Option<&str>,
+        comment: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "bookmark_add",
+            Some(json!({
+                "address": address,
+                "type": bookmark_type,
+                "category": category,
+                "comment": comment,
+            })),
+        )
+    }
+
+    pub fn bookmark_delete(
+        &self,
+        address: &str,
+        bookmark_type: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "bookmark_delete",
+            Some(json!({"address": address, "type": bookmark_type})),
+        )
+    }
+
     pub fn variable_list(&self, function: &str, limit: Option<usize>) -> Result<serde_json::Value> {
         self.send_command(
             "variable_list",
