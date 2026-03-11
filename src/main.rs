@@ -152,6 +152,8 @@ fn extract_project_from_command(command: &Commands) -> Option<String> {
             cli::FunctionCommands::Rename(args) => args.project.clone(),
             cli::FunctionCommands::Create(args) => args.project.clone(),
             cli::FunctionCommands::Delete(args) => args.options.project.clone(),
+            cli::FunctionCommands::SetSignature(args) => args.project.clone(),
+            cli::FunctionCommands::SetReturnType(args) => args.project.clone(),
         },
         Commands::Strings(cmd) => match cmd {
             cli::StringsCommands::List(opts) => opts.project.clone(),
@@ -270,6 +272,8 @@ fn extract_program_from_command(command: &Commands) -> Option<String> {
             cli::FunctionCommands::Rename(args) => args.program.clone(),
             cli::FunctionCommands::Create(args) => args.program.clone(),
             cli::FunctionCommands::Delete(args) => args.options.program.clone(),
+            cli::FunctionCommands::SetSignature(args) => args.program.clone(),
+            cli::FunctionCommands::SetReturnType(args) => args.program.clone(),
         },
         Commands::Strings(cmd) => match cmd {
             cli::StringsCommands::List(opts) => opts.program.clone(),
@@ -744,19 +748,18 @@ fn execute_via_bridge(
                         "new_name": args.new_name,
                     })),
                 ),
-                FunctionCommands::Create(args) => client.send_command(
-                    "create_function",
-                    Some(json!({
-                        "address": args.address,
-                        "name": args.name,
-                    })),
-                ),
-                FunctionCommands::Delete(args) => client.send_command(
-                    "delete_function",
-                    Some(json!({
-                        "address": args.resolved_target(),
-                    })),
-                ),
+                FunctionCommands::Create(args) => {
+                    client.create_function(&args.address, args.name.as_deref())
+                }
+                FunctionCommands::Delete(args) => {
+                    client.delete_function(args.resolved_target())
+                }
+                FunctionCommands::SetSignature(args) => {
+                    client.set_function_signature(&args.function, &args.signature)
+                }
+                FunctionCommands::SetReturnType(args) => {
+                    client.set_return_type(&args.function, &args.return_type)
+                }
             }
         }
         Commands::Strings(cmd) => {

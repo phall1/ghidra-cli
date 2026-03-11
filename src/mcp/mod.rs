@@ -363,6 +363,43 @@ struct VariableRetypeParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+struct CreateFunctionParams {
+    /// Address where the function starts (hex, e.g. "0x401000")
+    address: String,
+    /// Optional function name (auto-generated if omitted)
+    name: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct DeleteFunctionParams {
+    /// Function name or address to delete
+    address: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct GetFunctionParams {
+    /// Function name or address
+    target: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct SetFunctionSignatureParams {
+    /// Function name or address
+    function: String,
+    /// Full C-style signature (e.g. "int main(int argc, char **argv)")
+    signature: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct SetReturnTypeParams {
+    /// Function name or address
+    function: String,
+    /// New return type (e.g. int, void, long, char*, pointer, or any defined type)
+    #[serde(rename = "type")]
+    return_type: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 struct BatchParams {
     commands: Vec<String>,
 }
@@ -725,6 +762,35 @@ impl GhidraServer {
     async fn delete_structure(&self, Parameters(p): Parameters<StructDeleteParams>) -> Result<CallToolResult, McpError> {
         self.call_bridge(|c| c.struct_delete(&p.name))
     }
+
+    // === Function Management ===
+
+    #[tool(description = "Get detailed information about a specific function (name, address, signature, size, parameters, calling convention)")]
+    async fn get_function(&self, Parameters(p): Parameters<GetFunctionParams>) -> Result<CallToolResult, McpError> {
+        self.call_bridge(|c| c.send_command("get_function", Some(serde_json::json!({"address": p.target}))))
+    }
+
+    #[tool(description = "Create a new function at a given address. If no name is provided, Ghidra auto-generates one (FUN_XXXX).")]
+    async fn create_function(&self, Parameters(p): Parameters<CreateFunctionParams>) -> Result<CallToolResult, McpError> {
+        self.call_bridge(|c| c.send_command("create_function", Some(serde_json::json!({"address": p.address, "name": p.name}))))
+    }
+
+    #[tool(description = "Delete/remove a function at a given address or by name. The code remains but is no longer treated as a function boundary.")]
+    async fn delete_function(&self, Parameters(p): Parameters<DeleteFunctionParams>) -> Result<CallToolResult, McpError> {
+        self.call_bridge(|c| c.send_command("delete_function", Some(serde_json::json!({"address": p.address}))))
+    }
+
+    #[tool(description = "Set a function's full C-style signature, including return type, name, and parameters (e.g. 'int main(int argc, char **argv)')")]
+    async fn set_function_signature(&self, Parameters(p): Parameters<SetFunctionSignatureParams>) -> Result<CallToolResult, McpError> {
+        self.call_bridge(|c| c.set_function_signature(&p.function, &p.signature))
+    }
+
+    #[tool(description = "Set a function's return type (e.g. int, void, long, char*). Simpler than set_function_signature when you only need to change the return type.")]
+    async fn set_return_type(&self, Parameters(p): Parameters<SetReturnTypeParams>) -> Result<CallToolResult, McpError> {
+        self.call_bridge(|c| c.set_return_type(&p.function, &p.return_type))
+    }
+
+    // === Variables ===
 
     #[tool(description = "List all variables (locals + parameters) in a function. Uses decompiler to show the full variable set including types, storage locations, and parameter indices.")]
     async fn list_variables(&self, Parameters(p): Parameters<VariableListParams>) -> Result<CallToolResult, McpError> {

@@ -330,6 +330,12 @@ pub enum FunctionCommands {
     Create(CreateFunctionArgs),
     /// Delete function
     Delete(FunctionGetArgs),
+    /// Set function signature (e.g. "int main(int argc, char **argv)")
+    #[command(alias = "sig")]
+    SetSignature(SetFunctionSignatureArgs),
+    /// Set function return type
+    #[command(alias = "rettype")]
+    SetReturnType(SetReturnTypeArgs),
 }
 
 #[derive(Args, Clone, Serialize, Deserialize, Debug)]
@@ -367,6 +373,31 @@ pub struct RenameArgs {
 pub struct CreateFunctionArgs {
     pub address: String,
     pub name: Option<String>,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct SetFunctionSignatureArgs {
+    /// Function name or address
+    pub function: String,
+    /// C-style function signature (e.g. "int main(int argc, char **argv)")
+    pub signature: String,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct SetReturnTypeArgs {
+    /// Function name or address
+    pub function: String,
+    /// Return type (e.g. int, void, long, char*)
+    #[arg(name = "type")]
+    pub return_type: String,
     #[arg(long)]
     pub program: Option<String>,
     #[arg(long)]
