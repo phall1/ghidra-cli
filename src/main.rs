@@ -130,6 +130,7 @@ fn requires_bridge(command: &Commands) -> bool {
             | Commands::Program(_)
             | Commands::Rename(_)
             | Commands::Struct(_)
+            | Commands::Variable(_)
     )
 }
 
@@ -241,6 +242,11 @@ fn extract_project_from_command(command: &Commands) -> Option<String> {
             cli::StructCommands::RenameField(args) => args.project.clone(),
             cli::StructCommands::Delete(args) => args.project.clone(),
         },
+        Commands::Variable(cmd) => match cmd {
+            cli::VariableCommands::List(args) => args.project.clone(),
+            cli::VariableCommands::Rename(args) => args.project.clone(),
+            cli::VariableCommands::Retype(args) => args.project.clone(),
+        },
         _ => None,
     }
 }
@@ -350,6 +356,11 @@ fn extract_program_from_command(command: &Commands) -> Option<String> {
             cli::StructCommands::RenameField(args) => args.program.clone(),
             cli::StructCommands::Delete(args) => args.program.clone(),
         },
+        Commands::Variable(cmd) => match cmd {
+            cli::VariableCommands::List(args) => args.program.clone(),
+            cli::VariableCommands::Rename(args) => args.program.clone(),
+            cli::VariableCommands::Retype(args) => args.program.clone(),
+        },
         _ => None,
     }
 }
@@ -425,6 +436,10 @@ fn extract_query_options(command: &Commands) -> Option<QueryOptions> {
         Commands::Struct(cmd) => match cmd {
             cli::StructCommands::List(opts) => Some(opts.clone()),
             cli::StructCommands::Get(args) => Some(args.options.clone()),
+            _ => None,
+        },
+        Commands::Variable(cmd) => match cmd {
+            cli::VariableCommands::List(args) => Some(args.options.clone()),
             _ => None,
         },
         _ => None,
@@ -966,6 +981,20 @@ fn execute_via_bridge(
                     client.struct_rename_field(&args.struct_name, &args.old_name, &args.new_name)
                 }
                 StructCommands::Delete(args) => client.struct_delete(&args.name),
+            }
+        }
+        Commands::Variable(cmd) => {
+            use cli::VariableCommands;
+            match cmd {
+                VariableCommands::List(args) => {
+                    client.variable_list(&args.function, args.limit.or(default_limit))
+                }
+                VariableCommands::Rename(args) => {
+                    client.variable_rename(&args.function, &args.old_name, &args.new_name)
+                }
+                VariableCommands::Retype(args) => {
+                    client.variable_retype(&args.function, &args.variable, &args.new_type)
+                }
             }
         }
         _ => anyhow::bail!("Command not supported"),

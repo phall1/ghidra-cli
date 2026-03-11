@@ -71,6 +71,10 @@ pub enum Commands {
     #[command(subcommand, alias = "structs", alias = "structure")]
     Struct(StructCommands),
 
+    /// Variable operations (list, rename, retype)
+    #[command(subcommand, alias = "var")]
+    Variable(VariableCommands),
+
     /// Comment operations
     #[command(subcommand, alias = "comments")]
     Comment(CommentCommands),
@@ -591,6 +595,59 @@ pub struct StructRenameFieldArgs {
 #[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct StructDeleteArgs {
     pub name: String,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
+pub enum VariableCommands {
+    /// List all variables in a function (locals + parameters from decompiler)
+    #[command(alias = "ls")]
+    List(VariableListArgs),
+    /// Rename a variable in a function
+    Rename(VariableRenameArgs),
+    /// Change the data type of a variable in a function
+    Retype(VariableRetypeArgs),
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct VariableListArgs {
+    /// Function name or address
+    pub function: String,
+    #[arg(long)]
+    pub limit: Option<usize>,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+    #[command(flatten)]
+    pub options: QueryOptions,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct VariableRenameArgs {
+    /// Function name or address
+    pub function: String,
+    /// Current variable name
+    pub old_name: String,
+    /// New variable name
+    pub new_name: String,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct VariableRetypeArgs {
+    /// Function name or address
+    pub function: String,
+    /// Variable name
+    pub variable: String,
+    /// New data type (e.g. int, long, char*, pointer, or any defined type)
+    pub new_type: String,
     #[arg(long)]
     pub program: Option<String>,
     #[arg(long)]

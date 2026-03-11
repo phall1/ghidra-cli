@@ -336,6 +336,33 @@ struct StructDeleteParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+struct VariableListParams {
+    /// Function name or address containing the variables
+    function: String,
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct VariableRenameParams {
+    /// Function name or address containing the variable
+    function: String,
+    /// Current variable name
+    old_name: String,
+    /// New variable name
+    new_name: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct VariableRetypeParams {
+    /// Function name or address containing the variable
+    function: String,
+    /// Variable name to retype
+    variable: String,
+    /// New data type (e.g. int, long, char*, pointer, or any defined type name)
+    new_type: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 struct BatchParams {
     commands: Vec<String>,
 }
@@ -697,6 +724,21 @@ impl GhidraServer {
     #[tool(description = "Delete a structure from the program's data type manager")]
     async fn delete_structure(&self, Parameters(p): Parameters<StructDeleteParams>) -> Result<CallToolResult, McpError> {
         self.call_bridge(|c| c.struct_delete(&p.name))
+    }
+
+    #[tool(description = "List all variables (locals + parameters) in a function. Uses decompiler to show the full variable set including types, storage locations, and parameter indices.")]
+    async fn list_variables(&self, Parameters(p): Parameters<VariableListParams>) -> Result<CallToolResult, McpError> {
+        self.call_bridge(|c| c.variable_list(&p.function, p.limit))
+    }
+
+    #[tool(description = "Rename a local variable or parameter in a function. Uses DecompInterface to find the variable in the decompiler's model and commits the rename to the database.")]
+    async fn rename_variable(&self, Parameters(p): Parameters<VariableRenameParams>) -> Result<CallToolResult, McpError> {
+        self.call_bridge(|c| c.variable_rename(&p.function, &p.old_name, &p.new_name))
+    }
+
+    #[tool(description = "Change the data type of a local variable or parameter. Accepts built-in types (int, long, char, byte, etc.) or any type defined in the program's data type manager.")]
+    async fn retype_variable(&self, Parameters(p): Parameters<VariableRetypeParams>) -> Result<CallToolResult, McpError> {
+        self.call_bridge(|c| c.variable_retype(&p.function, &p.variable, &p.new_type))
     }
 
     // === Batch ===
