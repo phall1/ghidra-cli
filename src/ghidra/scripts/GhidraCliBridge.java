@@ -2781,19 +2781,17 @@ public class GhidraCliBridge extends GhidraScript {
         String addressStr = getArgString(args, "address");
         if (addressStr == null) return errorResult("Address required");
 
+        int count = 1;
+        if (args.has("count") && !args.get("count").isJsonNull()) {
+            count = args.get("count").getAsInt();
+            if (count < 1) return errorResult("Count must be >= 1");
+        }
+
         try {
             Address addr = currentProgram.getAddressFactory().getAddress(addressStr);
             if (addr == null) return errorResult("Invalid address: " + addressStr);
 
-            Listing listing = currentProgram.getListing();
-            Instruction instruction = listing.getInstructionAt(addr);
-            if (instruction == null) {
-                return errorResult("No instruction at address: " + addressStr);
-            }
-
-            int instrLength = instruction.getLength();
             String processor = currentProgram.getLanguage().getProcessor().toString();
-
             byte nopByte;
             if (processor.toLowerCase().contains("x86")) {
                 nopByte = (byte) 0x90;
@@ -2801,13 +2799,32 @@ public class GhidraCliBridge extends GhidraScript {
                 nopByte = (byte) 0x00;
             }
 
-            byte[] nopBytes = new byte[instrLength];
-            Arrays.fill(nopBytes, nopByte);
-
+            Listing listing = currentProgram.getListing();
             Memory memory = currentProgram.getMemory();
-            int txId = currentProgram.startTransaction("NOP instruction");
+            int totalBytes = 0;
+            int noppedCount = 0;
+            Address currentAddr = addr;
+
+            int txId = currentProgram.startTransaction("NOP " + count + " instruction(s)");
             try {
-                memory.setBytes(addr, nopBytes);
+                for (int i = 0; i < count; i++) {
+                    Instruction instruction = listing.getInstructionAt(currentAddr);
+                    if (instruction == null) {
+                        if (i == 0) {
+                            currentProgram.endTransaction(txId, false);
+                            return errorResult("No instruction at address: " + currentAddr.toString());
+                        }
+                        break; // Stop at end of instructions
+                    }
+
+                    int instrLength = instruction.getLength();
+                    byte[] nopBytes = new byte[instrLength];
+                    Arrays.fill(nopBytes, nopByte);
+                    memory.setBytes(currentAddr, nopBytes);
+                    totalBytes += instrLength;
+                    noppedCount++;
+                    currentAddr = currentAddr.add(instrLength);
+                }
                 currentProgram.endTransaction(txId, true);
             } catch (Exception e) {
                 currentProgram.endTransaction(txId, false);
@@ -2817,10 +2834,11 @@ public class GhidraCliBridge extends GhidraScript {
             JsonObject result = new JsonObject();
             result.addProperty("status", "nopped");
             result.addProperty("address", addr.toString());
-            result.addProperty("bytes", instrLength);
+            result.addProperty("count", noppedCount);
+            result.addProperty("bytes", totalBytes);
             return result;
         } catch (Exception e) {
-            return errorResult("Failed to NOP instruction: " + e.getMessage());
+            return errorResult("Failed to NOP instruction(s): " + e.getMessage());
         }
     }
 

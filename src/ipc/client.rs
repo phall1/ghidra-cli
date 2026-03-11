@@ -121,8 +121,15 @@ impl BridgeClient {
     }
 
     /// List strings.
-    pub fn list_strings(&self, limit: Option<usize>, filter: Option<String>) -> Result<serde_json::Value> {
-        self.send_command("list_strings", Some(json!({"limit": limit, "filter": filter})))
+    pub fn list_strings(
+        &self,
+        limit: Option<usize>,
+        filter: Option<String>,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "list_strings",
+            Some(json!({"limit": limit, "filter": filter})),
+        )
     }
 
     /// List imports.
@@ -184,8 +191,15 @@ impl BridgeClient {
 
     // === Extended commands (symbols, types, comments, etc.) ===
 
-    pub fn symbol_list(&self, limit: Option<usize>, filter: Option<&str>) -> Result<serde_json::Value> {
-        self.send_command("symbol_list", Some(json!({"limit": limit, "filter": filter})))
+    pub fn symbol_list(
+        &self,
+        limit: Option<usize>,
+        filter: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "symbol_list",
+            Some(json!({"limit": limit, "filter": filter})),
+        )
     }
 
     pub fn symbol_get(&self, name: &str) -> Result<serde_json::Value> {
@@ -210,7 +224,11 @@ impl BridgeClient {
         )
     }
 
-    pub fn type_list(&self, limit: Option<usize>, filter: Option<&str>) -> Result<serde_json::Value> {
+    pub fn type_list(
+        &self,
+        limit: Option<usize>,
+        filter: Option<&str>,
+    ) -> Result<serde_json::Value> {
         self.send_command("type_list", Some(json!({"limit": limit, "filter": filter})))
     }
 
@@ -229,8 +247,15 @@ impl BridgeClient {
         )
     }
 
-    pub fn comment_list(&self, limit: Option<usize>, filter: Option<&str>) -> Result<serde_json::Value> {
-        self.send_command("comment_list", Some(json!({"limit": limit, "filter": filter})))
+    pub fn comment_list(
+        &self,
+        limit: Option<usize>,
+        filter: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "comment_list",
+            Some(json!({"limit": limit, "filter": filter})),
+        )
     }
 
     pub fn comment_get(&self, address: &str) -> Result<serde_json::Value> {
@@ -248,7 +273,7 @@ impl BridgeClient {
             Some(json!({
                 "address": address,
                 "text": text,
-                "type": comment_type,
+                "comment_type": comment_type,
             })),
         )
     }
@@ -321,8 +346,14 @@ impl BridgeClient {
         self.send_command("patch_bytes", Some(json!({"address": address, "hex": hex})))
     }
 
-    pub fn patch_nop(&self, address: &str) -> Result<serde_json::Value> {
-        self.send_command("patch_nop", Some(json!({"address": address})))
+    pub fn patch_nop(&self, address: &str, count: Option<usize>) -> Result<serde_json::Value> {
+        self.send_command(
+            "patch_nop",
+            Some(json!({
+                "address": address,
+                "count": count,
+            })),
+        )
     }
 
     pub fn patch_export(&self, output: &str) -> Result<serde_json::Value> {

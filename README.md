@@ -140,16 +140,12 @@ ghidra patch nop <addr> --count 5      # NOP out instructions
 ghidra patch export -o patched.bin     # Export patched binary
 ```
 
-Note: `patch nop --count` is currently parsed by the CLI, but runtime uses single-address NOP behavior.
-
 ### Comments
 ```bash
 ghidra comment get <address>           # Get comment
 ghidra comment set <addr> "note" --comment-type EOL  # Set comment
 ghidra comment list                    # List all comments
 ```
-
-Note: `--comment-type` currently falls back to `EOL` due client/bridge argument key mismatch.
 
 ### Scripts
 ```bash
