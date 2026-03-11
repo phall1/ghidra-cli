@@ -67,6 +67,33 @@ pub enum Commands {
     #[command(subcommand, alias = "types")]
     Type(TypeCommands),
 
+    /// Struct/structure operations
+    #[command(subcommand, alias = "structs", alias = "structure")]
+    Struct(StructCommands),
+
+    /// Variable operations (list, rename, retype)
+    #[command(subcommand, alias = "var")]
+    Variable(VariableCommands),
+
+    /// Enum operations (create)
+    #[command(subcommand, alias = "en")]
+    Enum(EnumCommands),
+    /// Typedef operations (create)
+    #[command(subcommand)]
+    Typedef(TypedefCommands),
+    /// Parse a C type definition and add it to the program
+    ParseC(ParseCTypeArgs),
+    /// Bookmark operations (list, add, delete)
+    #[command(subcommand, alias = "bm")]
+    Bookmark(BookmarkCommands),
+
+    /// PCode operations (intermediate representation)
+    #[command(subcommand)]
+    Pcode(PcodeCommands),
+    /// Analysis control (list/enable/disable analyzers, re-analyze)
+    #[command(subcommand, alias = "analysis-control")]
+    Analyzer(AnalyzerCommands),
+
     /// Comment operations
     #[command(subcommand, alias = "comments")]
     Comment(CommentCommands),
@@ -183,6 +210,16 @@ pub enum Commands {
     /// Rename a symbol (shortcut for `symbol rename`)
     #[command(alias = "mv")]
     Rename(RenameArgs),
+
+    /// Start MCP server for LLM integration (stdio transport)
+    Mcp {
+        /// Project path
+        #[arg(long)]
+        project: Option<String>,
+        /// Program name to load
+        #[arg(long)]
+        program: Option<String>,
+    },
 }
 
 #[derive(Args, Clone, Serialize, Deserialize, Debug)]
@@ -312,6 +349,12 @@ pub enum FunctionCommands {
     Create(CreateFunctionArgs),
     /// Delete function
     Delete(FunctionGetArgs),
+    /// Set function signature (e.g. "int main(int argc, char **argv)")
+    #[command(alias = "sig")]
+    SetSignature(SetFunctionSignatureArgs),
+    /// Set function return type
+    #[command(alias = "rettype")]
+    SetReturnType(SetReturnTypeArgs),
 }
 
 #[derive(Args, Clone, Serialize, Deserialize, Debug)]
@@ -349,6 +392,31 @@ pub struct RenameArgs {
 pub struct CreateFunctionArgs {
     pub address: String,
     pub name: Option<String>,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct SetFunctionSignatureArgs {
+    /// Function name or address
+    pub function: String,
+    /// C-style function signature (e.g. "int main(int argc, char **argv)")
+    pub signature: String,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct SetReturnTypeArgs {
+    /// Function name or address
+    pub function: String,
+    /// Return type (e.g. int, void, long, char*)
+    #[arg(name = "type")]
+    pub return_type: String,
     #[arg(long)]
     pub program: Option<String>,
     #[arg(long)]
@@ -505,6 +573,313 @@ pub struct CreateTypeArgs {
 pub struct ApplyTypeArgs {
     pub address: String,
     pub type_name: String,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
+pub enum StructCommands {
+    /// List all structures
+    #[command(alias = "ls")]
+    List(QueryOptions),
+    /// Get structure details
+    #[command(alias = "show")]
+    Get(StructGetArgs),
+    /// Create a new structure
+    Create(StructCreateArgs),
+    /// Add a field to a structure
+    #[command(alias = "add")]
+    AddField(StructAddFieldArgs),
+    /// Rename a field in a structure
+    RenameField(StructRenameFieldArgs),
+    /// Delete a structure
+    Delete(StructDeleteArgs),
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct StructGetArgs {
+    pub name: String,
+    #[command(flatten)]
+    pub options: QueryOptions,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct StructCreateArgs {
+    pub name: String,
+    #[arg(long)]
+    pub size: Option<usize>,
+    #[arg(long)]
+    pub category: Option<String>,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct StructAddFieldArgs {
+    pub struct_name: String,
+    pub field_name: String,
+    pub field_type: String,
+    #[arg(long)]
+    pub size: Option<usize>,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct StructRenameFieldArgs {
+    pub struct_name: String,
+    pub old_name: String,
+    pub new_name: String,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct StructDeleteArgs {
+    pub name: String,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
+pub enum VariableCommands {
+    /// List all variables in a function (locals + parameters from decompiler)
+    #[command(alias = "ls")]
+    List(VariableListArgs),
+    /// Rename a variable in a function
+    Rename(VariableRenameArgs),
+    /// Change the data type of a variable in a function
+    Retype(VariableRetypeArgs),
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct VariableListArgs {
+    /// Function name or address
+    pub function: String,
+    #[arg(long)]
+    pub limit: Option<usize>,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+    #[command(flatten)]
+    pub options: QueryOptions,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct VariableRenameArgs {
+    /// Function name or address
+    pub function: String,
+    /// Current variable name
+    pub old_name: String,
+    /// New variable name
+    pub new_name: String,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct VariableRetypeArgs {
+    /// Function name or address
+    pub function: String,
+    /// Variable name
+    pub variable: String,
+    /// New data type (e.g. int, long, char*, pointer, or any defined type)
+    pub new_type: String,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
+pub enum EnumCommands {
+    /// Create a new enum type with optional members
+    Create(EnumCreateArgs),
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct EnumCreateArgs {
+    /// Enum name
+    pub name: String,
+    /// Size in bytes (default: 4)
+    #[arg(long, default_value = "4")]
+    pub size: usize,
+    /// Category path (e.g. "/MyTypes")
+    #[arg(long)]
+    pub category: Option<String>,
+    /// Members as JSON array: '[{"name":"X","value":0}]'
+    #[arg(long)]
+    pub members: Option<String>,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
+pub enum TypedefCommands {
+    /// Create a typedef alias for an existing type
+    Create(TypedefCreateArgs),
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct TypedefCreateArgs {
+    /// Typedef name
+    pub name: String,
+    /// Base type name
+    pub base_type: String,
+    /// Category path
+    #[arg(long)]
+    pub category: Option<String>,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct ParseCTypeArgs {
+    /// C type definition (e.g. "struct foo { int x; int y; }")
+    pub code: String,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
+pub enum BookmarkCommands {
+    /// List bookmarks
+    #[command(alias = "ls")]
+    List(BookmarkListArgs),
+    /// Add a bookmark at an address
+    Add(BookmarkAddArgs),
+    /// Delete bookmark(s) at an address
+    Delete(BookmarkDeleteArgs),
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct BookmarkListArgs {
+    /// Filter by bookmark type (e.g. Note, Warning, Error, Analysis)
+    #[arg(long, name = "type")]
+    pub bookmark_type: Option<String>,
+    #[arg(long)]
+    pub limit: Option<usize>,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct BookmarkAddArgs {
+    /// Address to bookmark
+    pub address: String,
+    /// Bookmark type (default: Note)
+    #[arg(long, name = "type", default_value = "Note")]
+    pub bookmark_type: String,
+    /// Category label
+    #[arg(long)]
+    pub category: Option<String>,
+    /// Comment text
+    #[arg(long)]
+    pub comment: Option<String>,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct BookmarkDeleteArgs {
+    /// Address of bookmark to delete
+    pub address: String,
+    /// Only delete bookmarks of this type
+    #[arg(long, name = "type")]
+    pub bookmark_type: Option<String>,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
+pub enum PcodeCommands {
+    /// Get raw PCode at an address
+    At(PcodeAtArgs),
+    /// Get PCode for an entire function
+    Function(PcodeFunctionArgs),
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct PcodeAtArgs {
+    /// Address (hex, e.g. "0x401000")
+    pub address: String,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct PcodeFunctionArgs {
+    /// Function name or address
+    pub function: String,
+    /// Use high PCode from decompiler (vs raw from listing)
+    #[arg(long)]
+    pub high: bool,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
+pub enum AnalyzerCommands {
+    /// List all analyzers and their enabled status
+    #[command(alias = "ls")]
+    List(AnalyzerListArgs),
+    /// Enable or disable an analyzer
+    Set(AnalyzerSetArgs),
+    /// Re-run analysis on the program
+    Run(AnalyzerRunArgs),
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct AnalyzerListArgs {
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct AnalyzerSetArgs {
+    /// Analyzer name
+    pub name: String,
+    /// Enable (true) or disable (false)
+    pub enabled: bool,
+    #[arg(long)]
+    pub program: Option<String>,
+    #[arg(long)]
+    pub project: Option<String>,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct AnalyzerRunArgs {
     #[arg(long)]
     pub program: Option<String>,
     #[arg(long)]

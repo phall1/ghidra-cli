@@ -5,6 +5,7 @@ mod filter;
 mod format;
 mod ghidra;
 mod ipc;
+mod mcp;
 mod query;
 
 use clap::Parser;
@@ -72,6 +73,7 @@ fn main() {
         | Commands::Restart { .. }
         | Commands::Status { .. }
         | Commands::Ping { .. } => handle_bridge_command(cli),
+        Commands::Mcp { .. } => handle_mcp_command(cli),
         _ => run_command(cli),
     };
 
@@ -127,6 +129,14 @@ fn requires_bridge(command: &Commands) -> bool {
             | Commands::Stats(_)
             | Commands::Program(_)
             | Commands::Rename(_)
+            | Commands::Struct(_)
+            | Commands::Variable(_)
+            | Commands::Enum(_)
+            | Commands::Typedef(_)
+            | Commands::ParseC(_)
+            | Commands::Bookmark(_)
+            | Commands::Pcode(_)
+            | Commands::Analyzer(_)
     )
 }
 
@@ -148,6 +158,8 @@ fn extract_project_from_command(command: &Commands) -> Option<String> {
             cli::FunctionCommands::Rename(args) => args.project.clone(),
             cli::FunctionCommands::Create(args) => args.project.clone(),
             cli::FunctionCommands::Delete(args) => args.options.project.clone(),
+            cli::FunctionCommands::SetSignature(args) => args.project.clone(),
+            cli::FunctionCommands::SetReturnType(args) => args.project.clone(),
         },
         Commands::Strings(cmd) => match cmd {
             cli::StringsCommands::List(opts) => opts.project.clone(),
@@ -230,6 +242,40 @@ fn extract_project_from_command(command: &Commands) -> Option<String> {
         },
         Commands::Batch(args) => args.project.clone(),
         Commands::Rename(args) => args.project.clone(),
+        Commands::Struct(cmd) => match cmd {
+            cli::StructCommands::List(opts) => opts.project.clone(),
+            cli::StructCommands::Get(args) => args.options.project.clone(),
+            cli::StructCommands::Create(args) => args.project.clone(),
+            cli::StructCommands::AddField(args) => args.project.clone(),
+            cli::StructCommands::RenameField(args) => args.project.clone(),
+            cli::StructCommands::Delete(args) => args.project.clone(),
+        },
+        Commands::Variable(cmd) => match cmd {
+            cli::VariableCommands::List(args) => args.project.clone(),
+            cli::VariableCommands::Rename(args) => args.project.clone(),
+            cli::VariableCommands::Retype(args) => args.project.clone(),
+        },
+        Commands::Enum(cmd) => match cmd {
+            cli::EnumCommands::Create(args) => args.project.clone(),
+        },
+        Commands::Typedef(cmd) => match cmd {
+            cli::TypedefCommands::Create(args) => args.project.clone(),
+        },
+        Commands::ParseC(args) => args.project.clone(),
+        Commands::Bookmark(cmd) => match cmd {
+            cli::BookmarkCommands::List(args) => args.project.clone(),
+            cli::BookmarkCommands::Add(args) => args.project.clone(),
+            cli::BookmarkCommands::Delete(args) => args.project.clone(),
+        },
+        Commands::Pcode(cmd) => match cmd {
+            cli::PcodeCommands::At(args) => args.project.clone(),
+            cli::PcodeCommands::Function(args) => args.project.clone(),
+        },
+        Commands::Analyzer(cmd) => match cmd {
+            cli::AnalyzerCommands::List(args) => args.project.clone(),
+            cli::AnalyzerCommands::Set(args) => args.project.clone(),
+            cli::AnalyzerCommands::Run(args) => args.project.clone(),
+        },
         _ => None,
     }
 }
@@ -253,6 +299,8 @@ fn extract_program_from_command(command: &Commands) -> Option<String> {
             cli::FunctionCommands::Rename(args) => args.program.clone(),
             cli::FunctionCommands::Create(args) => args.program.clone(),
             cli::FunctionCommands::Delete(args) => args.options.program.clone(),
+            cli::FunctionCommands::SetSignature(args) => args.program.clone(),
+            cli::FunctionCommands::SetReturnType(args) => args.program.clone(),
         },
         Commands::Strings(cmd) => match cmd {
             cli::StringsCommands::List(opts) => opts.program.clone(),
@@ -331,6 +379,40 @@ fn extract_program_from_command(command: &Commands) -> Option<String> {
         },
         Commands::Batch(args) => args.program.clone(),
         Commands::Rename(args) => args.program.clone(),
+        Commands::Struct(cmd) => match cmd {
+            cli::StructCommands::List(opts) => opts.program.clone(),
+            cli::StructCommands::Get(args) => args.options.program.clone(),
+            cli::StructCommands::Create(args) => args.program.clone(),
+            cli::StructCommands::AddField(args) => args.program.clone(),
+            cli::StructCommands::RenameField(args) => args.program.clone(),
+            cli::StructCommands::Delete(args) => args.program.clone(),
+        },
+        Commands::Variable(cmd) => match cmd {
+            cli::VariableCommands::List(args) => args.program.clone(),
+            cli::VariableCommands::Rename(args) => args.program.clone(),
+            cli::VariableCommands::Retype(args) => args.program.clone(),
+        },
+        Commands::Enum(cmd) => match cmd {
+            cli::EnumCommands::Create(args) => args.program.clone(),
+        },
+        Commands::Typedef(cmd) => match cmd {
+            cli::TypedefCommands::Create(args) => args.program.clone(),
+        },
+        Commands::ParseC(args) => args.program.clone(),
+        Commands::Bookmark(cmd) => match cmd {
+            cli::BookmarkCommands::List(args) => args.program.clone(),
+            cli::BookmarkCommands::Add(args) => args.program.clone(),
+            cli::BookmarkCommands::Delete(args) => args.program.clone(),
+        },
+        Commands::Pcode(cmd) => match cmd {
+            cli::PcodeCommands::At(args) => args.program.clone(),
+            cli::PcodeCommands::Function(args) => args.program.clone(),
+        },
+        Commands::Analyzer(cmd) => match cmd {
+            cli::AnalyzerCommands::List(args) => args.program.clone(),
+            cli::AnalyzerCommands::Set(args) => args.program.clone(),
+            cli::AnalyzerCommands::Run(args) => args.program.clone(),
+        },
         _ => None,
     }
 }
@@ -402,6 +484,15 @@ fn extract_query_options(command: &Commands) -> Option<QueryOptions> {
             cli::FindCommands::Calls(args) => Some(args.options.clone()),
             cli::FindCommands::Crypto(opts) => Some(opts.clone()),
             cli::FindCommands::Interesting(opts) => Some(opts.clone()),
+        },
+        Commands::Struct(cmd) => match cmd {
+            cli::StructCommands::List(opts) => Some(opts.clone()),
+            cli::StructCommands::Get(args) => Some(args.options.clone()),
+            _ => None,
+        },
+        Commands::Variable(cmd) => match cmd {
+            cli::VariableCommands::List(args) => Some(args.options.clone()),
+            _ => None,
         },
         _ => None,
     }
@@ -705,19 +796,18 @@ fn execute_via_bridge(
                         "new_name": args.new_name,
                     })),
                 ),
-                FunctionCommands::Create(args) => client.send_command(
-                    "create_function",
-                    Some(json!({
-                        "address": args.address,
-                        "name": args.name,
-                    })),
-                ),
-                FunctionCommands::Delete(args) => client.send_command(
-                    "delete_function",
-                    Some(json!({
-                        "address": args.resolved_target(),
-                    })),
-                ),
+                FunctionCommands::Create(args) => {
+                    client.create_function(&args.address, args.name.as_deref())
+                }
+                FunctionCommands::Delete(args) => {
+                    client.delete_function(args.resolved_target())
+                }
+                FunctionCommands::SetSignature(args) => {
+                    client.set_function_signature(&args.function, &args.signature)
+                }
+                FunctionCommands::SetReturnType(args) => {
+                    client.set_return_type(&args.function, &args.return_type)
+                }
             }
         }
         Commands::Strings(cmd) => {
@@ -878,7 +968,7 @@ fn execute_via_bridge(
             use cli::PatchCommands;
             match cmd {
                 PatchCommands::Bytes(args) => client.patch_bytes(&args.address, &args.hex),
-                PatchCommands::Nop(args) => client.patch_nop(&args.address),
+                PatchCommands::Nop(args) => client.patch_nop(&args.address, args.count),
                 PatchCommands::Export(args) => client.patch_export(&args.output),
             }
         }
@@ -925,6 +1015,88 @@ fn execute_via_bridge(
         }
         Commands::Stats(_) => client.stats(),
         Commands::Rename(args) => client.symbol_rename(&args.old_name, &args.new_name),
+        Commands::Struct(cmd) => {
+            use cli::StructCommands;
+            match cmd {
+                StructCommands::List(opts) => {
+                    client.struct_list(opts.limit.or(default_limit), opts.filter.as_deref())
+                }
+                StructCommands::Get(args) => client.struct_get(&args.name),
+                StructCommands::Create(args) => {
+                    client.struct_create(&args.name, args.size, args.category.as_deref())
+                }
+                StructCommands::AddField(args) => {
+                    client.struct_add_field(&args.struct_name, &args.field_name, &args.field_type, args.size)
+                }
+                StructCommands::RenameField(args) => {
+                    client.struct_rename_field(&args.struct_name, &args.old_name, &args.new_name)
+                }
+                StructCommands::Delete(args) => client.struct_delete(&args.name),
+            }
+        }
+        Commands::Variable(cmd) => {
+            use cli::VariableCommands;
+            match cmd {
+                VariableCommands::List(args) => {
+                    client.variable_list(&args.function, args.limit.or(default_limit))
+                }
+                VariableCommands::Rename(args) => {
+                    client.variable_rename(&args.function, &args.old_name, &args.new_name)
+                }
+                VariableCommands::Retype(args) => {
+                    client.variable_retype(&args.function, &args.variable, &args.new_type)
+                }
+            }
+        }
+        Commands::Enum(cmd) => {
+            use cli::EnumCommands;
+            match cmd {
+                EnumCommands::Create(args) => {
+                    let members: Option<serde_json::Value> = args.members
+                        .as_ref()
+                        .and_then(|m| serde_json::from_str(m).ok());
+                    client.enum_create(&args.name, Some(args.size), args.category.as_deref(), members.as_ref())
+                }
+            }
+        }
+        Commands::Typedef(cmd) => {
+            use cli::TypedefCommands;
+            match cmd {
+                TypedefCommands::Create(args) => {
+                    client.typedef_create(&args.name, &args.base_type, args.category.as_deref())
+                }
+            }
+        }
+        Commands::ParseC(args) => client.parse_c_type(&args.code),
+        Commands::Bookmark(cmd) => {
+            use cli::BookmarkCommands;
+            match cmd {
+                BookmarkCommands::List(args) => {
+                    client.bookmark_list(args.bookmark_type.as_deref(), args.limit)
+                }
+                BookmarkCommands::Add(args) => {
+                    client.bookmark_add(&args.address, Some(args.bookmark_type.as_str()), args.category.as_deref(), args.comment.as_deref())
+                }
+                BookmarkCommands::Delete(args) => {
+                    client.bookmark_delete(&args.address, args.bookmark_type.as_deref())
+                }
+            }
+        }
+        Commands::Pcode(cmd) => {
+            use cli::PcodeCommands;
+            match cmd {
+                PcodeCommands::At(args) => client.pcode_at(&args.address),
+                PcodeCommands::Function(args) => client.pcode_function(&args.function, args.high),
+            }
+        }
+        Commands::Analyzer(cmd) => {
+            use cli::AnalyzerCommands;
+            match cmd {
+                AnalyzerCommands::List(_) => client.analyzer_list(),
+                AnalyzerCommands::Set(args) => client.analyzer_set(&args.name, args.enabled),
+                AnalyzerCommands::Run(_) => client.analyze_run(),
+            }
+        }
         _ => anyhow::bail!("Command not supported"),
     }
 }
@@ -945,7 +1117,53 @@ fn handle_bridge_command(cli: Cli) -> anyhow::Result<()> {
     }
 }
 
-/// Start the bridge for a project.
+fn handle_mcp_command(cli: Cli) -> anyhow::Result<()> {
+    let (project, program) = match cli.command {
+        Commands::Mcp { project, program } => (project, program),
+        _ => unreachable!(),
+    };
+
+    let config = Config::load()?;
+    let project_path = resolve_project_path(&project, &config)?;
+    let ghidra_install_dir = config
+        .ghidra_install_dir
+        .clone()
+        .or_else(|| config.get_ghidra_install_dir().ok())
+        .ok_or_else(|| {
+            anyhow::anyhow!("Ghidra installation directory not configured. Run 'ghidra setup' first.")
+        })?;
+
+    let mode = if let Some(prog) = &program {
+        BridgeStartMode::Process {
+            program_name: prog.clone(),
+        }
+    } else {
+        BridgeStartMode::Project
+    };
+
+    let port = bridge::ensure_bridge_running(&project_path, &ghidra_install_dir, mode)?;
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| anyhow::anyhow!("Failed to build tokio runtime: {}", e))?;
+
+    let ghidra_install_str = ghidra_install_dir
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Invalid ghidra install dir path"))?
+        .to_string();
+
+    let project_path_str = project_path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Invalid project path"))?
+        .to_string();
+
+    rt.block_on(async {
+        let server = mcp::GhidraServer::new(port, project_path_str, ghidra_install_str);
+        server.run_stdio().await
+    })
+}
+
 fn handle_bridge_start(project: Option<String>, program: Option<String>) -> anyhow::Result<()> {
     let config = Config::load()?;
     let project_path = resolve_project_path(&project, &config)?;
@@ -1411,6 +1629,7 @@ fn unwrap_bridge_response(value: serde_json::Value) -> Vec<serde_json::Value> {
         "instructions",
         "sections",
         "references",
+        "structures",
     ];
 
     // Metadata keys that accompany array keys (not data themselves)

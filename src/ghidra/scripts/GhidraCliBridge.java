@@ -25,6 +25,16 @@ import ghidra.program.model.listing.*;
 import ghidra.program.model.mem.Memory;
 import ghidra.program.model.mem.MemoryBlock;
 import ghidra.program.model.symbol.*;
+import ghidra.program.model.pcode.HighFunction;
+import ghidra.program.model.pcode.HighSymbol;
+import ghidra.program.model.pcode.HighFunctionDBUtil;
+import ghidra.program.model.pcode.HighFunctionDBUtil.ReturnCommitOption;
+import ghidra.program.model.pcode.LocalSymbolMap;
+import ghidra.program.model.pcode.HighVariable;
+import ghidra.program.model.pcode.PcodeOp;
+import ghidra.program.model.pcode.Varnode;
+import ghidra.program.model.pcode.PcodeOpAST;
+import ghidra.program.model.lang.Register;
 import ghidra.util.task.ConsoleTaskMonitor;
 import ghidra.util.task.TaskMonitor;
 
@@ -196,6 +206,8 @@ public class GhidraCliBridge extends GhidraScript {
             case "rename_function": return handleRenameFunction(args);
             case "create_function": return handleCreateFunction(args);
             case "delete_function": return handleDeleteFunction(args);
+            case "set_function_signature": return handleSetFunctionSignature(args);
+            case "set_return_type":        return handleSetReturnType(args);
             case "decompile":       return handleDecompile(args);
             case "list_strings":    return handleListStrings(args);
             case "list_imports":    return handleListImports();
@@ -229,6 +241,32 @@ public class GhidraCliBridge extends GhidraScript {
             case "type_get":        return handleTypeGet(args);
             case "type_create":     return handleTypeCreate(args);
             case "type_apply":      return handleTypeApply(args);
+            // Struct commands
+            case "struct_list":         return handleStructList(args);
+            case "struct_get":          return handleStructGet(args);
+            case "struct_create":       return handleStructCreate(args);
+            case "struct_add_field":    return handleStructAddField(args);
+            case "struct_rename_field": return handleStructRenameField(args);
+            case "struct_delete":       return handleStructDelete(args);
+            // Variable commands
+            case "variable_list":     return handleVariableList(args);
+            case "variable_rename":   return handleVariableRename(args);
+            case "variable_retype":   return handleVariableRetype(args);
+            // Data type commands
+            case "enum_create":       return handleEnumCreate(args);
+            case "typedef_create":    return handleTypedefCreate(args);
+            case "parse_c_type":      return handleParseCType(args);
+            // Bookmark commands
+            case "bookmark_list":    return handleBookmarkList(args);
+            case "bookmark_add":     return handleBookmarkAdd(args);
+            case "bookmark_delete":  return handleBookmarkDelete(args);
+            // PCode commands
+            case "pcode_at":         return handlePcodeAt(args);
+            case "pcode_function":   return handlePcodeFunction(args);
+            // Analysis commands
+            case "analyzer_list":    return handleAnalyzerList(args);
+            case "analyzer_set":     return handleAnalyzerSet(args);
+            case "analyze_run":      return handleAnalyzeRun(args);
             // Comment commands
             case "comment_list":    return handleCommentList(args);
             case "comment_get":     return handleCommentGet(args);
@@ -721,6 +759,107 @@ public class GhidraCliBridge extends GhidraScript {
             return result;
         } catch (Exception e) {
             return errorResult("Failed to delete function: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleSetFunctionSignature(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String target = getArgString(args, "function");
+        String signature = getArgString(args, "signature");
+        if (target == null || target.isEmpty()) return errorResult("function name or address required");
+        if (signature == null || signature.isEmpty()) return errorResult("signature required");
+
+        try {
+            Function func = findFunctionByNameOrAddress(target);
+            if (func == null) {
+                return errorResult(buildFunctionTargetHint(target));
+            }
+
+            ghidra.program.model.data.FunctionDefinitionDataType funcDef;
+            try {
+                funcDef = ghidra.app.util.cparser.C.CParserUtils.parseSignature(
+                    (ghidra.app.services.DataTypeManagerService) null,
+                    currentProgram,
+                    signature
+                );
+                if (funcDef == null) {
+                    return errorResult("Invalid signature '" + signature + "': Could not parse");
+                }
+            } catch (Exception parseEx) {
+                return errorResult("Failed to parse signature '" + signature + "': " + parseEx.getMessage());
+            }
+
+            int txId = currentProgram.startTransaction("Set function signature");
+            try {
+                ghidra.app.cmd.function.ApplyFunctionSignatureCmd cmd =
+                    new ghidra.app.cmd.function.ApplyFunctionSignatureCmd(
+                        func.getEntryPoint(),
+                        funcDef,
+                        SourceType.USER_DEFINED
+                    );
+                boolean success = cmd.applyTo(currentProgram);
+                if (!success) {
+                    currentProgram.endTransaction(txId, false);
+                    String statusMsg = cmd.getStatusMsg();
+                    return errorResult("Failed to apply signature: " + (statusMsg != null ? statusMsg : "unknown error"));
+                }
+                currentProgram.endTransaction(txId, true);
+
+                func = currentProgram.getFunctionManager().getFunctionAt(func.getEntryPoint());
+                JsonObject result = new JsonObject();
+                result.addProperty("status", "signature_set");
+                result.addProperty("function", func.getName());
+                result.addProperty("address", func.getEntryPoint().toString());
+                result.addProperty("signature", func.getPrototypeString(false, false));
+                return result;
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+        } catch (Exception e) {
+            return errorResult("Failed to set function signature: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleSetReturnType(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String target = getArgString(args, "function");
+        String typeName = getArgString(args, "type");
+        if (target == null || target.isEmpty()) return errorResult("function name or address required");
+        if (typeName == null || typeName.isEmpty()) return errorResult("type required");
+
+        try {
+            Function func = findFunctionByNameOrAddress(target);
+            if (func == null) {
+                return errorResult(buildFunctionTargetHint(target));
+            }
+
+            DataTypeManager dtm = currentProgram.getDataTypeManager();
+            DataType dt = resolveDataType(typeName);
+            if (dt == null) {
+                return errorResult("Unknown data type: " + typeName);
+            }
+
+            int txId = currentProgram.startTransaction("Set return type");
+            try {
+                func.setReturnType(dt, SourceType.USER_DEFINED);
+                currentProgram.endTransaction(txId, true);
+
+                JsonObject result = new JsonObject();
+                result.addProperty("status", "return_type_set");
+                result.addProperty("function", func.getName());
+                result.addProperty("address", func.getEntryPoint().toString());
+                result.addProperty("return_type", dt.getDisplayName());
+                result.addProperty("signature", func.getPrototypeString(false, false));
+                return result;
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+        } catch (Exception e) {
+            return errorResult("Failed to set return type: " + e.getMessage());
         }
     }
 
@@ -2209,6 +2348,1000 @@ public class GhidraCliBridge extends GhidraScript {
         }
     }
 
+    // --- Struct Handlers ---
+
+    private DataType resolveDataType(String typeName) {
+        if (typeName == null) return null;
+        switch (typeName.toLowerCase()) {
+            case "int":     return ghidra.program.model.data.IntegerDataType.dataType;
+            case "byte":    return ghidra.program.model.data.ByteDataType.dataType;
+            case "char":    return ghidra.program.model.data.CharDataType.dataType;
+            case "short":   return ghidra.program.model.data.ShortDataType.dataType;
+            case "long":    return ghidra.program.model.data.LongDataType.dataType;
+            case "float":   return ghidra.program.model.data.FloatDataType.dataType;
+            case "double":  return ghidra.program.model.data.DoubleDataType.dataType;
+            case "void":    return ghidra.program.model.data.VoidDataType.dataType;
+            case "pointer": return ghidra.program.model.data.PointerDataType.dataType;
+            default: break;
+        }
+        if (currentProgram != null) {
+            DataTypeManager dtm = currentProgram.getDataTypeManager();
+            Iterator<DataType> iter = dtm.getAllDataTypes();
+            while (iter.hasNext()) {
+                DataType dt = iter.next();
+                if (dt.getName().equals(typeName)) return dt;
+            }
+        }
+        return null;
+    }
+
+    private Structure findStructByName(String name) {
+        if (currentProgram == null || name == null) return null;
+        DataTypeManager dtm = currentProgram.getDataTypeManager();
+        Iterator<DataType> iter = dtm.getAllDataTypes();
+        while (iter.hasNext()) {
+            DataType dt = iter.next();
+            if (dt instanceof Structure && dt.getName().equals(name)) {
+                return (Structure) dt;
+            }
+        }
+        return null;
+    }
+
+    private JsonObject handleStructList(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        int limit = getArgInt(args, "limit", 0);
+        String nameFilter = getArgString(args, "filter");
+        DataTypeManager dtm = currentProgram.getDataTypeManager();
+        JsonArray structs = new JsonArray();
+        int count = 0;
+
+        Iterator<DataType> iter = dtm.getAllDataTypes();
+        while (iter.hasNext()) {
+            DataType dt = iter.next();
+            if (!(dt instanceof Structure)) continue;
+            if (limit > 0 && count >= limit) break;
+            if (nameFilter != null && !dt.getName().toLowerCase().contains(nameFilter.toLowerCase())) continue;
+
+            Structure s = (Structure) dt;
+            JsonObject obj = new JsonObject();
+            obj.addProperty("name", s.getName());
+            obj.addProperty("size", s.getLength());
+            obj.addProperty("numFields", s.getNumComponents());
+            obj.addProperty("category", s.getCategoryPath().toString());
+            String desc = s.getDescription();
+            obj.addProperty("description", desc != null ? desc : "");
+            structs.add(obj);
+            count++;
+        }
+
+        JsonObject result = new JsonObject();
+        result.add("structures", structs);
+        result.addProperty("count", structs.size());
+        return result;
+    }
+
+    private JsonObject handleStructGet(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String name = getArgString(args, "name");
+        if (name == null) return errorResult("Struct name required");
+
+        Structure s = findStructByName(name);
+        if (s == null) return errorResult("Structure not found: " + name);
+
+        JsonObject result = new JsonObject();
+        result.addProperty("name", s.getName());
+        result.addProperty("size", s.getLength());
+        result.addProperty("category", s.getCategoryPath().toString());
+        String desc = s.getDescription();
+        result.addProperty("description", desc != null ? desc : "");
+        result.addProperty("alignment", s.getAlignment());
+
+        JsonArray fields = new JsonArray();
+        for (DataTypeComponent comp : s.getComponents()) {
+            JsonObject f = new JsonObject();
+            f.addProperty("name", comp.getFieldName());
+            f.addProperty("offset", comp.getOffset());
+            f.addProperty("size", comp.getLength());
+            f.addProperty("type", comp.getDataType().getName());
+            String comment = comp.getComment();
+            f.addProperty("comment", comment != null ? comment : "");
+            fields.add(f);
+        }
+        result.add("fields", fields);
+        return result;
+    }
+
+    private JsonObject handleStructCreate(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String name = getArgString(args, "name");
+        if (name == null) return errorResult("Struct name required");
+        int size = getArgInt(args, "size", 0);
+        String category = getArgString(args, "category");
+
+        try {
+            DataTypeManager dtm = currentProgram.getDataTypeManager();
+            int txId = currentProgram.startTransaction("Create structure");
+            try {
+                StructureDataType newStruct;
+                if (category != null) {
+                    newStruct = new StructureDataType(new ghidra.program.model.data.CategoryPath(category), name, size);
+                } else {
+                    newStruct = new StructureDataType(name, size);
+                }
+                dtm.addDataType(newStruct, null);
+                currentProgram.endTransaction(txId, true);
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+
+            JsonObject result = new JsonObject();
+            result.addProperty("status", "created");
+            result.addProperty("name", name);
+            result.addProperty("size", size);
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to create structure: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleStructAddField(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String structName = getArgString(args, "struct_name");
+        String fieldName = getArgString(args, "field_name");
+        String fieldType = getArgString(args, "field_type");
+        if (structName == null || fieldName == null || fieldType == null) {
+            return errorResult("struct_name, field_name, and field_type required");
+        }
+
+        try {
+            Structure s = findStructByName(structName);
+            if (s == null) return errorResult("Structure not found: " + structName);
+
+            DataType dt = resolveDataType(fieldType);
+            if (dt == null) return errorResult("Unknown field type: " + fieldType);
+
+            int txId = currentProgram.startTransaction("Add struct field");
+            try {
+                s.add(dt, dt.getLength(), fieldName, null);
+                currentProgram.endTransaction(txId, true);
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+
+            JsonObject result = new JsonObject();
+            result.addProperty("status", "added");
+            result.addProperty("struct_name", structName);
+            result.addProperty("field_name", fieldName);
+            result.addProperty("field_type", fieldType);
+            result.addProperty("struct_size", s.getLength());
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to add field: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleStructRenameField(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String structName = getArgString(args, "struct_name");
+        String oldName = getArgString(args, "old_name");
+        String newName = getArgString(args, "new_name");
+        if (structName == null || oldName == null || newName == null) {
+            return errorResult("struct_name, old_name, and new_name required");
+        }
+
+        try {
+            Structure s = findStructByName(structName);
+            if (s == null) return errorResult("Structure not found: " + structName);
+
+            DataTypeComponent target = null;
+            for (DataTypeComponent comp : s.getComponents()) {
+                if (oldName.equals(comp.getFieldName())) {
+                    target = comp;
+                    break;
+                }
+            }
+            if (target == null) return errorResult("Field not found: " + oldName);
+
+            int txId = currentProgram.startTransaction("Rename struct field");
+            try {
+                target.setFieldName(newName);
+                currentProgram.endTransaction(txId, true);
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+
+            JsonObject result = new JsonObject();
+            result.addProperty("status", "renamed");
+            result.addProperty("struct_name", structName);
+            result.addProperty("old_name", oldName);
+            result.addProperty("new_name", newName);
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to rename field: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleStructDelete(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String name = getArgString(args, "name");
+        if (name == null) return errorResult("Struct name required");
+
+        try {
+            Structure s = findStructByName(name);
+            if (s == null) return errorResult("Structure not found: " + name);
+
+            DataTypeManager dtm = currentProgram.getDataTypeManager();
+            int txId = currentProgram.startTransaction("Delete structure");
+            try {
+                dtm.remove(s, monitor);
+                currentProgram.endTransaction(txId, true);
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+
+            JsonObject result = new JsonObject();
+            result.addProperty("status", "deleted");
+            result.addProperty("name", name);
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to delete structure: " + e.getMessage());
+        }
+    }
+
+    // --- Variable Handlers ---
+
+    private boolean checkFullCommit(HighSymbol highSymbol, HighFunction hfunction) {
+        if (highSymbol != null && !highSymbol.isParameter()) {
+            return false;
+        }
+        Function function = hfunction.getFunction();
+        Parameter[] parameters = function.getParameters();
+        LocalSymbolMap localSymbolMap = hfunction.getLocalSymbolMap();
+        int numParams = localSymbolMap.getNumParams();
+        if (numParams != parameters.length) {
+            return true;
+        }
+        for (int i = 0; i < numParams; i++) {
+            HighSymbol param = localSymbolMap.getParamSymbol(i);
+            if (param.getCategoryIndex() != i) {
+                return true;
+            }
+            VariableStorage storage = param.getStorage();
+            if (0 != storage.compareTo(parameters[i].getVariableStorage())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private JsonObject handleVariableList(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String target = getArgString(args, "function");
+        if (target == null || target.isEmpty()) {
+            return errorResult("function name or address required");
+        }
+
+        try {
+            Function func = findFunctionByNameOrAddress(target);
+            if (func == null) {
+                return errorResult(buildFunctionTargetHint(target));
+            }
+
+            DecompInterface decomp = new DecompInterface();
+            try {
+                decomp.openProgram(currentProgram);
+                DecompileResults results = decomp.decompileFunction(func, 30, new ConsoleTaskMonitor());
+                if (!results.decompileCompleted()) {
+                    return errorResult("Decompilation failed for " + func.getName());
+                }
+
+                HighFunction hf = results.getHighFunction();
+                LocalSymbolMap lsm = hf.getLocalSymbolMap();
+
+                JsonArray variables = new JsonArray();
+                Iterator<HighSymbol> it = lsm.getSymbols();
+                while (it.hasNext()) {
+                    HighSymbol sym = it.next();
+                    JsonObject varObj = new JsonObject();
+                    varObj.addProperty("name", sym.getName());
+                    varObj.addProperty("data_type", sym.getDataType().getDisplayName());
+                    varObj.addProperty("size", sym.getSize());
+                    varObj.addProperty("is_parameter", sym.isParameter());
+                    varObj.addProperty("storage", sym.getStorage().toString());
+                    if (sym.isParameter()) {
+                        varObj.addProperty("parameter_index", sym.getCategoryIndex());
+                    }
+                    variables.add(varObj);
+                }
+
+                JsonObject result = new JsonObject();
+                result.addProperty("function", func.getName());
+                result.addProperty("address", func.getEntryPoint().toString());
+                result.addProperty("count", variables.size());
+                result.add("variables", variables);
+                return result;
+            } finally {
+                decomp.dispose();
+            }
+        } catch (Exception e) {
+            return errorResult("Failed to list variables: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleVariableRename(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String target = getArgString(args, "function");
+        String oldName = getArgString(args, "old_name");
+        String newName = getArgString(args, "new_name");
+        if (target == null || target.isEmpty()) return errorResult("function name or address required");
+        if (oldName == null || oldName.isEmpty()) return errorResult("old_name required");
+        if (newName == null || newName.isEmpty()) return errorResult("new_name required");
+
+        try {
+            Function func = findFunctionByNameOrAddress(target);
+            if (func == null) {
+                return errorResult(buildFunctionTargetHint(target));
+            }
+
+            DecompInterface decomp = new DecompInterface();
+            try {
+                decomp.openProgram(currentProgram);
+                DecompileResults results = decomp.decompileFunction(func, 30, new ConsoleTaskMonitor());
+                if (!results.decompileCompleted()) {
+                    return errorResult("Decompilation failed for " + func.getName());
+                }
+
+                HighFunction hf = results.getHighFunction();
+                HighSymbol sym = null;
+                Iterator<HighSymbol> it = hf.getLocalSymbolMap().getSymbols();
+                while (it.hasNext()) {
+                    HighSymbol s = it.next();
+                    if (s.getName().equals(oldName)) {
+                        sym = s;
+                        break;
+                    }
+                }
+                if (sym == null) {
+                    return errorResult("Variable not found: " + oldName);
+                }
+
+                boolean commitRequired = checkFullCommit(sym, hf);
+                int txId = currentProgram.startTransaction("Rename Variable");
+                try {
+                    if (commitRequired) {
+                        HighFunctionDBUtil.commitParamsToDatabase(
+                            hf, false, ReturnCommitOption.NO_COMMIT,
+                            func.getSignatureSource());
+                    }
+                    HighFunctionDBUtil.updateDBVariable(sym, newName, null, SourceType.USER_DEFINED);
+                    currentProgram.endTransaction(txId, true);
+
+                    JsonObject result = new JsonObject();
+                    result.addProperty("status", "renamed");
+                    result.addProperty("function", func.getName());
+                    result.addProperty("old_name", oldName);
+                    result.addProperty("new_name", newName);
+                    return result;
+                } catch (Exception e) {
+                    currentProgram.endTransaction(txId, false);
+                    throw e;
+                }
+            } finally {
+                decomp.dispose();
+            }
+        } catch (Exception e) {
+            return errorResult("Failed to rename variable: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleVariableRetype(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String target = getArgString(args, "function");
+        String varName = getArgString(args, "variable");
+        String typeName = getArgString(args, "new_type");
+        if (target == null || target.isEmpty()) return errorResult("function name or address required");
+        if (varName == null || varName.isEmpty()) return errorResult("variable name required");
+        if (typeName == null || typeName.isEmpty()) return errorResult("new_type required");
+
+        try {
+            Function func = findFunctionByNameOrAddress(target);
+            if (func == null) {
+                return errorResult(buildFunctionTargetHint(target));
+            }
+
+            DataTypeManager dtm = currentProgram.getDataTypeManager();
+            DataType newDt = resolveDataType(typeName);
+            if (newDt == null) {
+                return errorResult("Unknown data type: " + typeName);
+            }
+            if (newDt.getDataTypeManager() != dtm) {
+                newDt = dtm.resolve(newDt, null);
+            }
+
+            DecompInterface decomp = new DecompInterface();
+            try {
+                decomp.openProgram(currentProgram);
+                DecompileResults results = decomp.decompileFunction(func, 30, new ConsoleTaskMonitor());
+                if (!results.decompileCompleted()) {
+                    return errorResult("Decompilation failed for " + func.getName());
+                }
+
+                HighFunction hf = results.getHighFunction();
+                HighSymbol sym = null;
+                Iterator<HighSymbol> it = hf.getLocalSymbolMap().getSymbols();
+                while (it.hasNext()) {
+                    HighSymbol s = it.next();
+                    if (s.getName().equals(varName)) {
+                        sym = s;
+                        break;
+                    }
+                }
+                if (sym == null) {
+                    return errorResult("Variable not found: " + varName);
+                }
+
+                boolean commitRequired = checkFullCommit(sym, hf);
+                int txId = currentProgram.startTransaction("Retype Variable");
+                boolean success = false;
+                try {
+                    if (commitRequired) {
+                        boolean useDataTypes = func.getSignatureSource() != SourceType.DEFAULT;
+                        HighFunctionDBUtil.commitParamsToDatabase(
+                            hf, useDataTypes, ReturnCommitOption.NO_COMMIT,
+                            SourceType.USER_DEFINED);
+                    }
+                    HighFunctionDBUtil.updateDBVariable(sym, null, newDt, SourceType.USER_DEFINED);
+                    success = true;
+                    currentProgram.endTransaction(txId, true);
+
+                    JsonObject result = new JsonObject();
+                    result.addProperty("status", "retyped");
+                    result.addProperty("function", func.getName());
+                    result.addProperty("variable", varName);
+                    result.addProperty("old_type", sym.getDataType().getDisplayName());
+                    result.addProperty("new_type", newDt.getDisplayName());
+                    return result;
+                } catch (Exception e) {
+                    currentProgram.endTransaction(txId, false);
+                    throw e;
+                }
+            } finally {
+                decomp.dispose();
+            }
+        } catch (Exception e) {
+            return errorResult("Failed to retype variable: " + e.getMessage());
+        }
+    }
+
+    // --- Data Type Creation Handlers ---
+
+    private JsonObject handleEnumCreate(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String name = getArgString(args, "name");
+        int size = getArgInt(args, "size", 4);
+        String category = getArgString(args, "category");
+        if (name == null || name.isEmpty()) return errorResult("name required");
+
+        try {
+            DataTypeManager dtm = currentProgram.getDataTypeManager();
+            CategoryPath catPath = (category != null && !category.isEmpty())
+                ? new CategoryPath(category) : CategoryPath.ROOT;
+
+            EnumDataType enumDt = new EnumDataType(catPath, name, size);
+
+            JsonElement membersElem = args.get("members");
+            if (membersElem != null && membersElem.isJsonArray()) {
+                for (JsonElement m : membersElem.getAsJsonArray()) {
+                    if (m.isJsonObject()) {
+                        JsonObject member = m.getAsJsonObject();
+                        String mName = member.has("name") ? member.get("name").getAsString() : null;
+                        long mValue = member.has("value") ? member.get("value").getAsLong() : 0;
+                        if (mName != null && !mName.isEmpty()) {
+                            enumDt.add(mName, mValue);
+                        }
+                    }
+                }
+            }
+
+            int txId = currentProgram.startTransaction("Create enum");
+            try {
+                DataType added = dtm.addDataType(enumDt, null);
+                currentProgram.endTransaction(txId, true);
+
+                JsonObject result = new JsonObject();
+                result.addProperty("status", "created");
+                result.addProperty("name", added.getName());
+                result.addProperty("size", added.getLength());
+                result.addProperty("category", added.getCategoryPath().getPath());
+                return result;
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+        } catch (Exception e) {
+            return errorResult("Failed to create enum: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleTypedefCreate(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String name = getArgString(args, "name");
+        String baseTypeName = getArgString(args, "base_type");
+        String category = getArgString(args, "category");
+        if (name == null || name.isEmpty()) return errorResult("name required");
+        if (baseTypeName == null || baseTypeName.isEmpty()) return errorResult("base_type required");
+
+        try {
+            DataTypeManager dtm = currentProgram.getDataTypeManager();
+            DataType baseDt = resolveDataType(baseTypeName);
+            if (baseDt == null) {
+                return errorResult("Unknown base type: " + baseTypeName);
+            }
+
+            CategoryPath catPath = (category != null && !category.isEmpty())
+                ? new CategoryPath(category) : CategoryPath.ROOT;
+
+            TypedefDataType typedefDt = new TypedefDataType(catPath, name, baseDt);
+
+            int txId = currentProgram.startTransaction("Create typedef");
+            try {
+                DataType added = dtm.addDataType(typedefDt, null);
+                currentProgram.endTransaction(txId, true);
+
+                JsonObject result = new JsonObject();
+                result.addProperty("status", "created");
+                result.addProperty("name", added.getName());
+                result.addProperty("base_type", baseDt.getDisplayName());
+                result.addProperty("category", added.getCategoryPath().getPath());
+                return result;
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+        } catch (Exception e) {
+            return errorResult("Failed to create typedef: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleParseCType(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String cCode = getArgString(args, "code");
+        if (cCode == null || cCode.isEmpty()) return errorResult("code required (C type definition)");
+
+        try {
+            DataTypeManager dtm = currentProgram.getDataTypeManager();
+            ghidra.app.util.cparser.C.CParser parser = new ghidra.app.util.cparser.C.CParser(dtm);
+
+            int txId = currentProgram.startTransaction("Parse C type");
+            try {
+                DataType parsed = parser.parse(cCode);
+                if (parsed != null) {
+                    DataType added = dtm.addDataType(parsed, null);
+                    currentProgram.endTransaction(txId, true);
+
+                    JsonObject result = new JsonObject();
+                    result.addProperty("status", "created");
+                    result.addProperty("name", added.getName());
+                    result.addProperty("size", added.getLength());
+                    result.addProperty("category", added.getCategoryPath().getPath());
+                    result.addProperty("description", added.getDescription());
+                    return result;
+                } else {
+                    currentProgram.endTransaction(txId, false);
+                    return errorResult("Failed to parse C type definition");
+                }
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+        } catch (Exception e) {
+            return errorResult("Failed to parse C type: " + e.getMessage());
+        }
+    }
+
+    // --- Bookmark Handlers ---
+
+    private JsonObject handleBookmarkList(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String typeFilter = getArgString(args, "type");
+        int limit = getArgInt(args, "limit", 0);
+
+        BookmarkManager bm = currentProgram.getBookmarkManager();
+        JsonArray bookmarks = new JsonArray();
+
+        BookmarkType[] types = bm.getBookmarkTypes();
+        int count = 0;
+        for (BookmarkType typeObj : types) {
+            String type = typeObj.getTypeString();
+            if (typeFilter != null && !typeFilter.isEmpty() && !type.equalsIgnoreCase(typeFilter)) {
+                continue;
+            }
+            Iterator<Bookmark> iter = bm.getBookmarksIterator(type);
+            while (iter.hasNext()) {
+                if (limit > 0 && count >= limit) break;
+                Bookmark bookmark = iter.next();
+                JsonObject bobj = new JsonObject();
+                bobj.addProperty("address", bookmark.getAddress().toString());
+                bobj.addProperty("type", bookmark.getTypeString());
+                bobj.addProperty("category", bookmark.getCategory());
+                bobj.addProperty("comment", bookmark.getComment());
+                bookmarks.add(bobj);
+                count++;
+            }
+            if (limit > 0 && count >= limit) break;
+        }
+
+        JsonObject result = new JsonObject();
+        result.addProperty("count", bookmarks.size());
+        result.add("bookmarks", bookmarks);
+        return result;
+    }
+
+    private JsonObject handleBookmarkAdd(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String addrStr = getArgString(args, "address");
+        String type = getArgString(args, "type");
+        String category = getArgString(args, "category");
+        String comment = getArgString(args, "comment");
+        if (addrStr == null || addrStr.isEmpty()) return errorResult("address required");
+
+        if (type == null || type.isEmpty()) type = "Note";
+        if (category == null) category = "";
+        if (comment == null) comment = "";
+
+        try {
+            Address addr = resolveAddress(addrStr);
+            if (addr == null) {
+                return errorResult("Invalid address: " + addrStr);
+            }
+
+            BookmarkManager bm = currentProgram.getBookmarkManager();
+            int txId = currentProgram.startTransaction("Add bookmark");
+            try {
+                Bookmark bookmark = bm.setBookmark(addr, type, category, comment);
+                currentProgram.endTransaction(txId, true);
+
+                JsonObject result = new JsonObject();
+                result.addProperty("status", "added");
+                result.addProperty("address", addr.toString());
+                result.addProperty("type", bookmark.getTypeString());
+                result.addProperty("category", bookmark.getCategory());
+                result.addProperty("comment", bookmark.getComment());
+                return result;
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+        } catch (Exception e) {
+            return errorResult("Failed to add bookmark: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleBookmarkDelete(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String addrStr = getArgString(args, "address");
+        String type = getArgString(args, "type");
+        if (addrStr == null || addrStr.isEmpty()) return errorResult("address required");
+
+        try {
+            Address addr = resolveAddress(addrStr);
+            if (addr == null) {
+                return errorResult("Invalid address: " + addrStr);
+            }
+
+            BookmarkManager bm = currentProgram.getBookmarkManager();
+
+            Bookmark[] bookmarksAtAddr = bm.getBookmarks(addr);
+            if (bookmarksAtAddr.length == 0) {
+                return errorResult("No bookmarks at address: " + addrStr);
+            }
+
+            int txId = currentProgram.startTransaction("Delete bookmark");
+            try {
+                int deleted = 0;
+                for (Bookmark bookmark : bookmarksAtAddr) {
+                    if (type == null || type.isEmpty() || bookmark.getTypeString().equalsIgnoreCase(type)) {
+                        bm.removeBookmark(bookmark);
+                        deleted++;
+                    }
+                }
+                currentProgram.endTransaction(txId, true);
+
+                JsonObject result = new JsonObject();
+                result.addProperty("status", "deleted");
+                result.addProperty("address", addr.toString());
+                result.addProperty("deleted_count", deleted);
+                return result;
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+        } catch (Exception e) {
+            return errorResult("Failed to delete bookmark: " + e.getMessage());
+        }
+    }
+
+    // --- PCode Handlers ---
+
+    private JsonObject handlePcodeAt(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String addrStr = getArgString(args, "address");
+        if (addrStr == null || addrStr.isEmpty()) return errorResult("address required");
+
+        try {
+            Address addr = resolveAddress(addrStr);
+            if (addr == null) {
+                return errorResult("Invalid address: " + addrStr);
+            }
+
+            Listing listing = currentProgram.getListing();
+            Instruction inst = listing.getInstructionAt(addr);
+            if (inst == null) {
+                return errorResult("No instruction at address: " + addrStr);
+            }
+
+            PcodeOp[] pcodeOps = inst.getPcode();
+            JsonArray ops = new JsonArray();
+            for (PcodeOp op : pcodeOps) {
+                ops.add(pcodeOpToJson(op));
+            }
+
+            JsonObject result = new JsonObject();
+            result.addProperty("address", addr.toString());
+            result.addProperty("mnemonic", inst.getMnemonicString());
+            result.addProperty("instruction", inst.toString());
+            result.addProperty("count", ops.size());
+            result.add("pcode", ops);
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to get PCode: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handlePcodeFunction(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String target = getArgString(args, "function");
+        boolean highPcode = args.has("high") && args.get("high").getAsBoolean();
+        if (target == null || target.isEmpty()) return errorResult("function name or address required");
+
+        try {
+            Function func = findFunctionByNameOrAddress(target);
+            if (func == null) {
+                return errorResult(buildFunctionTargetHint(target));
+            }
+
+            if (highPcode) {
+                DecompInterface decomp = new DecompInterface();
+                try {
+                    decomp.openProgram(currentProgram);
+                    DecompileResults results = decomp.decompileFunction(func, 30, new ConsoleTaskMonitor());
+                    if (!results.decompileCompleted()) {
+                        return errorResult("Decompilation failed for " + func.getName());
+                    }
+
+                    HighFunction hf = results.getHighFunction();
+                    Iterator<PcodeOpAST> it = hf.getPcodeOps();
+                    JsonArray ops = new JsonArray();
+                    while (it.hasNext()) {
+                        PcodeOpAST op = it.next();
+                        ops.add(pcodeOpToJson(op));
+                    }
+
+                    JsonObject result = new JsonObject();
+                    result.addProperty("function", func.getName());
+                    result.addProperty("address", func.getEntryPoint().toString());
+                    result.addProperty("level", "high");
+                    result.addProperty("count", ops.size());
+                    result.add("pcode", ops);
+                    return result;
+                } finally {
+                    decomp.dispose();
+                }
+            } else {
+                Listing listing = currentProgram.getListing();
+                ghidra.program.model.address.AddressSetView body = func.getBody();
+                InstructionIterator instIter = listing.getInstructions(body, true);
+
+                JsonArray ops = new JsonArray();
+                while (instIter.hasNext()) {
+                    Instruction inst = instIter.next();
+                    PcodeOp[] pcodeOps = inst.getPcode();
+                    for (PcodeOp op : pcodeOps) {
+                        JsonObject opJson = pcodeOpToJson(op);
+                        opJson.addProperty("instruction_address", inst.getAddress().toString());
+                        ops.add(opJson);
+                    }
+                }
+
+                JsonObject result = new JsonObject();
+                result.addProperty("function", func.getName());
+                result.addProperty("address", func.getEntryPoint().toString());
+                result.addProperty("level", "raw");
+                result.addProperty("count", ops.size());
+                result.add("pcode", ops);
+                return result;
+            }
+        } catch (Exception e) {
+            return errorResult("Failed to get function PCode: " + e.getMessage());
+        }
+    }
+
+    private JsonObject pcodeOpToJson(PcodeOp op) {
+        JsonObject obj = new JsonObject();
+        obj.addProperty("mnemonic", op.getMnemonic());
+        obj.addProperty("opcode", op.getOpcode());
+
+        Varnode output = op.getOutput();
+        if (output != null) {
+            obj.add("output", varnodeToJson(output));
+        } else {
+            obj.add("output", JsonNull.INSTANCE);
+        }
+
+        JsonArray inputs = new JsonArray();
+        for (int i = 0; i < op.getNumInputs(); i++) {
+            Varnode input = op.getInput(i);
+            inputs.add(varnodeToJson(input));
+        }
+        obj.add("inputs", inputs);
+
+        return obj;
+    }
+
+    private JsonObject varnodeToJson(Varnode vn) {
+        JsonObject obj = new JsonObject();
+        obj.addProperty("space", vn.getAddress().getAddressSpace().getName());
+        obj.addProperty("offset", "0x" + Long.toHexString(vn.getOffset()));
+        obj.addProperty("size", vn.getSize());
+        if (vn.isConstant()) {
+            obj.addProperty("type", "constant");
+        } else if (vn.isRegister()) {
+            obj.addProperty("type", "register");
+            Register reg = currentProgram.getRegister(vn);
+            if (reg != null) {
+                obj.addProperty("register", reg.getName());
+            }
+        } else if (vn.isUnique()) {
+            obj.addProperty("type", "unique");
+        } else if (vn.getAddress().isStackAddress()) {
+            obj.addProperty("type", "stack");
+        } else {
+            obj.addProperty("type", "ram");
+        }
+        return obj;
+    }
+
+    // --- Analysis Handlers ---
+
+    private JsonObject handleAnalyzerList(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        try {
+            ghidra.framework.options.Options analysisOptions =
+                currentProgram.getOptions("Analyzers");
+
+            List<String> optionNames = analysisOptions.getOptionNames();
+            JsonArray analyzerList = new JsonArray();
+
+            for (String optName : optionNames) {
+                if (!optName.contains(".")) {
+                    try {
+                        boolean enabled = analysisOptions.getBoolean(optName, false);
+                        JsonObject entry = new JsonObject();
+                        entry.addProperty("name", optName);
+                        entry.addProperty("enabled", enabled);
+                        String desc = analysisOptions.getDescription(optName);
+                        if (desc != null && !desc.isEmpty()) {
+                            entry.addProperty("description", desc);
+                        }
+                        analyzerList.add(entry);
+                    } catch (Exception e) {
+                        // Skip non-boolean options
+                    }
+                }
+            }
+
+            JsonObject result = new JsonObject();
+            result.addProperty("count", analyzerList.size());
+            result.add("analyzers", analyzerList);
+            return result;
+        } catch (Exception e) {
+            return errorResult("Failed to list analyzers: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleAnalyzerSet(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        String name = getArgString(args, "name");
+        if (name == null || name.isEmpty()) return errorResult("analyzer name required");
+        if (!args.has("enabled")) return errorResult("enabled (true/false) required");
+        boolean enabled = args.get("enabled").getAsBoolean();
+
+        try {
+            ghidra.framework.options.Options analysisOptions =
+                currentProgram.getOptions("Analyzers");
+
+            List<String> optionNames = analysisOptions.getOptionNames();
+            boolean found = false;
+            for (String optName : optionNames) {
+                if (optName.equals(name)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                return errorResult("Unknown analyzer: " + name);
+            }
+
+            int txId = currentProgram.startTransaction("Set analyzer");
+            try {
+                analysisOptions.setBoolean(name, enabled);
+                currentProgram.endTransaction(txId, true);
+
+                JsonObject result = new JsonObject();
+                result.addProperty("status", "set");
+                result.addProperty("name", name);
+                result.addProperty("enabled", enabled);
+                return result;
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+        } catch (Exception e) {
+            return errorResult("Failed to set analyzer: " + e.getMessage());
+        }
+    }
+
+    private JsonObject handleAnalyzeRun(JsonObject args) {
+        if (currentProgram == null) return errorResult("No program loaded");
+
+        try {
+            ghidra.program.model.address.AddressSetView fullAddressSet = currentProgram.getMemory();
+
+            int txId = currentProgram.startTransaction("Re-analyze");
+            try {
+                ghidra.app.plugin.core.analysis.AutoAnalysisManager mgr =
+                    ghidra.app.plugin.core.analysis.AutoAnalysisManager.getAnalysisManager(currentProgram);
+                mgr.reAnalyzeAll(null);
+                mgr.startAnalysis(new ConsoleTaskMonitor());
+                currentProgram.endTransaction(txId, true);
+
+                JsonObject result = new JsonObject();
+                result.addProperty("status", "analysis_complete");
+                result.addProperty("program", currentProgram.getName());
+                return result;
+            } catch (Exception e) {
+                currentProgram.endTransaction(txId, false);
+                throw e;
+            }
+        } catch (Exception e) {
+            return errorResult("Failed to run analysis: " + e.getMessage());
+        }
+    }
+
     // --- Comment Handlers ---
 
     private int resolveCommentType(String typeStr) {
@@ -2781,19 +3914,17 @@ public class GhidraCliBridge extends GhidraScript {
         String addressStr = getArgString(args, "address");
         if (addressStr == null) return errorResult("Address required");
 
+        int count = 1;
+        if (args.has("count") && !args.get("count").isJsonNull()) {
+            count = args.get("count").getAsInt();
+            if (count < 1) return errorResult("Count must be >= 1");
+        }
+
         try {
             Address addr = currentProgram.getAddressFactory().getAddress(addressStr);
             if (addr == null) return errorResult("Invalid address: " + addressStr);
 
-            Listing listing = currentProgram.getListing();
-            Instruction instruction = listing.getInstructionAt(addr);
-            if (instruction == null) {
-                return errorResult("No instruction at address: " + addressStr);
-            }
-
-            int instrLength = instruction.getLength();
             String processor = currentProgram.getLanguage().getProcessor().toString();
-
             byte nopByte;
             if (processor.toLowerCase().contains("x86")) {
                 nopByte = (byte) 0x90;
@@ -2801,13 +3932,32 @@ public class GhidraCliBridge extends GhidraScript {
                 nopByte = (byte) 0x00;
             }
 
-            byte[] nopBytes = new byte[instrLength];
-            Arrays.fill(nopBytes, nopByte);
-
+            Listing listing = currentProgram.getListing();
             Memory memory = currentProgram.getMemory();
-            int txId = currentProgram.startTransaction("NOP instruction");
+            int totalBytes = 0;
+            int noppedCount = 0;
+            Address currentAddr = addr;
+
+            int txId = currentProgram.startTransaction("NOP " + count + " instruction(s)");
             try {
-                memory.setBytes(addr, nopBytes);
+                for (int i = 0; i < count; i++) {
+                    Instruction instruction = listing.getInstructionAt(currentAddr);
+                    if (instruction == null) {
+                        if (i == 0) {
+                            currentProgram.endTransaction(txId, false);
+                            return errorResult("No instruction at address: " + currentAddr.toString());
+                        }
+                        break; // Stop at end of instructions
+                    }
+
+                    int instrLength = instruction.getLength();
+                    byte[] nopBytes = new byte[instrLength];
+                    Arrays.fill(nopBytes, nopByte);
+                    memory.setBytes(currentAddr, nopBytes);
+                    totalBytes += instrLength;
+                    noppedCount++;
+                    currentAddr = currentAddr.add(instrLength);
+                }
                 currentProgram.endTransaction(txId, true);
             } catch (Exception e) {
                 currentProgram.endTransaction(txId, false);
@@ -2817,10 +3967,11 @@ public class GhidraCliBridge extends GhidraScript {
             JsonObject result = new JsonObject();
             result.addProperty("status", "nopped");
             result.addProperty("address", addr.toString());
-            result.addProperty("bytes", instrLength);
+            result.addProperty("count", noppedCount);
+            result.addProperty("bytes", totalBytes);
             return result;
         } catch (Exception e) {
-            return errorResult("Failed to NOP instruction: " + e.getMessage());
+            return errorResult("Failed to NOP instruction(s): " + e.getMessage());
         }
     }
 

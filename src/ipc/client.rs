@@ -121,8 +121,15 @@ impl BridgeClient {
     }
 
     /// List strings.
-    pub fn list_strings(&self, limit: Option<usize>, filter: Option<String>) -> Result<serde_json::Value> {
-        self.send_command("list_strings", Some(json!({"limit": limit, "filter": filter})))
+    pub fn list_strings(
+        &self,
+        limit: Option<usize>,
+        filter: Option<String>,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "list_strings",
+            Some(json!({"limit": limit, "filter": filter})),
+        )
     }
 
     /// List imports.
@@ -184,8 +191,15 @@ impl BridgeClient {
 
     // === Extended commands (symbols, types, comments, etc.) ===
 
-    pub fn symbol_list(&self, limit: Option<usize>, filter: Option<&str>) -> Result<serde_json::Value> {
-        self.send_command("symbol_list", Some(json!({"limit": limit, "filter": filter})))
+    pub fn symbol_list(
+        &self,
+        limit: Option<usize>,
+        filter: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "symbol_list",
+            Some(json!({"limit": limit, "filter": filter})),
+        )
     }
 
     pub fn symbol_get(&self, name: &str) -> Result<serde_json::Value> {
@@ -210,7 +224,11 @@ impl BridgeClient {
         )
     }
 
-    pub fn type_list(&self, limit: Option<usize>, filter: Option<&str>) -> Result<serde_json::Value> {
+    pub fn type_list(
+        &self,
+        limit: Option<usize>,
+        filter: Option<&str>,
+    ) -> Result<serde_json::Value> {
         self.send_command("type_list", Some(json!({"limit": limit, "filter": filter})))
     }
 
@@ -229,8 +247,15 @@ impl BridgeClient {
         )
     }
 
-    pub fn comment_list(&self, limit: Option<usize>, filter: Option<&str>) -> Result<serde_json::Value> {
-        self.send_command("comment_list", Some(json!({"limit": limit, "filter": filter})))
+    pub fn comment_list(
+        &self,
+        limit: Option<usize>,
+        filter: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "comment_list",
+            Some(json!({"limit": limit, "filter": filter})),
+        )
     }
 
     pub fn comment_get(&self, address: &str) -> Result<serde_json::Value> {
@@ -248,7 +273,7 @@ impl BridgeClient {
             Some(json!({
                 "address": address,
                 "text": text,
-                "type": comment_type,
+                "comment_type": comment_type,
             })),
         )
     }
@@ -321,8 +346,14 @@ impl BridgeClient {
         self.send_command("patch_bytes", Some(json!({"address": address, "hex": hex})))
     }
 
-    pub fn patch_nop(&self, address: &str) -> Result<serde_json::Value> {
-        self.send_command("patch_nop", Some(json!({"address": address})))
+    pub fn patch_nop(&self, address: &str, count: Option<usize>) -> Result<serde_json::Value> {
+        self.send_command(
+            "patch_nop",
+            Some(json!({
+                "address": address,
+                "count": count,
+            })),
+        )
     }
 
     pub fn patch_export(&self, output: &str) -> Result<serde_json::Value> {
@@ -361,6 +392,244 @@ impl BridgeClient {
 
     pub fn script_list(&self) -> Result<serde_json::Value> {
         self.send_command("script_list", None)
+    }
+
+    pub fn struct_list(
+        &self,
+        limit: Option<usize>,
+        filter: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "struct_list",
+            Some(json!({"limit": limit, "filter": filter})),
+        )
+    }
+
+    pub fn struct_get(&self, name: &str) -> Result<serde_json::Value> {
+        self.send_command("struct_get", Some(json!({"name": name})))
+    }
+
+    pub fn struct_create(
+        &self,
+        name: &str,
+        size: Option<usize>,
+        category: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "struct_create",
+            Some(json!({"name": name, "size": size, "category": category})),
+        )
+    }
+
+    pub fn struct_add_field(
+        &self,
+        struct_name: &str,
+        field_name: &str,
+        field_type: &str,
+        size: Option<usize>,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "struct_add_field",
+            Some(json!({
+                "struct_name": struct_name,
+                "field_name": field_name,
+                "field_type": field_type,
+                "size": size,
+            })),
+        )
+    }
+
+    pub fn struct_rename_field(
+        &self,
+        struct_name: &str,
+        old_name: &str,
+        new_name: &str,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "struct_rename_field",
+            Some(json!({
+                "struct_name": struct_name,
+                "old_name": old_name,
+                "new_name": new_name,
+            })),
+        )
+    }
+
+    pub fn struct_delete(&self, name: &str) -> Result<serde_json::Value> {
+        self.send_command("struct_delete", Some(json!({"name": name})))
+    }
+
+    pub fn enum_create(
+        &self,
+        name: &str,
+        size: Option<usize>,
+        category: Option<&str>,
+        members: Option<&serde_json::Value>,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "enum_create",
+            Some(json!({
+                "name": name,
+                "size": size,
+                "category": category,
+                "members": members,
+            })),
+        )
+    }
+
+    pub fn typedef_create(
+        &self,
+        name: &str,
+        base_type: &str,
+        category: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "typedef_create",
+            Some(json!({"name": name, "base_type": base_type, "category": category})),
+        )
+    }
+
+    pub fn parse_c_type(&self, code: &str) -> Result<serde_json::Value> {
+        self.send_command("parse_c_type", Some(json!({"code": code})))
+    }
+
+    pub fn bookmark_list(
+        &self,
+        bookmark_type: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "bookmark_list",
+            Some(json!({"type": bookmark_type, "limit": limit})),
+        )
+    }
+
+    pub fn bookmark_add(
+        &self,
+        address: &str,
+        bookmark_type: Option<&str>,
+        category: Option<&str>,
+        comment: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "bookmark_add",
+            Some(json!({
+                "address": address,
+                "type": bookmark_type,
+                "category": category,
+                "comment": comment,
+            })),
+        )
+    }
+
+    pub fn bookmark_delete(
+        &self,
+        address: &str,
+        bookmark_type: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "bookmark_delete",
+            Some(json!({"address": address, "type": bookmark_type})),
+        )
+    }
+
+    pub fn variable_list(&self, function: &str, limit: Option<usize>) -> Result<serde_json::Value> {
+        self.send_command(
+            "variable_list",
+            Some(json!({"function": function, "limit": limit})),
+        )
+    }
+
+    pub fn variable_rename(
+        &self,
+        function: &str,
+        old_name: &str,
+        new_name: &str,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "variable_rename",
+            Some(json!({
+                "function": function,
+                "old_name": old_name,
+                "new_name": new_name,
+            })),
+        )
+    }
+
+    pub fn variable_retype(
+        &self,
+        function: &str,
+        variable: &str,
+        new_type: &str,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "variable_retype",
+            Some(json!({
+                "function": function,
+                "variable": variable,
+                "new_type": new_type,
+            })),
+        )
+    }
+
+    pub fn create_function(&self, address: &str, name: Option<&str>) -> Result<serde_json::Value> {
+        self.send_command(
+            "create_function",
+            Some(json!({"address": address, "name": name})),
+        )
+    }
+
+    pub fn delete_function(&self, target: &str) -> Result<serde_json::Value> {
+        self.send_command("delete_function", Some(json!({"address": target})))
+    }
+
+    #[allow(dead_code)]
+    pub fn get_function(&self, target: &str) -> Result<serde_json::Value> {
+        self.send_command("get_function", Some(json!({"address": target})))
+    }
+
+    pub fn set_function_signature(
+        &self,
+        function: &str,
+        signature: &str,
+    ) -> Result<serde_json::Value> {
+        self.send_command(
+            "set_function_signature",
+            Some(json!({"function": function, "signature": signature})),
+        )
+    }
+
+    pub fn set_return_type(&self, function: &str, return_type: &str) -> Result<serde_json::Value> {
+        self.send_command(
+            "set_return_type",
+            Some(json!({"function": function, "type": return_type})),
+        )
+    }
+
+    pub fn pcode_at(&self, address: &str) -> Result<serde_json::Value> {
+        self.send_command("pcode_at", Some(json!({"address": address})))
+    }
+
+    pub fn pcode_function(&self, function: &str, high: bool) -> Result<serde_json::Value> {
+        self.send_command(
+            "pcode_function",
+            Some(json!({"function": function, "high": high})),
+        )
+    }
+
+    pub fn analyzer_list(&self) -> Result<serde_json::Value> {
+        self.send_command("analyzer_list", None)
+    }
+
+    pub fn analyzer_set(&self, name: &str, enabled: bool) -> Result<serde_json::Value> {
+        self.send_command(
+            "analyzer_set",
+            Some(json!({"name": name, "enabled": enabled})),
+        )
+    }
+
+    pub fn analyze_run(&self) -> Result<serde_json::Value> {
+        self.send_command("analyze_run", None)
     }
 
     pub fn program_close(&self) -> Result<serde_json::Value> {

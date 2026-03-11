@@ -15,6 +15,7 @@ A high-performance Rust CLI for automating Ghidra reverse engineering tasks, des
 - **Batch operations** - Execute multiple commands from a file
 - **Flexible output** - Human-readable, JSON, or pretty JSON formats
 - **Filtering** - Powerful expression-based filtering (e.g., `size > 100`)
+- **MCP server** - 80 tools for LLM-driven reverse engineering via Model Context Protocol
 
 ## Architecture
 
@@ -24,6 +25,13 @@ A high-performance Rust CLI for automating Ghidra reverse engineering tasks, des
 │   ghidra ...    │         │  (GhidraScript in analyzeHeadless)   │
 │   --project X   │         │  ServerSocket on localhost:dynamic   │
 └─────────────────┘         └──────────────────────────────────────┘
+        ▲                              ▲
+        │                              │
+┌───────┴────────┐                     │
+│  MCP Server    │──TCP────────────────┘
+│  ghidra mcp    │
+│  (stdio/JSON)  │
+└────────────────┘
 ```
 
 The CLI connects directly to a Java bridge running inside Ghidra's JVM. This provides:
@@ -48,6 +56,16 @@ cargo install --path .
 - **Ghidra 10.0+** - Download from [ghidra-sre.org](https://ghidra-sre.org)
 - **Java 17+** - Required by Ghidra
 - **Rust 1.70+** - For building from source
+
+### Toolchain via mise (recommended)
+
+```bash
+mise install
+mise run bootstrap
+mise run verify
+```
+
+This installs Rust + Java + just from `.mise.toml`, then runs the idempotent local bootstrap.
 
 Set the Ghidra installation path:
 ```bash
@@ -81,6 +99,32 @@ ghidra x-ref to 0x401000
 # Generate call graph
 ghidra graph callers main --depth 3
 ```
+
+## One-Time Dev Setup
+
+If you are working on this repo locally, use one bootstrap command instead of manual path tweaking:
+
+```bash
+mise run bootstrap
+```
+
+If you do not use `mise`, run `just bootstrap` directly.
+
+This configures `ghidra_install_dir` and `ghidra_project_dir`, validates Java, and runs `ghidra doctor`.
+
+Useful commands:
+
+```bash
+mise run test-bin        # unit tests in src/main.rs
+mise run test-no-run     # compile all tests without executing
+mise run test-all        # run all integration suites
+mise run verify          # formatting + fast test gate
+mise run test-analysis   # run analysis integration suite
+mise run test-mcp        # run MCP integration suite
+mise run test-workflow   # run workflow integration suite
+```
+
+Equivalent `just` commands are available if you prefer not to use mise.
 
 ## Commands
 
@@ -140,16 +184,12 @@ ghidra patch nop <addr> --count 5      # NOP out instructions
 ghidra patch export -o patched.bin     # Export patched binary
 ```
 
-Note: `patch nop --count` is currently parsed by the CLI, but runtime uses single-address NOP behavior.
-
 ### Comments
 ```bash
 ghidra comment get <address>           # Get comment
 ghidra comment set <addr> "note" --comment-type EOL  # Set comment
 ghidra comment list                    # List all comments
 ```
-
-Note: `--comment-type` currently falls back to `EOL` due client/bridge argument key mismatch.
 
 ### Scripts
 ```bash
@@ -168,6 +208,151 @@ ghidra batch commands.txt              # Run commands from file
 ghidra stats                           # Program statistics
 ghidra summary                         # Program summary
 ```
+
+### Structures
+```bash
+ghidra struct list                     # List all structures
+ghidra struct get <name>               # Get structure details
+ghidra struct create <name>            # Create empty structure
+ghidra struct add-field <struct> <field> <type>  # Add field
+ghidra struct rename-field <struct> <old> <new>  # Rename field
+ghidra struct delete <name>            # Delete structure
+```
+
+### Variables
+```bash
+ghidra variable list <function>        # List function variables
+ghidra variable rename <func> <old> <new>  # Rename variable
+ghidra variable retype <func> <var> <type>  # Change variable type
+```
+
+### Function Management
+```bash
+ghidra function create <addr> [name]   # Create function at address
+ghidra function delete <target>        # Delete function
+ghidra function set-signature <func> "int foo(int a, int b)"  # Set signature
+ghidra function set-return-type <func> <type>  # Set return type
+```
+
+### Data Types
+```bash
+ghidra enum create <name> --members '[{"name":"X","value":0}]'
+ghidra typedef create <name> <base_type>
+ghidra parse-c "struct foo { int x; int y; };"
+```
+
+### Bookmarks
+```bash
+ghidra bookmark list                   # List all bookmarks
+ghidra bookmark add <addr> --comment "interesting"
+ghidra bookmark delete <addr>          # Delete bookmark
+```
+
+### PCode
+```bash
+ghidra pcode at <addr>                 # Raw PCode at address
+ghidra pcode function <func>           # PCode for function
+ghidra pcode function <func> --high    # High PCode from decompiler
+```
+
+### Analysis Control
+```bash
+ghidra analyzer list                   # List analyzers
+ghidra analyzer set <name> true        # Enable analyzer
+ghidra analyzer run                    # Re-run analysis
+```
+
+## MCP Server (AI Integration)
+
+The MCP (Model Context Protocol) server lets LLMs drive Ghidra directly. Start it with:
+
+```bash
+ghidra mcp --project myproject --program mybinary
+```
+
+This exposes 80 tools over stdio that any MCP-compatible client can use.
+
+### Configuration
+
+#### Claude Code / OpenCode
+
+Add to your MCP config:
+
+```json
+{
+  "mcpServers": {
+    "ghidra": {
+      "command": "ghidra",
+      "args": ["mcp", "--project", "myproject", "--program", "mybinary"]
+    }
+  }
+}
+```
+
+#### Claude Desktop
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "ghidra": {
+      "command": "/path/to/ghidra",
+      "args": ["mcp", "--project", "myproject", "--program", "mybinary"]
+    }
+  }
+}
+```
+
+#### Cursor
+
+Add to `.cursor/mcp.json` in your workspace:
+
+```json
+{
+  "mcpServers": {
+    "ghidra": {
+      "command": "ghidra",
+      "args": ["mcp", "--project", "myproject", "--program", "mybinary"]
+    }
+  }
+}
+```
+
+### Available Tools (80)
+
+| Category | Tools | Description |
+|----------|-------|-------------|
+| Program | 8 | Info, stats, import, analyze, open/close/delete/export programs |
+| Functions | 8 | List, get, create, delete, decompile, rename, set signature, set return type |
+| Variables | 3 | List, rename, retype (decompiler-level via HighFunctionDBUtil) |
+| Symbols | 5 | List, get, create, delete, rename |
+| Types | 3 | List, get, create |
+| Structures | 6 | List, get, create, add field, rename field, delete |
+| Data Types | 3 | Create enum, create typedef, parse C type definition |
+| Comments | 4 | List, get, set, delete |
+| Cross-refs | 2 | References to/from address |
+| Memory | 3 | Memory map, read bytes, write bytes |
+| Search | 6 | Strings, bytes, functions, calls, crypto, interesting patterns |
+| Call Graph | 4 | Full graph, callers, callees, export |
+| Patching | 3 | Patch bytes, NOP, export patched binary |
+| Scripts | 4 | Run script, Python, Java, list scripts |
+| Bookmarks | 3 | List, add, delete |
+| PCode | 2 | PCode at address, PCode for function (raw/high) |
+| Analysis | 3 | List analyzers, enable/disable, re-run analysis |
+| Diff | 2 | Compare programs, compare functions |
+| Batch | 1 | Execute multiple commands |
+| Bridge | 1 | Bridge info |
+
+### Example LLM Workflow
+
+An LLM can drive a complete reverse engineering session:
+
+1. **Orient**: `get_program_info` → `list_functions` → `find_interesting`
+2. **Analyze**: `decompile_function` → `get_xrefs_to` → `list_variables`
+3. **Annotate**: `rename_function` → `rename_variable` → `set_comment` → `create_structure`
+4. **Deep dive**: `get_pcode_function` → `search_bytes` → `read_memory`
+5. **Patch**: `patch_nop` → `patch_bytes` → `export_patched`
 
 ## Bridge Management
 
@@ -244,15 +429,20 @@ ghidra strings list --filter "length > 20"
 
 ## AI Agent Integration
 
-Ghidra CLI is designed to work seamlessly with AI coding assistants like Claude Code. The structured output and comprehensive command set make it ideal for automated reverse engineering workflows.
+### MCP Server (Recommended)
 
-Example workflow with an AI agent:
-1. `ghidra import suspicious.exe --project analysis` + `ghidra analyze --project analysis` - Import, analyze, start bridge
-2. `ghidra find interesting` - AI analyzes suspicious patterns
-3. `ghidra decompile <func>` - AI examines specific functions
-4. `ghidra x-ref to <addr>` - AI traces data flow
-5. `ghidra patch nop <addr>` - AI patches anti-debug code
-6. `ghidra patch export -o patched.bin` - Export patched binary
+The MCP server is the primary way to integrate with AI agents. See [MCP Server](#mcp-server-ai-integration) above for setup.
+
+### Direct CLI
+
+The CLI also works directly with AI coding assistants. The structured output and comprehensive command set make it ideal for automated reverse engineering:
+
+1. `ghidra import suspicious.exe --project analysis && ghidra analyze --project analysis`
+2. `ghidra find interesting` — AI analyzes suspicious patterns
+3. `ghidra decompile <func>` — AI examines specific functions
+4. `ghidra x-ref to <addr>` — AI traces data flow
+5. `ghidra patch nop <addr>` — AI patches anti-debug code
+6. `ghidra patch export -o patched.bin` — Export patched binary
 
 ## Troubleshooting
 
