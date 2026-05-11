@@ -1,5 +1,12 @@
 # Ghidra CLI
 
+> **Fork notice.** Beginning with **0.2.0**, this project is maintained at
+> [`phall1/ghidra-cli`](https://github.com/phall1/ghidra-cli). It is a hard fork
+> of [`akiselev/ghidra-cli`](https://github.com/akiselev/ghidra-cli) (versions
+> through 0.1.9) and is actively diverging. Direction: AI-native reverse
+> engineering — MCP server + (eventually) a Rust host for Ghidra's C++
+> decompiler. See [`docs/VISION.md`](./docs/VISION.md).
+
 A high-performance Rust CLI for automating Ghidra reverse engineering tasks, designed for both direct usage and AI agent integration (like Claude Code).
 
 ## Features
@@ -46,7 +53,7 @@ The CLI connects directly to a Java bridge running inside Ghidra's JVM. This pro
 ### From Source
 
 ```bash
-git clone https://github.com/akiselev/ghidra-cli
+git clone https://github.com/phall1/ghidra-cli
 cd ghidra-cli
 cargo install --path .
 ```

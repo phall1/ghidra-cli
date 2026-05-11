@@ -1,11 +1,14 @@
 [package]
 name = "ghidra-cli"
-version = "0.1.9"
+version = "0.2.0-dev"
 edition = "2021"
-authors = ["Alexander Kiselev"]
-description = "Rust CLI to run Ghidra headless for reverse engineering with Claude Code and other agents"
+authors = [
+    "phall1 contributors",
+    "Alexander Kiselev (original author, akiselev/ghidra-cli through 0.1.9)",
+]
+description = "AI-native reverse engineering CLI: drives Ghidra headlessly and exposes an MCP server for LLM-driven binary analysis"
 license = "GPL-3.0"
-repository = "https://github.com/akiselev/ghidra-cli"
+repository = "https://github.com/phall1/ghidra-cli"
 
 [dependencies]
 # CLI framework

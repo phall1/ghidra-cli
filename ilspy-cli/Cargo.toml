@@ -1,11 +1,14 @@
 [package]
 name = "ilspy-cli"
-version = "0.1.9"
+version = "0.2.0-dev"
 edition = "2021"
-authors = ["Alexander Kiselev"]
-description = "Agent-friendly .NET decompilation CLI using ILSpy (ICSharpCode.Decompiler)"
+authors = [
+    "phall1 contributors",
+    "Alexander Kiselev (original author, akiselev/ghidra-cli through 0.1.9)",
+]
+description = "Agent-friendly .NET decompilation CLI using ILSpy (ICSharpCode.Decompiler); companion to ghidra-cli"
 license = "GPL-3.0"
-repository = "https://github.com/akiselev/ghidra-cli"
+repository = "https://github.com/phall1/ghidra-cli"
 
 [dependencies]
 # CLI framework

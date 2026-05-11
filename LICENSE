@@ -1,3 +1,14 @@
+ghidra-cli
+Copyright (C) 2025 Alexander Kiselev (original author, akiselev/ghidra-cli through 0.1.9)
+Copyright (C) 2026 phall1 contributors (fork from 0.2.0, phall1/ghidra-cli)
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version. The full text of GPL-3.0 follows.
+
+--------------------------------------------------------------------------------
+
                     GNU GENERAL PUBLIC LICENSE
                        Version 3, 29 June 2007
 
