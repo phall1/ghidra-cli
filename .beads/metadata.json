@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "ghidra_cli",
+  "project_id": "4742dede-9495-413c-be2e-4fd10b2f18d7"
+}
