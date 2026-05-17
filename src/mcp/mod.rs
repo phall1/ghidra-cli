@@ -1,14 +1,15 @@
 use rmcp::{
     ErrorData as McpError,
-    ServerHandler,
+    RoleServer, ServerHandler,
     handler::server::tool::ToolRouter,
     handler::server::wrapper::Parameters,
     model::*,
+    service::{RequestContext, ServiceExt},
     tool, tool_handler, tool_router,
-    service::ServiceExt,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
+use serde_json::json;
 
 use crate::ipc::client::BridgeClient;
 use crate::ipc::{BridgeError, BridgeErrorCode};
@@ -145,19 +146,168 @@ impl GhidraServer {
     }
 }
 
+/// URI for the project-state MCP resource.
+pub const RESOURCE_URI_PROJECT: &str = "ghidra://project";
+/// URI for the currently-open program metadata MCP resource.
+pub const RESOURCE_URI_PROGRAM: &str = "ghidra://program";
+/// URI for bridge-state MCP resource (uptime, command counts).
+pub const RESOURCE_URI_BRIDGE: &str = "ghidra://bridge";
+
 #[tool_handler]
 impl ServerHandler for GhidraServer {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_server_info(Implementation::new(
-                "ghidra-cli",
-                env!("CARGO_PKG_VERSION"),
-            ))
-            .with_instructions(format!(
-                "Ghidra reverse engineering tools. Analyze binaries, decompile functions, \
-                 search for patterns, and annotate code. Project: {} Ghidra: {}",
-                self.project_path, self.ghidra_install_dir,
-            ))
+        ServerInfo::new(
+            ServerCapabilities::builder()
+                .enable_tools()
+                .enable_resources()
+                .build(),
+        )
+        .with_server_info(Implementation::new("ghidra-cli", env!("CARGO_PKG_VERSION")))
+        .with_instructions(format!(
+            "Ghidra reverse engineering tools. Analyze binaries, decompile functions, \
+             search for patterns, and annotate code. Project: {} Ghidra: {}.\n\n\
+             Resources: read `{}`, `{}`, and `{}` to discover current project, program, \
+             and bridge state without spending a tool call. The resources are refreshed \
+             on every read.",
+            self.project_path,
+            self.ghidra_install_dir,
+            RESOURCE_URI_PROJECT,
+            RESOURCE_URI_PROGRAM,
+            RESOURCE_URI_BRIDGE,
+        ))
+    }
+
+    async fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, McpError> {
+        let resources = vec![
+            RawResource {
+                uri: RESOURCE_URI_PROJECT.into(),
+                name: "project".into(),
+                title: Some("Ghidra project state".into()),
+                description: Some(
+                    "Project root, currently-open program, and the list of programs in this project. \
+                     Read this to orient before calling any tool that depends on a specific program."
+                        .into(),
+                ),
+                mime_type: Some("application/json".into()),
+                size: None,
+                icons: None,
+                meta: None,
+            }
+            .no_annotation(),
+            RawResource {
+                uri: RESOURCE_URI_PROGRAM.into(),
+                name: "program".into(),
+                title: Some("Currently-open program".into()),
+                description: Some(
+                    "Metadata for the program currently open in the Ghidra bridge (name, format, \
+                     language, image base, address range). Returns `{loaded: false}` if no program \
+                     is open."
+                        .into(),
+                ),
+                mime_type: Some("application/json".into()),
+                size: None,
+                icons: None,
+                meta: None,
+            }
+            .no_annotation(),
+            RawResource {
+                uri: RESOURCE_URI_BRIDGE.into(),
+                name: "bridge".into(),
+                title: Some("Bridge state".into()),
+                description: Some(
+                    "Live bridge state: TCP port, uptime, commands handled. Useful for debugging \
+                     bridge connectivity issues."
+                        .into(),
+                ),
+                mime_type: Some("application/json".into()),
+                size: None,
+                icons: None,
+                meta: None,
+            }
+            .no_annotation(),
+        ];
+        Ok(ListResourcesResult {
+            resources,
+            ..Default::default()
+        })
+    }
+
+    async fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResult, McpError> {
+        let payload = self.resource_payload(&request.uri).map_err(|e| {
+            McpError::internal_error(format!("read_resource {}: {}", request.uri, e), None)
+        })?;
+        Ok(ReadResourceResult::new(vec![
+            ResourceContents::TextResourceContents {
+                uri: request.uri,
+                mime_type: Some("application/json".into()),
+                text: serde_json::to_string_pretty(&payload).unwrap_or_else(|_| payload.to_string()),
+                meta: None,
+            },
+        ]))
+    }
+}
+
+impl GhidraServer {
+    /// Resolve a resource URI to its current JSON payload by querying the
+    /// bridge. Falls back to a `{loaded: false}` shape rather than erroring
+    /// when state is unavailable (e.g. no program open) — agents read
+    /// resources speculatively and should not be punished for it.
+    fn resource_payload(&self, uri: &str) -> anyhow::Result<serde_json::Value> {
+        let client = self.client();
+        match uri {
+            RESOURCE_URI_PROJECT => {
+                let bridge_info = client.bridge_info().unwrap_or_else(|_| json!({}));
+                let programs = client.list_programs().unwrap_or_else(|_| json!({}));
+                let current = bridge_info
+                    .get("current_program")
+                    .cloned()
+                    .unwrap_or(json!(null));
+                Ok(json!({
+                    "uri": RESOURCE_URI_PROJECT,
+                    "project_path": self.project_path,
+                    "ghidra_install_dir": self.ghidra_install_dir,
+                    "current_program": current,
+                    "programs": programs.get("programs").cloned().unwrap_or(json!([])),
+                }))
+            }
+            RESOURCE_URI_PROGRAM => match client.program_info() {
+                Ok(info) => Ok(json!({
+                    "uri": RESOURCE_URI_PROGRAM,
+                    "loaded": true,
+                    "info": info,
+                })),
+                Err(e) => {
+                    let be = e.downcast_ref::<BridgeError>();
+                    let no_program = be.map(|b| b.code == BridgeErrorCode::NoProgramLoaded).unwrap_or(false);
+                    if no_program {
+                        Ok(json!({
+                            "uri": RESOURCE_URI_PROGRAM,
+                            "loaded": false,
+                            "hint": "No program currently open. Call import_binary or open_program first.",
+                        }))
+                    } else {
+                        Err(e)
+                    }
+                }
+            },
+            RESOURCE_URI_BRIDGE => {
+                let info = client.bridge_info().unwrap_or_else(|_| json!({}));
+                Ok(json!({
+                    "uri": RESOURCE_URI_BRIDGE,
+                    "port": self.port,
+                    "info": info,
+                }))
+            }
+            other => anyhow::bail!("unknown resource URI: {other}"),
+        }
     }
 }
 
