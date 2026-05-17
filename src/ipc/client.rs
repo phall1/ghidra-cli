@@ -11,6 +11,7 @@ use anyhow::Result;
 use serde_json::json;
 use tracing::debug;
 
+use super::error::BridgeError;
 use super::protocol::{BridgeRequest, BridgeResponse};
 
 /// Client for communicating with the Ghidra Java bridge.
@@ -38,11 +39,9 @@ impl BridgeClient {
     ) -> Result<serde_json::Value> {
         let addr: std::net::SocketAddr = format!("127.0.0.1:{}", self.port)
             .parse()
-            .map_err(|e| anyhow::anyhow!("Invalid address: {}", e))?;
-        let mut stream =
-            TcpStream::connect_timeout(&addr, Duration::from_secs(10)).map_err(|e| {
-                anyhow::anyhow!("Failed to connect to bridge on port {}: {}", self.port, e)
-            })?;
+            .map_err(|e| anyhow::Error::new(BridgeError::transport(e)))?;
+        let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(10))
+            .map_err(|e| anyhow::Error::new(BridgeError::unreachable(self.port, e)))?;
         stream.set_read_timeout(Some(Duration::from_secs(300))).ok();
         stream.set_write_timeout(Some(Duration::from_secs(30))).ok();
 
@@ -51,19 +50,32 @@ impl BridgeClient {
             args,
         };
 
-        let request_json = serde_json::to_string(&request)?;
+        let request_json =
+            serde_json::to_string(&request).map_err(|e| anyhow::Error::new(BridgeError::transport(e)))?;
         debug!("Sending: {}", request_json);
 
-        writeln!(stream, "{}", request_json)?;
-        stream.flush()?;
+        writeln!(stream, "{}", request_json)
+            .map_err(|e| anyhow::Error::new(BridgeError::transport(e)))?;
+        stream
+            .flush()
+            .map_err(|e| anyhow::Error::new(BridgeError::transport(e)))?;
 
         let mut reader = BufReader::new(&stream);
         let mut response_line = String::new();
-        reader.read_line(&mut response_line)?;
+        match reader.read_line(&mut response_line) {
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock
+                || e.kind() == std::io::ErrorKind::TimedOut =>
+            {
+                return Err(anyhow::Error::new(BridgeError::timeout(300)));
+            }
+            Err(e) => return Err(anyhow::Error::new(BridgeError::transport(e))),
+        }
 
         debug!("Received: {}", response_line.trim());
 
-        let response: BridgeResponse = serde_json::from_str(&response_line)?;
+        let response: BridgeResponse = serde_json::from_str(&response_line)
+            .map_err(|e| anyhow::Error::new(BridgeError::transport(e)))?;
 
         match response.status.as_str() {
             "success" => Ok(response.data.unwrap_or(json!({}))),
@@ -71,7 +83,7 @@ impl BridgeClient {
                 let msg = response
                     .message
                     .unwrap_or_else(|| "Unknown error".to_string());
-                anyhow::bail!("{}", msg)
+                Err(anyhow::Error::new(BridgeError::from_bridge_message(msg)))
             }
             "shutdown" => Ok(json!({"status": "shutdown"})),
             _ => Ok(response.data.unwrap_or(json!({}))),

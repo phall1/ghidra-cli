@@ -11,6 +11,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::ipc::client::BridgeClient;
+use crate::ipc::{BridgeError, BridgeErrorCode};
 
 #[derive(Clone)]
 pub struct GhidraServer {
@@ -50,7 +51,24 @@ impl GhidraServer {
     }
 
     fn err_result(e: anyhow::Error) -> Result<CallToolResult, McpError> {
-        Ok(CallToolResult::error(vec![Content::text(format!("Error: {}", e))]))
+        // Prefer the structured BridgeError if present so agents see
+        // {code, recoverable, hint, suggested_next_tool} in the payload
+        // instead of a free-text English string.
+        let structured = e
+            .downcast_ref::<BridgeError>()
+            .cloned()
+            .unwrap_or_else(|| BridgeError {
+                code: BridgeErrorCode::Unknown,
+                message: e.to_string(),
+                recoverable: false,
+                hint: None,
+                suggested_next_tool: None,
+            });
+
+        let payload = serde_json::to_string_pretty(&structured)
+            .unwrap_or_else(|_| structured.message.clone());
+
+        Ok(CallToolResult::error(vec![Content::text(payload)]))
     }
 
     fn call_bridge<F>(&self, f: F) -> Result<CallToolResult, McpError>
