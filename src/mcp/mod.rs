@@ -13,6 +13,26 @@ use serde::Deserialize;
 use crate::ipc::client::BridgeClient;
 use crate::ipc::{BridgeError, BridgeErrorCode};
 
+/// Per-tool entry in [`SchemaAudit`].
+#[allow(dead_code)] // Library API; exercised by tests/mcp_schema_audit.rs.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SchemaAuditEntry {
+    pub name: String,
+    pub description_bytes: usize,
+    pub schema_bytes: usize,
+    /// Bytes of the full JSON-serialized `Tool` object — what `tools/list` puts on the wire.
+    pub total_bytes: usize,
+}
+
+/// Result of [`GhidraServer::audit_schemas`].
+#[allow(dead_code)] // Library API; exercised by tests/mcp_schema_audit.rs.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SchemaAudit {
+    pub tool_count: usize,
+    pub total_bytes: usize,
+    pub entries: Vec<SchemaAuditEntry>,
+}
+
 #[derive(Clone)]
 pub struct GhidraServer {
     port: u16,
@@ -28,6 +48,48 @@ impl GhidraServer {
             project_path,
             ghidra_install_dir,
             tool_router: Self::tool_router(),
+        }
+    }
+
+    /// Per-tool schema size audit. Walks every tool registered with the
+    /// router and reports how many bytes its serialized [`Tool`] takes —
+    /// which is roughly what an MCP client (and therefore an LLM's context)
+    /// has to absorb on `tools/list`.
+    ///
+    /// This is the input to E4.1 (budget gate) and E4.2 (--mcp-tier
+    /// gating). Built without booting a bridge so it's cheap and pure.
+    #[allow(dead_code)] // Library API; exercised by tests/mcp_schema_audit.rs.
+    pub fn audit_schemas() -> SchemaAudit {
+        let router: ToolRouter<Self> = Self::tool_router();
+        let mut entries: Vec<SchemaAuditEntry> = router
+            .list_all()
+            .into_iter()
+            .map(|tool| {
+                let name = tool.name.to_string();
+                let description_bytes = tool
+                    .description
+                    .as_ref()
+                    .map(|d| d.len())
+                    .unwrap_or(0);
+                let schema_bytes = serde_json::to_string(tool.input_schema.as_ref())
+                    .map(|s| s.len())
+                    .unwrap_or(0);
+                let total_bytes = serde_json::to_string(&tool).map(|s| s.len()).unwrap_or(0);
+                SchemaAuditEntry {
+                    name,
+                    description_bytes,
+                    schema_bytes,
+                    total_bytes,
+                }
+            })
+            .collect();
+        // Largest first — what to prune for context budget pressure
+        entries.sort_by(|a, b| b.total_bytes.cmp(&a.total_bytes));
+        let total_bytes = entries.iter().map(|e| e.total_bytes).sum();
+        SchemaAudit {
+            tool_count: entries.len(),
+            total_bytes,
+            entries,
         }
     }
 
