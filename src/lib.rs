@@ -8,6 +8,9 @@ pub mod error;
 #[path = "config.rs"]
 pub mod config;
 
+#[path = "metrics.rs"]
+pub mod metrics;
+
 #[path = "ipc/mod.rs"]
 pub mod ipc;
 

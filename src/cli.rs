@@ -1,5 +1,13 @@
-use clap::{ArgAction, Args, Parser, Subcommand};
+use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+pub enum LogFormat {
+    /// Human-readable log output (default for TTY stderr).
+    Human,
+    /// Newline-delimited JSON log output (default when stderr is piped).
+    Json,
+}
 
 #[derive(Parser)]
 #[command(name = "ghidra")]
@@ -23,6 +31,10 @@ pub struct Cli {
     /// Output JSON with pretty formatting
     #[arg(long, global = true)]
     pub pretty: bool,
+
+    /// Log output format on stderr. Defaults to human for TTY, json when piped.
+    #[arg(long, value_enum, global = true)]
+    pub log_format: Option<LogFormat>,
 }
 
 #[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]

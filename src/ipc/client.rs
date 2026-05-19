@@ -5,23 +5,34 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use serde_json::json;
-use tracing::debug;
+use tracing::{debug, field, Span};
 
 use super::protocol::{BridgeRequest, BridgeResponse};
+use crate::metrics;
 
 /// Client for communicating with the Ghidra Java bridge.
 pub struct BridgeClient {
     port: u16,
+    project_hash: String,
 }
 
 impl BridgeClient {
     /// Create a client for a known port.
     pub fn new(port: u16) -> Self {
-        Self { port }
+        Self {
+            port,
+            project_hash: String::new(),
+        }
+    }
+
+    /// Attach a project hash used for tracing spans (no behavioral impact).
+    pub fn with_project_hash(mut self, hash: impl Into<String>) -> Self {
+        self.project_hash = hash.into();
+        self
     }
 
     /// Get the port this client connects to.
@@ -31,51 +42,93 @@ impl BridgeClient {
     }
 
     /// Send a command to the bridge and return the result.
+    ///
+    /// Wrapped in a tracing span (`bridge.send_command`) so every method on
+    /// `BridgeClient` gets command/project/byte/status attribution. Latencies
+    /// also feed the rolling per-command histogram (`metrics::record`).
+    #[tracing::instrument(
+        name = "bridge.send_command",
+        skip_all,
+        fields(
+            cmd = %command,
+            project_hash = %self.project_hash,
+            bytes_in = field::Empty,
+            bytes_out = field::Empty,
+            status = field::Empty,
+        )
+    )]
     pub fn send_command(
         &self,
         command: &str,
         args: Option<serde_json::Value>,
     ) -> Result<serde_json::Value> {
-        let addr: std::net::SocketAddr = format!("127.0.0.1:{}", self.port)
-            .parse()
-            .map_err(|e| anyhow::anyhow!("Invalid address: {}", e))?;
-        let mut stream =
-            TcpStream::connect_timeout(&addr, Duration::from_secs(10)).map_err(|e| {
-                anyhow::anyhow!("Failed to connect to bridge on port {}: {}", self.port, e)
-            })?;
-        stream.set_read_timeout(Some(Duration::from_secs(300))).ok();
-        stream.set_write_timeout(Some(Duration::from_secs(30))).ok();
+        let span = Span::current();
+        let started = Instant::now();
+        // Use a static name for histogram keys to avoid unbounded interning of
+        // user input; commands are a closed set defined in this module.
+        let cmd_owned: String = command.to_string();
 
-        let request = BridgeRequest {
-            command: command.to_string(),
-            args,
-        };
+        let result = (|| -> Result<serde_json::Value> {
+            let addr: std::net::SocketAddr = format!("127.0.0.1:{}", self.port)
+                .parse()
+                .map_err(|e| anyhow::anyhow!("Invalid address: {}", e))?;
+            let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(10))
+                .map_err(|e| {
+                    anyhow::anyhow!("Failed to connect to bridge on port {}: {}", self.port, e)
+                })?;
+            stream.set_read_timeout(Some(Duration::from_secs(300))).ok();
+            stream.set_write_timeout(Some(Duration::from_secs(30))).ok();
 
-        let request_json = serde_json::to_string(&request)?;
-        debug!("Sending: {}", request_json);
+            let request = BridgeRequest {
+                command: command.to_string(),
+                args,
+            };
 
-        writeln!(stream, "{}", request_json)?;
-        stream.flush()?;
+            let request_json = serde_json::to_string(&request)?;
+            span.record("bytes_out", request_json.len() as u64);
+            debug!("Sending: {}", request_json);
 
-        let mut reader = BufReader::new(&stream);
-        let mut response_line = String::new();
-        reader.read_line(&mut response_line)?;
+            writeln!(stream, "{}", request_json)?;
+            stream.flush()?;
 
-        debug!("Received: {}", response_line.trim());
+            let mut reader = BufReader::new(&stream);
+            let mut response_line = String::new();
+            reader.read_line(&mut response_line)?;
 
-        let response: BridgeResponse = serde_json::from_str(&response_line)?;
+            span.record("bytes_in", response_line.len() as u64);
+            debug!("Received: {}", response_line.trim());
 
-        match response.status.as_str() {
-            "success" => Ok(response.data.unwrap_or(json!({}))),
-            "error" => {
-                let msg = response
-                    .message
-                    .unwrap_or_else(|| "Unknown error".to_string());
-                anyhow::bail!("{}", msg)
+            let response: BridgeResponse = serde_json::from_str(&response_line)?;
+
+            match response.status.as_str() {
+                "success" => {
+                    span.record("status", "success");
+                    Ok(response.data.unwrap_or(json!({})))
+                }
+                "error" => {
+                    span.record("status", "error");
+                    let msg = response
+                        .message
+                        .unwrap_or_else(|| "Unknown error".to_string());
+                    anyhow::bail!("{}", msg)
+                }
+                "shutdown" => {
+                    span.record("status", "shutdown");
+                    Ok(json!({"status": "shutdown"}))
+                }
+                other => {
+                    span.record("status", other);
+                    Ok(response.data.unwrap_or(json!({})))
+                }
             }
-            "shutdown" => Ok(json!({"status": "shutdown"})),
-            _ => Ok(response.data.unwrap_or(json!({}))),
+        })();
+
+        let elapsed_us = started.elapsed().as_micros() as u64;
+        metrics::record(&cmd_owned, elapsed_us);
+        if result.is_err() {
+            span.record("status", "transport_error");
         }
+        result
     }
 
     /// Check if bridge is responding.
