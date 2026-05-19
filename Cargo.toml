@@ -35,8 +35,11 @@ thiserror = "1.0"
 env_logger = "0.11"
 log = "0.4"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-appender = "0.2"
+
+# Latency histogram (rolling, in-memory)
+hdrhistogram = "7.5"
 
 # Async runtime (only needed for setup command's HTTP downloads)
 tokio = { version = "1.35", features = ["rt", "rt-multi-thread", "macros", "io-util", "time", "net"] }

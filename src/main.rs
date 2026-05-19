@@ -6,16 +6,18 @@ mod format;
 mod ghidra;
 mod ipc;
 mod mcp;
+mod metrics;
 mod query;
 
 use clap::Parser;
-use cli::{Cli, Commands, QueryOptions};
+use cli::{Cli, Commands, LogFormat, QueryOptions};
 use config::Config;
 use error::GhidraError;
 use format::{auto_detect_format, DefaultFormatter, Formatter, OutputFormat};
 use ghidra::bridge::{self, BridgeStartMode, BridgeStatus};
 use ghidra::GhidraClient;
 use ipc::client::BridgeClient;
+use metrics::{FlushFormat, MetricsGuard};
 use query::Query;
 use std::io::IsTerminal;
 use std::path::PathBuf;
@@ -38,26 +40,59 @@ fn main() {
         .with_ansi(false)
         .with_filter(tracing_subscriber::EnvFilter::new("debug"));
 
-    // Stdout layer: only if -v/-vv/-vvv is specified
-    let stdout_layer = match cli.verbose {
+    let log_format = cli.log_format.unwrap_or_else(|| {
+        if std::io::stderr().is_terminal() {
+            LogFormat::Human
+        } else {
+            LogFormat::Json
+        }
+    });
+
+    let stderr_level = match cli.verbose {
         1 => Some("warn"),
         2 => Some("info"),
         3.. => Some("debug"),
         _ => None,
-    }
-    .map(|level| {
-        tracing_subscriber::fmt::layer()
-            .with_writer(std::io::stderr)
-            .with_filter(
-                tracing_subscriber::EnvFilter::try_from_default_env()
-                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(level)),
-            )
-    });
+    };
+
+    let stderr_human = if log_format == LogFormat::Human {
+        stderr_level.map(|level| {
+            tracing_subscriber::fmt::layer()
+                .with_writer(std::io::stderr)
+                .with_filter(
+                    tracing_subscriber::EnvFilter::try_from_default_env()
+                        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(level)),
+                )
+        })
+    } else {
+        None
+    };
+
+    let stderr_json = if log_format == LogFormat::Json {
+        stderr_level.map(|level| {
+            tracing_subscriber::fmt::layer()
+                .json()
+                .with_writer(std::io::stderr)
+                .with_filter(
+                    tracing_subscriber::EnvFilter::try_from_default_env()
+                        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(level)),
+                )
+        })
+    } else {
+        None
+    };
 
     tracing_subscriber::registry()
         .with(file_layer)
-        .with(stdout_layer)
+        .with(stderr_human)
+        .with(stderr_json)
         .init();
+
+    let metrics_flush_format = match log_format {
+        LogFormat::Human => FlushFormat::Human,
+        LogFormat::Json => FlushFormat::Json,
+    };
+    let _metrics_guard = MetricsGuard::new(metrics_flush_format);
 
     let result = match &cli.command {
         Commands::Setup(_) => {
@@ -79,6 +114,10 @@ fn main() {
 
     if let Err(e) = result {
         eprintln!("Error: {}", e);
+        // process::exit skips destructors; flush metrics explicitly and skip
+        // the guard so we don't double-print.
+        metrics::flush(metrics_flush_format);
+        std::mem::forget(_metrics_guard);
         std::process::exit(1);
     }
 }
@@ -505,6 +544,11 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
     // Extract project from command args, fall back to config default
     let project_from_cmd = extract_project_from_command(&cli.command);
     let project_path = resolve_project_path(&project_from_cmd, &config)?;
+    let project_hash = format!(
+        "{:x}",
+        md5::compute(project_path.to_string_lossy().as_bytes())
+    );
+    let make_client = |port: u16| BridgeClient::new(port).with_project_hash(project_hash.clone());
 
     let ghidra_install_dir = config
         .ghidra_install_dir
@@ -533,7 +577,7 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
                 .flatten()
                 .and_then(|port| {
                     // Verify this port is actually reachable
-                    let client = BridgeClient::new(port);
+                    let client = make_client(port);
                     if client.ping().unwrap_or(false) {
                         Some(port)
                     } else {
@@ -543,7 +587,7 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
 
             if let Some(port) = existing_bridge_port {
                 // Bridge is running - import via TCP command
-                let client = BridgeClient::new(port);
+                let client = make_client(port);
                 verify_bridge(&client)?;
                 let result = client.import_binary(&args.binary, args.program.as_deref())?;
 
@@ -578,7 +622,7 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
                         binary_path: args.binary.clone(),
                     },
                 )?;
-                let client = BridgeClient::new(port);
+                let client = make_client(port);
                 let info = client.program_info()?;
                 let program_name = args.program.clone().unwrap_or_else(|| {
                     info.get("name")
@@ -601,7 +645,7 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
         _ => {
             // For all bridge commands (including Analyze), ensure bridge is running
             let client = if let Some(port) = bridge::is_bridge_running(&project_path) {
-                let client = BridgeClient::new(port);
+                let client = make_client(port);
                 verify_bridge(&client)?;
                 client
             } else {
@@ -623,7 +667,7 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
                 if !cli.quiet {
                     eprintln!("Bridge ready.");
                 }
-                BridgeClient::new(port)
+                make_client(port)
             };
 
             // Switch to requested program if it differs from the bridge's current program
@@ -661,7 +705,7 @@ fn run_with_bridge(cli: Cli) -> anyhow::Result<()> {
                     };
                     let port =
                         bridge::ensure_bridge_running(&project_path, &ghidra_install_dir, mode)?;
-                    let retry_client = BridgeClient::new(port);
+                    let retry_client = make_client(port);
 
                     if let Some(requested_program) = extract_program_from_command(&cli.command) {
                         if let Ok(info) = retry_client.program_info() {
