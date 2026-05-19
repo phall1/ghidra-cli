@@ -93,9 +93,51 @@ jobs:
           path: ${{ env.ARCHIVE }}
           if-no-files-found: error
 
+  # E8.5: SBOM generation. Produces a CycloneDX 1.5 dependency SBOM
+  # from Cargo.lock that ships alongside the binary tarballs. Reviewers
+  # / downstream packagers can run `cyclonedx-cli` or similar to inspect
+  # exactly what version of every transitive crate is in a release —
+  # the same way Sigstore + cosign give them tamper-evidence (E8.4).
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-cyclonedx
+        run: cargo install cargo-cyclonedx --locked
+
+      - name: Generate CycloneDX SBOM (JSON + XML)
+        # cargo-cyclonedx reads Cargo.lock and emits a CycloneDX-format
+        # SBOM. We ship both JSON and XML so downstream consumers can
+        # pick whichever their tooling speaks. The default output goes
+        # next to Cargo.toml as `bom.{json,xml}`; we rename to embed
+        # the crate version so the release page asset list is readable.
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          cargo cyclonedx --format json --override-filename "ghidra-cli-${VERSION}-sbom"
+          cargo cyclonedx --format xml  --override-filename "ghidra-cli-${VERSION}-sbom"
+          ls -lh "ghidra-cli-${VERSION}-sbom".* || true
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ghidra-cli-sbom
+          path: |
+            ghidra-cli-*-sbom.json
+            ghidra-cli-*-sbom.xml
+          if-no-files-found: error
+
   release:
     name: Publish GitHub Release
-    needs: build
+    needs: [build, sbom]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -119,6 +161,9 @@ jobs:
           draft: false
           generate_release_notes: true
           fail_on_unmatched_files: true
-          files: artifacts/*.tar.gz
+          files: |
+            artifacts/*.tar.gz
+            artifacts/ghidra-cli-*-sbom.json
+            artifacts/ghidra-cli-*-sbom.xml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
