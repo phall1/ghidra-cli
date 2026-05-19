@@ -8,6 +8,9 @@ pub mod error;
 #[path = "annotate/mod.rs"]
 pub mod annotate;
 
+#[path = "decomp/mod.rs"]
+pub mod decomp;
+
 #[path = "config.rs"]
 pub mod config;
 
