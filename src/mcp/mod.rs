@@ -1,16 +1,29 @@
+use std::sync::Arc;
+
 use rmcp::{
     ErrorData as McpError,
     ServerHandler,
-    handler::server::tool::ToolRouter,
+    handler::server::tool::{ToolCallContext, ToolRouter},
     handler::server::wrapper::Parameters,
     model::*,
-    tool, tool_handler, tool_router,
-    service::ServiceExt,
+    tool, tool_router,
+    service::{RequestContext, ServiceExt},
+    RoleServer,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::ipc::client::BridgeClient;
+
+pub mod tier;
+pub mod usage;
+
+pub use tier::McpTier;
+pub use usage::{default_usage_path, ToolUsage, UsageTracker};
+
+pub fn known_tool_names() -> Vec<&'static str> {
+    tier::all_known_tool_names()
+}
 
 #[derive(Clone)]
 pub struct GhidraServer {
@@ -18,15 +31,43 @@ pub struct GhidraServer {
     project_path: String,
     ghidra_install_dir: String,
     tool_router: ToolRouter<Self>,
+    usage: Arc<UsageTracker>,
 }
 
 impl GhidraServer {
+    #[allow(dead_code)]
     pub fn new(port: u16, project_path: String, ghidra_install_dir: String) -> Self {
+        Self::with_tier(port, project_path, ghidra_install_dir, McpTier::Specialized)
+    }
+
+    pub fn with_tier(
+        port: u16,
+        project_path: String,
+        ghidra_install_dir: String,
+        tier: McpTier,
+    ) -> Self {
+        let mut router = Self::tool_router();
+        let names: Vec<String> = router.map.keys().map(|k| k.to_string()).collect();
+        let mut kept = 0usize;
+        for name in names {
+            if tier::tier_for_tool(&name) > tier {
+                router.remove_route(&name);
+            } else {
+                kept += 1;
+            }
+        }
+        tracing::info!(
+            "MCP tool registration: tier={} tools={}",
+            tier.as_u8(),
+            kept
+        );
+
         Self {
             port,
             project_path,
             ghidra_install_dir,
-            tool_router: Self::tool_router(),
+            tool_router: router,
+            usage: Arc::new(UsageTracker::new(default_usage_path())),
         }
     }
 
@@ -65,7 +106,6 @@ impl GhidraServer {
     }
 }
 
-#[tool_handler]
 impl ServerHandler for GhidraServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
@@ -78,6 +118,33 @@ impl ServerHandler for GhidraServer {
                  search for patterns, and annotate code. Project: {} Ghidra: {}",
                 self.project_path, self.ghidra_install_dir,
             ))
+    }
+
+    // Manual impl (instead of `#[tool_handler]`) so we can record per-tool usage counters.
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        self.usage.record(&request.name);
+        let tcc = ToolCallContext::new(self, request, context);
+        self.tool_router.call(tcc).await
+    }
+
+    async fn list_tools(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListToolsResult, McpError> {
+        Ok(ListToolsResult {
+            tools: self.tool_router.list_all(),
+            meta: None,
+            next_cursor: None,
+        })
+    }
+
+    fn get_tool(&self, name: &str) -> Option<Tool> {
+        self.tool_router.get(name).cloned()
     }
 }
 

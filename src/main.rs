@@ -93,6 +93,7 @@ fn run_command(cli: Cli) -> anyhow::Result<()> {
         Commands::Config(cmd) => handle_config_command(cmd.clone()),
         Commands::SetDefault(args) => handle_set_default(args.clone()),
         Commands::Project(args) => handle_project_command(args.command.clone()),
+        Commands::Stats(args) if args.command.is_some() => handle_stats_subcommand(cli),
         // Commands requiring bridge
         _ if requires_bridge(&cli.command) => run_with_bridge(cli),
         _ => {
@@ -490,10 +491,7 @@ fn extract_query_options(command: &Commands) -> Option<QueryOptions> {
             cli::StructCommands::Get(args) => Some(args.options.clone()),
             _ => None,
         },
-        Commands::Variable(cmd) => match cmd {
-            cli::VariableCommands::List(args) => Some(args.options.clone()),
-            _ => None,
-        },
+        Commands::Variable(cli::VariableCommands::List(args)) => Some(args.options.clone()),
         _ => None,
     }
 }
@@ -1117,11 +1115,128 @@ fn handle_bridge_command(cli: Cli) -> anyhow::Result<()> {
     }
 }
 
-fn handle_mcp_command(cli: Cli) -> anyhow::Result<()> {
-    let (project, program) = match cli.command {
-        Commands::Mcp { project, program } => (project, program),
+fn handle_stats_subcommand(cli: Cli) -> anyhow::Result<()> {
+    let args = match cli.command {
+        Commands::Stats(args) => args,
         _ => unreachable!(),
     };
+    let sub = args.command.expect("checked by caller");
+    match sub {
+        cli::StatsSubcommand::Tools(t) => print_tool_stats(&t, cli.json, cli.pretty),
+    }
+}
+
+fn print_tool_stats(
+    args: &cli::StatsToolsArgs,
+    json: bool,
+    pretty: bool,
+) -> anyhow::Result<()> {
+    use serde_json::json;
+    let path = mcp::default_usage_path();
+    let usage = mcp::ToolUsage::load_from(&path);
+
+    // Build a full row set: every known tool + any historic rows for tools that
+    // no longer exist (kept so dead-tool data isn't lost).
+    let known: Vec<&str> = mcp::known_tool_names();
+    let mut seen = std::collections::BTreeSet::new();
+    let mut rows: Vec<(String, mcp::McpTier, u64, Option<String>)> = Vec::new();
+
+    for name in &known {
+        seen.insert((*name).to_string());
+        let entry = usage.tools.get(*name);
+        rows.push((
+            (*name).to_string(),
+            mcp::tier::tier_for_tool(name),
+            entry.map(|e| e.count).unwrap_or(0),
+            entry
+                .and_then(|e| e.last_used.as_ref())
+                .map(|t| t.to_rfc3339()),
+        ));
+    }
+    for (name, entry) in &usage.tools {
+        if !seen.contains(name) {
+            rows.push((
+                name.clone(),
+                mcp::tier::tier_for_tool(name),
+                entry.count,
+                entry.last_used.as_ref().map(|t| t.to_rfc3339()),
+            ));
+        }
+    }
+
+    if !args.show_unused {
+        rows.retain(|(_, _, count, _)| *count > 0);
+    }
+
+    match args.sort.as_str() {
+        "name" => rows.sort_by(|a, b| a.0.cmp(&b.0)),
+        "last_used" => rows.sort_by(|a, b| b.3.cmp(&a.3)),
+        _ => {
+            // Default: by count desc, never-used grouped at the bottom alphabetically.
+            rows.sort_by(|a, b| match (a.2, b.2) {
+                (0, 0) => a.0.cmp(&b.0),
+                (0, _) => std::cmp::Ordering::Greater,
+                (_, 0) => std::cmp::Ordering::Less,
+                _ => b.2.cmp(&a.2).then_with(|| a.0.cmp(&b.0)),
+            });
+        }
+    }
+
+    if json || pretty {
+        let payload: Vec<_> = rows
+            .iter()
+            .map(|(name, tier, count, last_used)| {
+                json!({
+                    "tool": name,
+                    "tier": tier.as_u8(),
+                    "count": count,
+                    "last_used": last_used,
+                })
+            })
+            .collect();
+        let out = if pretty {
+            serde_json::to_string_pretty(&payload)?
+        } else {
+            serde_json::to_string(&payload)?
+        };
+        println!("{}", out);
+        return Ok(());
+    }
+
+    let total_calls: u64 = rows.iter().map(|(_, _, c, _)| *c).sum();
+    let used = rows.iter().filter(|(_, _, c, _)| *c > 0).count();
+    let unused = rows.iter().filter(|(_, _, c, _)| *c == 0).count();
+
+    let mut table = comfy_table::Table::new();
+    table.load_preset(comfy_table::presets::UTF8_FULL);
+    table.set_header(vec!["tool", "tier", "count", "last_used"]);
+    for (name, tier, count, last_used) in &rows {
+        table.add_row(vec![
+            name.clone(),
+            tier.as_u8().to_string(),
+            count.to_string(),
+            last_used.clone().unwrap_or_else(|| "-".to_string()),
+        ]);
+    }
+    println!("{}", table);
+    println!(
+        "\n{} tools tracked  |  {} used  |  {} never used  |  {} total invocations",
+        rows.len(),
+        used,
+        unused,
+        total_calls,
+    );
+    println!("Usage file: {}", path.display());
+    Ok(())
+}
+
+fn handle_mcp_command(cli: Cli) -> anyhow::Result<()> {
+    let (project, program, tier) = match cli.command {
+        Commands::Mcp { project, program, tier } => (project, program, tier),
+        _ => unreachable!(),
+    };
+    let mcp_tier = mcp::McpTier::from_u8(tier)
+        .ok_or_else(|| anyhow::anyhow!("Invalid --tier value: {} (expected 1, 2, or 3)", tier))?;
 
     let config = Config::load()?;
     let project_path = resolve_project_path(&project, &config)?;
@@ -1159,7 +1274,12 @@ fn handle_mcp_command(cli: Cli) -> anyhow::Result<()> {
         .to_string();
 
     rt.block_on(async {
-        let server = mcp::GhidraServer::new(port, project_path_str, ghidra_install_str);
+        let server = mcp::GhidraServer::with_tier(
+            port,
+            project_path_str,
+            ghidra_install_str,
+            mcp_tier,
+        );
         server.run_stdio().await
     })
 }
