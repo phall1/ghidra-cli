@@ -231,6 +231,9 @@ pub enum Commands {
         /// Program name to load
         #[arg(long)]
         program: Option<String>,
+        /// Tool tier to expose (1=essential, 2=frequent, 3=specialized; default 3 = all)
+        #[arg(long, value_parser = clap::value_parser!(u8).range(1..=3), default_value_t = 3)]
+        tier: u8,
     },
 }
 
@@ -1236,8 +1239,26 @@ pub struct SummaryArgs {
 
 #[derive(Args, Clone, Serialize, Deserialize, Debug)]
 pub struct StatsArgs {
+    #[command(subcommand)]
+    pub command: Option<StatsSubcommand>,
     #[command(flatten)]
     pub options: QueryOptions,
+}
+
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
+pub enum StatsSubcommand {
+    /// Show per-tool MCP invocation counts (no bridge required)
+    Tools(StatsToolsArgs),
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct StatsToolsArgs {
+    /// Sort by: count (default), name, last_used
+    #[arg(long, default_value = "count")]
+    pub sort: String,
+    /// Include tools that have never been used
+    #[arg(long, default_value_t = true)]
+    pub show_unused: bool,
 }
 
 #[derive(Args, Clone, Serialize, Deserialize, Debug)]
