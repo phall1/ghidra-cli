@@ -1,0 +1,39 @@
+[package]
+name = "ghidra-cli-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+# Make this crate its own workspace root so it doesn't get pulled into the
+# parent `ghidra-cli` package's build graph during `cargo build`. cargo-fuzz
+# drives this crate independently via `cargo +nightly fuzz run`.
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+serde_json = "1.0"
+
+[dependencies.ghidra-cli]
+path = ".."
+
+# Prevent default-binary discovery: fuzz targets are libfuzzer entry points,
+# not `[[bin]]`s — declare them explicitly.
+[[bin]]
+name = "response_parser"
+path = "fuzz_targets/response_parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "request_roundtrip"
+path = "fuzz_targets/request_roundtrip.rs"
+test = false
+doc = false
+bench = false
+
+[profile.release]
+debug = 1

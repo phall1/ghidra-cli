@@ -397,3 +397,41 @@ jobs:
         env:
           GHIDRA_CLI_BIN: ${{ github.workspace }}/target/debug/ghidra
           RUST_LOG: info
+
+  # Job 7: Protocol fuzzing (E3.2).
+  # The bridge response parser is a security boundary — fuzz it for 60s
+  # against panics/timeouts/OOM on every PR. Linux-only since cargo-fuzz
+  # is libFuzzer-backed and needs the nightly toolchain. No Ghidra
+  # dependency: this fuzzes the pure-Rust serde path.
+  fuzz-protocol:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            fuzz
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Fuzz response_parser (60s)
+        run: cargo fuzz run response_parser -- -max_total_time=60 -rss_limit_mb=2048
+
+      - name: Fuzz request_roundtrip (60s)
+        run: cargo fuzz run request_roundtrip -- -max_total_time=60 -rss_limit_mb=2048
+
+      - name: Upload crash artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts/
