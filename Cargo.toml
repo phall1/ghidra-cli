@@ -95,3 +95,20 @@ path = "src/lib.rs"
 [[bin]]
 name = "ghidra"
 path = "src/main.rs"
+
+[package.metadata.binstall]
+# Release artifacts are published by the E8.1 GitHub Actions workflow to
+# https://github.com/phall1/ghidra-cli/releases/download/v{version}/
+# under the naming pattern: ghidra-cli-{target}-{version}.{archive-suffix}
+#
+# Supported targets:
+#   - aarch64-apple-darwin
+#   - x86_64-apple-darwin
+#   - x86_64-unknown-linux-gnu
+#   - aarch64-unknown-linux-gnu
+#
+# The binary inside each archive is named `ghidra` (matches [[bin]] above) and
+# lives at the archive root.
+pkg-url = "https://github.com/phall1/ghidra-cli/releases/download/v{ version }/ghidra-cli-{ target }-{ version }{ archive-suffix }"
+pkg-fmt = "tgz"
+bin-dir = "ghidra{ binary-ext }"
