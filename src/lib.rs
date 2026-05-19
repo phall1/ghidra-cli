@@ -5,6 +5,9 @@
 #[path = "error.rs"]
 pub mod error;
 
+#[path = "annotate/mod.rs"]
+pub mod annotate;
+
 #[path = "config.rs"]
 pub mod config;
 

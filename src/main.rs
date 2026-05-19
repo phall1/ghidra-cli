@@ -8,6 +8,10 @@ mod ipc;
 mod mcp;
 mod metrics;
 mod query;
+// `annotate` is intentionally not declared here: it's part of the
+// library crate (see src/lib.rs) and the CLI surface that consumes it
+// lands in E6.3/E6.4. Declaring it in the binary today would just
+// emit dead-code warnings until then.
 
 use clap::Parser;
 use cli::{Cli, Commands, LogFormat, QueryOptions};

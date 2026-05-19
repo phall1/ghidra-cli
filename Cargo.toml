@@ -50,6 +50,12 @@ chrono = { version = "0.4", features = ["serde"] }
 # Hashing
 md5 = "0.7"
 
+# Annotation persistence (E6 / Phase 2). `bundled` ships its own SQLite
+# so we don't break when the system sqlite drifts behind rusqlite's
+# requirements — this is a binary tool, not a library, so a 1.5 MB
+# vendor SQLite is fine.
+rusqlite = { version = "0.31", features = ["bundled"] }
+
 # File system & paths
 dirs = "5.0"
 tempfile = "3.8"
