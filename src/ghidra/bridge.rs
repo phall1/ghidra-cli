@@ -8,7 +8,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use tracing::{debug, info, warn};
@@ -319,7 +319,12 @@ pub fn start_bridge(
 
     info!("Ghidra command: {:?}", cmd);
 
-    // Spawn the process
+    // Spawn the process. We time spawn→ready so we can emit a structured
+    // `jvm_cold_start` event (E2.6) and feed the CI cold-start regression
+    // gate (E2.7 / E3.6). The clock starts here so all downstream work
+    // (forking analyzeHeadless → JVM boot → Ghidra init → bridge bind) lands
+    // in the measurement.
+    let cold_start_t0 = Instant::now();
     let mut child = cmd.spawn().context("Failed to spawn Ghidra headless")?;
     info!("Ghidra process started with PID: {:?}", child.id());
 
@@ -348,7 +353,11 @@ pub fn start_bridge(
     // On Windows, stdout piping through analyzeHeadless.bat → cmd.exe → java.exe
     // can fail due to buffering, so the port file fallback is essential.
     let stdout = child.stdout.take().expect("stdout should be piped");
-    let (stdout_tx, stdout_rx) = std::sync::mpsc::channel();
+    // Channel carries the ready-signal JSON line so the main thread can
+    // parse `ghidra_version` / `java_version` for the cold-start event (E2.6).
+    // `None` means the stdout reader saw EOF or an error before a ready
+    // signal arrived.
+    let (stdout_tx, stdout_rx) = std::sync::mpsc::channel::<Option<String>>();
     let stdout_handle = std::thread::spawn(move || {
         let reader = BufReader::new(stdout);
         let mut last_error = String::new();
@@ -370,14 +379,14 @@ pub fn start_bridge(
             }
             if line.contains("\"status\"") && line.contains("\"ready\"") {
                 info!("Bridge is ready (stdout signal)");
-                let _ = stdout_tx.send(true);
+                let _ = stdout_tx.send(Some(line.clone()));
                 return (true, last_error, stdout_lines);
             }
             if line.contains("---GHIDRA_CLI_END---") {
                 break;
             }
         }
-        let _ = stdout_tx.send(false);
+        let _ = stdout_tx.send(None);
         (false, last_error, stdout_lines)
     });
 
@@ -386,12 +395,21 @@ pub fn start_bridge(
     let start_time = std::time::Instant::now();
     let mut ready = false;
     let mut ready_via_port_file = false;
+    let mut ready_signal_json: Option<String> = None;
 
     while start_time.elapsed() < ready_timeout {
         // Check if stdout thread got the ready signal
-        if let Ok(true) = stdout_rx.try_recv() {
-            ready = true;
-            break;
+        match stdout_rx.try_recv() {
+            Ok(Some(line)) => {
+                ready_signal_json = Some(line);
+                ready = true;
+                break;
+            }
+            Ok(None) => {
+                // EOF without ready: drop through to other checks; we'll
+                // surface the captured stdout/stderr below.
+            }
+            Err(_) => {}
         }
 
         // Check if the process has exited (error case)
@@ -458,8 +476,71 @@ pub fn start_bridge(
     let port = read_port_file(project_path)?
         .ok_or_else(|| anyhow::anyhow!("Port file not created by bridge"))?;
 
+    let cold_start_ms = cold_start_t0.elapsed().as_millis() as u64;
+    let (ghidra_version, java_version) = parse_ready_versions(ready_signal_json.as_deref());
+    emit_cold_start_event(project_path, cold_start_ms, ghidra_version.as_deref(), java_version.as_deref());
+
     info!("Ghidra bridge started on port {}", port);
     Ok(port)
+}
+
+/// Parse `ghidra_version` and `java_version` out of the Java bridge's ready
+/// signal JSON. Returns `(None, None)` when the ready signal didn't carry
+/// versions (port-file fallback path) or when parsing fails — callers should
+/// treat missing versions as "unknown", not as an error.
+fn parse_ready_versions(line: Option<&str>) -> (Option<String>, Option<String>) {
+    let Some(line) = line else { return (None, None) };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(line.trim()) else {
+        return (None, None);
+    };
+    let gv = v
+        .get("ghidra_version")
+        .and_then(|x| x.as_str())
+        .map(str::to_owned);
+    let jv = v
+        .get("java_version")
+        .and_then(|x| x.as_str())
+        .map(str::to_owned);
+    (gv, jv)
+}
+
+/// Emit the structured `jvm_cold_start` event and persist a snapshot to
+/// `~/.local/share/ghidra-cli/cold-start.json` so CI gates (E2.7 / E3.6) can
+/// consume the value without scraping logs.
+fn emit_cold_start_event(
+    project_path: &Path,
+    cold_start_ms: u64,
+    ghidra_version: Option<&str>,
+    java_version: Option<&str>,
+) {
+    info!(
+        event = "jvm_cold_start",
+        cold_start_ms = cold_start_ms,
+        ghidra_version = ghidra_version.unwrap_or("unknown"),
+        java_version = java_version.unwrap_or("unknown"),
+        "JVM bridge cold start measured"
+    );
+
+    let snapshot = serde_json::json!({
+        "event": "jvm_cold_start",
+        "cold_start_ms": cold_start_ms,
+        "ghidra_version": ghidra_version,
+        "java_version": java_version,
+        "project_hash": project_hash(project_path),
+        "recorded_at_unix": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+    });
+
+    if let Ok(dir) = get_data_dir() {
+        let path = dir.join("cold-start.json");
+        if let Ok(s) = serde_json::to_string(&snapshot) {
+            if let Err(e) = std::fs::write(&path, s) {
+                debug!("Could not persist cold-start snapshot to {:?}: {}", path, e);
+            }
+        }
+    }
 }
 
 /// Stop the bridge for a project.

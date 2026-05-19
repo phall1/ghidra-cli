@@ -13,6 +13,7 @@ import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
 import ghidra.app.util.importer.AutoImporter;
 import ghidra.app.util.importer.MessageLog;
+import ghidra.framework.Application;
 import ghidra.framework.model.DomainFile;
 import ghidra.framework.model.DomainFolder;
 import ghidra.framework.model.DomainObject;
@@ -102,11 +103,21 @@ public class GhidraCliBridge extends GhidraScript {
             pw.println(ProcessHandle.current().pid());
         }
 
-        // Signal ready to parent process
+        // Signal ready to parent process.
+        //
+        // The ready JSON carries `ghidra_version` and `java_version` so the
+        // Rust side can emit a single `jvm_cold_start` event with full version
+        // attribution (E2.6) without a follow-up RPC.
         println("---GHIDRA_CLI_START---");
         JsonObject readyMsg = new JsonObject();
         readyMsg.addProperty("status", "ready");
         readyMsg.addProperty("port", port);
+        try {
+            readyMsg.addProperty("ghidra_version", Application.getApplicationVersion());
+        } catch (Throwable t) {
+            readyMsg.add("ghidra_version", JsonNull.INSTANCE);
+        }
+        readyMsg.addProperty("java_version", System.getProperty("java.version", ""));
         println(gson.toJson(readyMsg));
         println("---GHIDRA_CLI_END---");
         System.out.flush();
@@ -437,6 +448,21 @@ public class GhidraCliBridge extends GhidraScript {
                 result.addProperty("program_count", 0);
             }
         }
+
+        try {
+            result.addProperty("ghidra_version", Application.getApplicationVersion());
+        } catch (Throwable t) {
+            result.add("ghidra_version", JsonNull.INSTANCE);
+        }
+        result.addProperty("java_version", System.getProperty("java.version", ""));
+
+        // Heap stats power the E3.4 1000-call stress test (assert heap growth
+        // stays bounded after a long burst of warm-bridge calls).
+        Runtime rt = Runtime.getRuntime();
+        result.addProperty("heap_used_bytes", rt.totalMemory() - rt.freeMemory());
+        result.addProperty("heap_total_bytes", rt.totalMemory());
+        result.addProperty("heap_max_bytes", rt.maxMemory());
+
         return result;
     }
 
