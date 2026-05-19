@@ -5,6 +5,12 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+  # The Ghidra-version matrix job (job 8) is also nightly so we catch
+  # reflection-fallback breakage on older Ghidra branches even on
+  # quiet days. Manual dispatch lets us re-run after a Ghidra release.
+  schedule:
+    - cron: '0 7 * * *'  # 07:00 UTC daily
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -435,3 +441,79 @@ jobs:
         with:
           name: fuzz-artifacts
           path: fuzz/artifacts/
+
+  # Job 8: Ghidra version matrix (E3.3).
+  # Drives one smoke import+analyze+decompile through each supported
+  # major-version line so we catch reflection-fallback breakage when a
+  # Ghidra release shifts an API signature underneath us. Deliberately
+  # narrow scope (just smoke, not the full E2E suite) to keep cost
+  # bounded; full suite still gates PRs on the default version via the
+  # readonly/mutation/infrastructure jobs above.
+  #
+  # Schedule: nightly + manual dispatch only. Pull-request CI does NOT
+  # run this — paying 3x install cost per PR for a low-frequency
+  # failure class isn't the trade we want.
+  version-matrix:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        # Version strings follow upstream's `Ghidra_<X>` release-tag
+        # convention. Update the lower two as new patch releases ship;
+        # the third (`null`) follows `latest` automatically.
+        include:
+          - ghidra_version: '10.4_PUBLIC_20230928'
+            ghidra_label: '10.4'
+          - ghidra_version: '11.3.2_PUBLIC_20250415'
+            ghidra_label: '11.3.2'
+          - ghidra_version: ''
+            ghidra_label: 'latest'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --verbose
+
+      - name: Build test fixture
+        run: rustc --edition 2021 -o tests/fixtures/sample_binary tests/fixtures/sample_binary.rs
+
+      - name: Setup Ghidra (${{ matrix.ghidra_label }})
+        run: |
+          if [ -n "${{ matrix.ghidra_version }}" ]; then
+            cargo run -- setup --version "${{ matrix.ghidra_version }}"
+          else
+            cargo run -- setup
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify Ghidra installation
+        run: cargo run -- doctor
+
+      - name: Smoke — import + analyze + decompile
+        run: |
+          set -euo pipefail
+          PROJECT="ci-version-matrix-${{ matrix.ghidra_label }}"
+          cargo run -- import tests/fixtures/sample_binary --project "$PROJECT" --program sample_binary
+          cargo run -- analyze --project "$PROJECT" --program sample_binary
+          # Pick any function the binary exposes and decompile it.
+          # `main` is what tests/fixtures/sample_binary.rs declares.
+          cargo run -- function decompile main --project "$PROJECT" --program sample_binary
+          cargo run -- stop --project "$PROJECT"
+        env:
+          RUST_LOG: info
