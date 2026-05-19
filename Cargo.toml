@@ -56,6 +56,9 @@ md5 = "0.7"
 # vendor SQLite is fine.
 rusqlite = { version = "0.31", features = ["bundled"] }
 
+# ELF parsing (E7.3: Phase 3 decompiler-host loader)
+goblin = "0.8"
+
 # File system & paths
 dirs = "5.0"
 tempfile = "3.8"

@@ -24,6 +24,7 @@
 //!
 //! Reference: `docs/decompiler-protocol.md` (E7.1 deliverable).
 
+pub mod loader;
 pub mod nibble;
 pub mod packed;
 pub mod wire;
