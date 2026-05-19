@@ -145,6 +145,10 @@ pub enum Commands {
     /// Batch operations
     Batch(BatchArgs),
 
+    /// Annotation persistence (E6 — export/apply PCode-keyed annotations)
+    #[command(subcommand, alias = "ann")]
+    Annotate(AnnotateCommands),
+
     /// Configuration management
     #[command(subcommand)]
     Config(ConfigCommands),
@@ -1332,6 +1336,52 @@ pub struct SetupArgs {
     /// Skip Java check
     #[arg(long)]
     pub force: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Annotation persistence (E6.3 / E6.4)
+// ---------------------------------------------------------------------------
+
+/// Subcommands under `ghidra-cli annotate`. The DB is a single SQLite file
+/// keyed by the PCode-based function fingerprint (see ADR 0002), so a
+/// project re-imported from a recompiled binary recovers the analyst's
+/// renames + comments via `apply`.
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
+pub enum AnnotateCommands {
+    /// Walk every function in the current project, hash its PCode, and
+    /// upsert an annotation row into the target SQLite DB.
+    Export(AnnotateExportArgs),
+    /// For every function in the current project, look up its hash in
+    /// the input SQLite DB and apply name/signature/return_type if a
+    /// match is found.
+    Apply(AnnotateApplyArgs),
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct AnnotateExportArgs {
+    /// Output SQLite path. Created if missing; schema migrated in place.
+    #[arg(long)]
+    pub out: std::path::PathBuf,
+
+    // `--limit` and `--project`/`--program` come from the flattened
+    // QueryOptions block so we share parsing with every other command
+    // that accepts them.
+    #[command(flatten)]
+    pub options: QueryOptions,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize, Debug)]
+pub struct AnnotateApplyArgs {
+    /// Input SQLite path.
+    #[arg(long = "in")]
+    pub input: std::path::PathBuf,
+
+    /// Print proposed changes without applying them.
+    #[arg(long)]
+    pub dry_run: bool,
+
+    #[command(flatten)]
+    pub options: QueryOptions,
 }
 
 #[cfg(test)]

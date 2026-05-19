@@ -16,5 +16,6 @@
 //! The user-facing `ghidra-cli annotate {export,apply,transfer}`
 //! commands (E6.3 / E6.4 / E6.6) layer on top of these two modules.
 
+pub mod cli;
 pub mod db;
 pub mod hash;

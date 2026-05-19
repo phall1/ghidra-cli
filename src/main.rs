@@ -1,3 +1,8 @@
+// `annotate` is part of the library crate (src/lib.rs). We pull it in
+// via `ghidra_cli::annotate::cli` rather than `mod annotate` so the
+// helper methods on Db (`get`, `list_project`, `schema_version`) don't
+// register as dead code in the binary just because the binary doesn't
+// happen to call them yet.
 mod cli;
 mod config;
 mod error;
@@ -8,10 +13,6 @@ mod ipc;
 mod mcp;
 mod metrics;
 mod query;
-// `annotate` is intentionally not declared here: it's part of the
-// library crate (see src/lib.rs) and the CLI surface that consumes it
-// lands in E6.3/E6.4. Declaring it in the binary today would just
-// emit dead-code warnings until then.
 
 use clap::Parser;
 use cli::{Cli, Commands, LogFormat, QueryOptions};
@@ -113,6 +114,7 @@ fn main() {
         | Commands::Status { .. }
         | Commands::Ping { .. } => handle_bridge_command(cli),
         Commands::Mcp { .. } => handle_mcp_command(cli),
+        Commands::Annotate(_) => handle_annotate_command(cli),
         _ => run_command(cli),
     };
 
@@ -181,6 +183,7 @@ fn requires_bridge(command: &Commands) -> bool {
             | Commands::Bookmark(_)
             | Commands::Pcode(_)
             | Commands::Analyzer(_)
+            | Commands::Annotate(_)
     )
 }
 
@@ -1330,6 +1333,90 @@ fn handle_mcp_command(cli: Cli) -> anyhow::Result<()> {
         );
         server.run_stdio().await
     })
+}
+
+/// Dispatch `ghidra-cli annotate {export,apply}`. Mirrors handle_mcp_command:
+/// resolve the project + ghidra install, ensure the bridge is running, then
+/// delegate to the annotate::cli helpers which talk to the bridge directly.
+fn handle_annotate_command(cli: Cli) -> anyhow::Result<()> {
+    let cmd = match cli.command {
+        Commands::Annotate(cmd) => cmd,
+        _ => unreachable!(),
+    };
+
+    // Pull project + program from whichever subcommand we got. We
+    // need both to populate the annotation rows' natural key.
+    let (project_opt, program_opt) = match &cmd {
+        cli::AnnotateCommands::Export(a) => (a.options.project.clone(), a.options.program.clone()),
+        cli::AnnotateCommands::Apply(a) => (a.options.project.clone(), a.options.program.clone()),
+    };
+
+    let config = Config::load()?;
+    let project_path = resolve_project_path(&project_opt, &config)?;
+    let ghidra_install_dir = config
+        .ghidra_install_dir
+        .clone()
+        .or_else(|| config.get_ghidra_install_dir().ok())
+        .ok_or_else(|| {
+            anyhow::anyhow!("Ghidra installation directory not configured. Run 'ghidra setup' first.")
+        })?;
+
+    let program = program_opt
+        .or_else(|| config.get_default_program())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "annotate requires --program (or a default set via `ghidra-cli set-default program`)"
+            )
+        })?;
+
+    let mode = BridgeStartMode::Process {
+        program_name: program.clone(),
+    };
+    let port = bridge::ensure_bridge_running(&project_path, &ghidra_install_dir, mode)?;
+    let bin_client = BridgeClient::new(port);
+    verify_bridge(&bin_client)?;
+
+    // Ensure the bridge points at the requested program.
+    if let Ok(info) = bin_client.program_info() {
+        let current: &str = info.get("name").and_then(|n| n.as_str()).unwrap_or("");
+        if current != program {
+            bin_client.open_program(&program)?;
+        }
+    } else {
+        bin_client.open_program(&program)?;
+    }
+
+    // The annotate module lives in the library crate, so it expects
+    // the lib's `BridgeClient` type. The bin's `BridgeClient` (used
+    // above for program switching) is a separately-compiled copy of
+    // the same code — different *type identity*. Construct a
+    // dedicated lib-crate client over the same port to hand off.
+    let lib_client = ghidra_cli::ipc::client::BridgeClient::new(port);
+
+    let project_name = project_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown");
+
+    match cmd {
+        cli::AnnotateCommands::Export(args) => ghidra_cli::annotate::cli::run_export(
+            &lib_client,
+            project_name,
+            &program,
+            &ghidra_cli::annotate::cli::ExportOptions {
+                out: &args.out,
+                limit: args.options.limit,
+            },
+        ),
+        cli::AnnotateCommands::Apply(args) => ghidra_cli::annotate::cli::run_apply(
+            &lib_client,
+            &ghidra_cli::annotate::cli::ApplyOptions {
+                input: &args.input,
+                dry_run: args.dry_run,
+                limit: args.options.limit,
+            },
+        ),
+    }
 }
 
 fn handle_bridge_start(project: Option<String>, program: Option<String>) -> anyhow::Result<()> {
