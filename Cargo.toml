@@ -113,8 +113,8 @@ path = "src/main.rs"
 #   - x86_64-unknown-linux-gnu
 #   - aarch64-unknown-linux-gnu
 #
-# The binary inside each archive is named `ghidra` (matches [[bin]] above) and
-# lives at the archive root.
+# The release workflow renames the [[bin]] (`ghidra`) to `ghidra-cli` inside
+# the archive so the installed command matches the crate name.
 pkg-url = "https://github.com/phall1/ghidra-cli/releases/download/v{ version }/ghidra-cli-{ target }-{ version }{ archive-suffix }"
 pkg-fmt = "tgz"
-bin-dir = "ghidra{ binary-ext }"
+bin-dir = "ghidra-cli{ binary-ext }"

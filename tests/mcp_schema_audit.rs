@@ -41,8 +41,8 @@ fn schema_byte_total_is_under_budget() {
 
     eprintln!("Top 20 by bytes (largest first):");
     eprintln!(
-        "  {:>5} {:>5} {:>5}  {}",
-        "total", "desc", "schema", "name"
+        "  {:>5} {:>5} {:>5}  name",
+        "total", "desc", "schema"
     );
     for entry in audit.entries.iter().take(20) {
         eprintln!(
